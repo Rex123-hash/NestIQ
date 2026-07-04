@@ -7,6 +7,7 @@ real BigQuery + BQML pipeline.
 from __future__ import annotations
 
 import json
+import threading
 import time
 
 from fastapi import FastAPI, HTTPException
@@ -24,6 +25,13 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 NYC = "new-york"
 DEFAULT_CITY = "delhi-ncr"
+
+
+@app.on_event("startup")
+def warm_default_city_cache():
+    # Pre-fetch the default city's Google signals so the first user request
+    # after a (re)start doesn't pay the full fan-out.
+    threading.Thread(target=lambda: maps.build_city_features(DEFAULT_CITY), daemon=True).start()
 
 
 def all_cities():
@@ -99,18 +107,18 @@ def search_stream(q: str = "", city: str = DEFAULT_CITY):
         w = parsed["weights"]
         top_prefs = ", ".join(k.replace("_", " ") for k, v in sorted(w.items(), key=lambda x: -x[1]) if v >= 40) or "balanced priorities"
         yield sse("agent", {"id": "planner", "name": "Planner", "status": "done", "msg": f"Priorities: {top_prefs}"})
-        time.sleep(0.2)
+        time.sleep(0.05)
 
         yield sse("agent", {"id": "collect", "name": "Data Collector", "status": "running",
                             "msg": "Fetching live Google signals (AQI · Places · Distance Matrix)…"})
         results = rank(city, w, parsed["budget"])
         yield sse("agent", {"id": "collect", "name": "Data Collector", "status": "done",
                             "msg": f"Gathered live data for {len(results)} localities"})
-        time.sleep(0.2)
+        time.sleep(0.05)
 
         for aid, name, sub, field, pick, headline in PILLAR_AGENTS:
             yield sse("agent", {"id": aid, "name": name, "status": "running", "msg": "Scoring localities…"})
-            time.sleep(0.25)
+            time.sleep(0.08)
             valid = [r for r in results if r.get(field) is not None]
             best = pick(valid, key=lambda r: r[field]) if valid else None
             weight = w.get(sub, 0)
@@ -119,7 +127,7 @@ def search_stream(q: str = "", city: str = DEFAULT_CITY):
 
         yield sse("agent", {"id": "orch", "name": "Orchestrator", "status": "running",
                             "msg": "Combining agent scores into weighted FitScores…"})
-        time.sleep(0.25)
+        time.sleep(0.08)
         top = results[0] if results else None
         yield sse("agent", {"id": "orch", "name": "Orchestrator", "status": "done",
                             "msg": f"Top match: {top['name']} (FitScore {top['fitScore']})" if top else "no results"})

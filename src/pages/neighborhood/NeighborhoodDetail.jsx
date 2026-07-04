@@ -7,6 +7,7 @@ import { byId } from '../../data/neighborhoods.js'
 import { apiNeighborhood } from '../../lib/api.js'
 import { adaptNeighborhood } from '../../lib/adapt.js'
 import { useCity } from '../../lib/cityStore.jsx'
+import { useSaved, toggleSaved } from '../../lib/saved.js'
 import { cn } from '../../lib/cn.js'
 import {
   OverviewTab,
@@ -41,6 +42,7 @@ export default function NeighborhoodDetail() {
   const { id, tab } = useParams()
   const { city } = useCity()
   const [n, setN] = useState(() => byId(id) || null)
+  const saved = useSaved().some((x) => x.id === id)
 
   useEffect(() => {
     let alive = true
@@ -69,8 +71,16 @@ export default function NeighborhoodDetail() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="font-serif text-3xl text-ink">{n.name}</h1>
-              <button className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink-soft hover:border-brand-300">
-                <Bookmark size={15} /> Save
+              <button
+                onClick={() => toggleSaved(n, city)}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition',
+                  saved
+                    ? 'border-brand-300 bg-brand-50 text-brand-700'
+                    : 'border-line text-ink-soft hover:border-brand-300',
+                )}
+              >
+                <Bookmark size={15} fill={saved ? 'currentColor' : 'none'} /> {saved ? 'Saved' : 'Save'}
               </button>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">

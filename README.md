@@ -8,7 +8,9 @@
 
 Built for **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon** (Problem Statement: *AI for Better Living and Smarter Communities*)
 
-`Gemini on Vertex AI` · `BigQuery + BigQuery ML` · `Google Maps Platform` · `FastAPI` · `React`
+**[Live demo → nestiq-india.web.app](https://nestiq-india.web.app)**
+
+`Gemini on Vertex AI` · `BigQuery + BigQuery ML` · `Google Maps Platform` · `FastAPI` · `React` · `66 automated tests`
 
 </div>
 
@@ -149,6 +151,23 @@ MAPS_API_KEY=your-maps-platform-key
 | `GET /api/neighborhood/{id}` | Full locality detail: sub-scores, Gemini "why", AQI history + Google forecast + **BQML forecast** |
 | `POST /api/ask` | Cross-locality questions → **NL→SQL on BigQuery** (SQL + rows returned) · locality questions → grounded Gemini |
 | `GET /api/cities` | Supported cities |
+
+## Quality & testing
+
+**66 automated tests** run fully offline (every external service is stubbed), in under 5 seconds:
+
+| Suite | Tests | What it proves |
+|---|---|---|
+| `backend/tests/test_fitscore.py` | 16 | Scoring engine: normalization bands, weight-driven re-ranking (max-weighting Air Quality vs. Lifestyle provably flips the winner), match labels, edge cases |
+| `backend/tests/test_sql_guards.py` | 19 | **NL→SQL safety**: injection attempts (`DROP`, `DELETE`, stacked statements, `EXPORT DATA`) are rejected *before* any BigQuery client is even constructed; LLM output sanitization |
+| `backend/tests/test_india_catalog.py` | 8 | Data integrity: 9 cities, globally-unique locality IDs, every coordinate inside India, sane rent/safety ranges |
+| `backend/tests/test_api.py` | 10 | Full API contract: search ranking order, detail with BQML confidence bounds, NL→SQL ask path, 404s, and the **SSE agent stream** (all 5 pillar agents + orchestrator + final payload) |
+| `src/lib/*.test.{js,jsx}` | 13 | Frontend: Indian-notation rent formatting (₹1,25,000), tag derivation, map-pin bounds, city auto-detection from free text ("flat in patna…" → Patna) |
+
+```bash
+cd backend && python -m pytest tests -q     # 53 passed
+npm test                                    # 13 passed
+```
 
 ## Honest data notes
 

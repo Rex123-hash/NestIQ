@@ -1,7 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   Search,
-  Star,
   ArrowLeftRight,
   Bookmark,
   Bell,
@@ -16,8 +15,7 @@ import { useCity } from '../../lib/cityStore.jsx'
 import { LogoMark } from '../ui/Logo.jsx'
 
 const NAV = [
-  { to: '/results', label: 'Search', icon: Search, end: false, match: '/results' },
-  { to: '/results', label: 'Results', icon: Star },
+  { to: '/results', label: 'Search & Results', icon: Search },
   { to: '/compare', label: 'Compare', icon: ArrowLeftRight },
   { to: '/saved', label: 'Saved', icon: Bookmark },
   { to: '/alerts', label: 'Alerts', icon: Bell },

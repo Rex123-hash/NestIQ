@@ -6,7 +6,9 @@ scores them with a FitScore that swaps the NYC 'Trend' pillar for 'Air Quality'
 """
 from __future__ import annotations
 
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -147,30 +149,73 @@ def commute_minutes(o_lat: float, o_lng: float, d_lat: float, d_lng: float) -> i
 
 
 # ------------------------------ feature builder ---------------------------- #
-def build_city_features(city_id: str) -> list[dict]:
-    """Live per-locality metrics for a city (cached 30 min)."""
-    cached = _cache.get(city_id)
-    if cached and time.time() - cached[0] < _TTL:
-        return cached[1]
+_refresh_lock = threading.Lock()
+_refreshing: set[str] = set()
 
+
+def _fetch_features(city: dict) -> list[dict]:
+    """All Google calls for a city fanned out in parallel (4 per locality)."""
+    anchor = city["anchor"]
+    locs = city["localities"]
+    with ThreadPoolExecutor(max_workers=min(32, len(locs) * 4)) as ex:
+        aq = [ex.submit(air_quality, l["lat"], l["lng"]) for l in locs]
+        am = [ex.submit(amenity_count, l["lat"], l["lng"]) for l in locs]
+        cm = [ex.submit(commute_minutes, l["lat"], l["lng"], anchor["lat"], anchor["lng"]) for l in locs]
+        ph = [ex.submit(locality_photo, l["name"]) for l in locs]
+        feats = []
+        for i, loc in enumerate(locs):
+            a = aq[i].result()
+            feats.append({
+                "id": loc["id"], "name": loc["name"], "short": loc["short"], "accent": loc.get("accent", "#7C5CF6"),
+                "lat": loc["lat"], "lng": loc["lng"],
+                "median_rent": loc["rent"],
+                "safety_est": loc["safety"],
+                "aqi": a["aqi"], "aqi_category": a["category"], "aqi_pollutant": a["dominant"],
+                "amenity_count": am[i].result(),
+                "commute_min": cm[i].result(),
+                "photo": ph[i].result(),
+            })
+    return feats
+
+
+def _refresh_in_background(city_id: str, city: dict) -> None:
+    """Rebuild an expired city cache off the request thread (deduped)."""
+    with _refresh_lock:
+        if city_id in _refreshing:
+            return
+        _refreshing.add(city_id)
+
+    def work():
+        try:
+            feats = _fetch_features(city)
+            if feats:
+                _cache[city_id] = (time.time(), feats)
+        finally:
+            with _refresh_lock:
+                _refreshing.discard(city_id)
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def build_city_features(city_id: str) -> list[dict]:
+    """Live per-locality metrics for a city.
+
+    Cached 30 min; an expired cache is served immediately (stale-while-
+    revalidate) so users never wait on the Google fan-out after first load.
+    """
     city = get_city(city_id)
     if not city:
         return []
-    anchor = city["anchor"]
-    feats = []
-    for loc in city["localities"]:
-        aq = air_quality(loc["lat"], loc["lng"])
-        feats.append({
-            "id": loc["id"], "name": loc["name"], "short": loc["short"], "accent": loc["accent"],
-            "lat": loc["lat"], "lng": loc["lng"],
-            "median_rent": loc["rent"],
-            "safety_est": loc["safety"],
-            "aqi": aq["aqi"], "aqi_category": aq["category"], "aqi_pollutant": aq["dominant"],
-            "amenity_count": amenity_count(loc["lat"], loc["lng"]),
-            "commute_min": commute_minutes(loc["lat"], loc["lng"], anchor["lat"], anchor["lng"]),
-            "photo": locality_photo(loc["name"]),
-        })
-    _cache[city_id] = (time.time(), feats)
+
+    cached = _cache.get(city_id)
+    if cached:
+        if time.time() - cached[0] >= _TTL:
+            _refresh_in_background(city_id, city)
+        return cached[1]
+
+    feats = _fetch_features(city)
+    if feats:
+        _cache[city_id] = (time.time(), feats)
     return feats
 
 

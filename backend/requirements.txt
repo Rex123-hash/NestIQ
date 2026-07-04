@@ -8,3 +8,6 @@ pydantic-settings
 python-dotenv
 db-dtypes
 requests
+
+# testing
+pytest
