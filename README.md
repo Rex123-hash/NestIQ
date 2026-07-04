@@ -10,7 +10,7 @@ Built for **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon** (Problem S
 
 **[Live demo → nestiq-india.web.app](https://nestiq-india.web.app)**
 
-`Gemini on Vertex AI` · `BigQuery + BigQuery ML` · `Google Maps Platform` · `FastAPI` · `React` · `66 automated tests`
+`Gemini on Vertex AI` · `BigQuery + BigQuery ML` · `Google Maps Platform` · `FastAPI` · `React` · `69 automated tests`
 
 </div>
 
@@ -154,7 +154,7 @@ MAPS_API_KEY=your-maps-platform-key
 
 ## Quality & testing
 
-**66 automated tests** run fully offline (every external service is stubbed), in under 5 seconds:
+**69 automated tests** run fully offline (every external service is stubbed), in under 5 seconds:
 
 | Suite | Tests | What it proves |
 |---|---|---|
@@ -162,10 +162,11 @@ MAPS_API_KEY=your-maps-platform-key
 | `backend/tests/test_sql_guards.py` | 19 | **NL→SQL safety**: injection attempts (`DROP`, `DELETE`, stacked statements, `EXPORT DATA`) are rejected *before* any BigQuery client is even constructed; LLM output sanitization |
 | `backend/tests/test_india_catalog.py` | 8 | Data integrity: 9 cities, globally-unique locality IDs, every coordinate inside India, sane rent/safety ranges |
 | `backend/tests/test_api.py` | 10 | Full API contract: search ranking order, detail with BQML confidence bounds, NL→SQL ask path, 404s, and the **SSE agent stream** (all 5 pillar agents + orchestrator + final payload) |
+| `backend/tests/test_maps_cache.py` | 3 | Stale-while-revalidate cache: instant responses from cache, background refresh dedup |
 | `src/lib/*.test.{js,jsx}` | 13 | Frontend: Indian-notation rent formatting (₹1,25,000), tag derivation, map-pin bounds, city auto-detection from free text ("flat in patna…" → Patna) |
 
 ```bash
-cd backend && python -m pytest tests -q     # 53 passed
+cd backend && python -m pytest tests -q     # 56 passed
 npm test                                    # 13 passed
 ```
 
