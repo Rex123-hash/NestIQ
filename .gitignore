@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+backend/.venv/
+
+# env / secrets — never commit
+.env
+.env.*
+!.env.example
+backend/.env
+
+# build output
+dist/
+build/
+
+# python
+__pycache__/
+*.pyc
+
+# misc
+.DS_Store
+*.log
+.vite/
