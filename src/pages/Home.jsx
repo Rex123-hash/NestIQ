@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCity, detectCity } from '../lib/cityStore.jsx'
+import { LogoMark } from '../components/ui/Logo.jsx'
 import {
   House,
   Sparkles,
@@ -30,9 +31,7 @@ function MarketingNav() {
     <header className="border-b border-line/70">
       <div className="mx-auto flex max-w-[1400px] items-center justify-between px-6 py-4 md:px-10">
         <div className="flex items-center gap-3">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-600 text-white">
-            <House size={20} strokeWidth={2.4} />
-          </span>
+          <LogoMark size={36} />
           <span className="font-serif text-2xl tracking-tight text-ink">NestIQ</span>
           <span className="hidden h-5 w-px bg-line md:block" />
           <span className="hidden text-sm text-muted md:block">

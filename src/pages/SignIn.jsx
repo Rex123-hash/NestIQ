@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { House, UserRound, ShieldCheck, ArrowLeft } from 'lucide-react'
+import { UserRound, ShieldCheck, ArrowLeft } from 'lucide-react'
 import { useAuth, GOOGLE_CLIENT_ID } from '../lib/auth.jsx'
+import { LogoMark } from '../components/ui/Logo.jsx'
 
 export default function SignIn() {
   const navigate = useNavigate()
@@ -58,8 +59,8 @@ export default function SignIn() {
       </Link>
 
       <div className="w-full max-w-md rounded-3xl border border-line bg-white p-8 text-center shadow-card">
-        <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-brand-600 text-white">
-          <House size={24} strokeWidth={2.4} />
+        <span className="mx-auto block w-fit">
+          <LogoMark size={48} radius={14} />
         </span>
         <h1 className="mt-4 font-serif text-2xl text-ink">Welcome to NestIQ</h1>
         <p className="mt-1 text-sm text-muted">Sign in to save localities and personalize your matches.</p>

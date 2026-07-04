@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../../lib/cn.js'
 import { useCity } from '../../lib/cityStore.jsx'
+import { LogoMark } from '../ui/Logo.jsx'
 
 const NAV = [
   { to: '/results', label: 'Search', icon: Search, end: false, match: '/results' },
@@ -26,9 +27,7 @@ const NAV = [
 function Logo() {
   return (
     <NavLink to="/" className="flex items-center gap-2 px-2">
-      <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-600 text-white">
-        <House size={20} strokeWidth={2.4} />
-      </span>
+      <LogoMark size={36} />
       <span className="font-serif text-2xl font-600 tracking-tight text-ink">NestIQ</span>
     </NavLink>
   )

@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🏠 NestIQ — AI-Powered Decision Intelligence Platform
+# NestIQ — AI-Powered Decision Intelligence Platform
 
 **Find the right neighborhood. For your life.**
 
@@ -24,12 +24,12 @@ Choosing where to live in an Indian city is one of the highest-stakes decisions 
 
 | | |
 |---|---|
-| 🫁 **Air Quality as a first-class pillar** | Live **CPCB AQI** per locality via the Google Air Quality API — current, 24h history, and 24h forecast — weighted into every recommendation. Built for the reality of Indian cities. |
-| 🎯 **FitScore** | A personalized 0–100 match across five pillars (Affordability · Safety · Commute · Lifestyle · Air Quality). Weights come from *your own words*, parsed by Gemini — and you can re-tune them live with sliders. Fully transparent breakdown, never a black box. |
-| 🤖 **Agent fan-out you can watch** | A Planner parses your request, a Data Collector pulls live Google signals, and five specialist pillar agents score localities in parallel — streamed to the UI over **SSE** so you see the system think. |
-| 📊 **Conversational analytics (NL→SQL)** | Ask NestIQ a cross-locality question and Gemini writes a real **BigQuery SQL** query, runs it against our locality warehouse, and answers grounded in the rows — *with the generated SQL shown to you*. |
-| 📈 **Self-building dataset + our own ML forecast** | Every search snapshots live locality features into **BigQuery** (`india_localities`) and appends hourly AQI readings (`india_aqi_history`). A **BigQuery ML ARIMA_PLUS** model trained on that accumulated history produces our own AQI forecast — with confidence intervals — alongside Google's. |
-| 🗺️ **10 cities, Tier-1 to Tier-3** | Delhi NCR, Mumbai, Bengaluru, Kolkata, Hyderabad, Chennai, Pune, **Patna**, **Ranchi** — decision intelligence isn't just for metros. |
+| **Air Quality as a first-class pillar** | Live **CPCB AQI** per locality via the Google Air Quality API — current, 24h history, and 24h forecast — weighted into every recommendation. Built for the reality of Indian cities. |
+| **FitScore** | A personalized 0–100 match across five pillars (Affordability · Safety · Commute · Lifestyle · Air Quality). Weights come from *your own words*, parsed by Gemini — and you can re-tune them live with sliders. Fully transparent breakdown, never a black box. |
+| **Agent fan-out you can watch** | A Planner parses your request, a Data Collector pulls live Google signals, and five specialist pillar agents score localities in parallel — streamed to the UI over **SSE** so you see the system think. |
+| **Conversational analytics (NL→SQL)** | Ask NestIQ a cross-locality question and Gemini writes a real **BigQuery SQL** query, runs it against our locality warehouse, and answers grounded in the rows — *with the generated SQL shown to you*. |
+| **Self-building dataset + our own ML forecast** | Every search snapshots live locality features into **BigQuery** (`india_localities`) and appends hourly AQI readings (`india_aqi_history`). A **BigQuery ML ARIMA_PLUS** model trained on that accumulated history produces our own AQI forecast — with confidence intervals — alongside Google's. |
+| **10 cities, Tier-1 to Tier-3** | Delhi NCR, Mumbai, Bengaluru, Kolkata, Hyderabad, Chennai, Pune, **Patna**, **Ranchi** — decision intelligence isn't just for metros. |
 
 ## How it works
 
@@ -138,7 +138,7 @@ GEMINI_MODEL=gemini-2.5-flash
 MAPS_API_KEY=your-maps-platform-key
 ```
 
-> 🔒 `.env` files are gitignored. Restrict your Maps key (HTTP referrers + only the APIs above) before any public deployment.
+> **Security:** `.env` files are gitignored. Restrict your Maps key (HTTP referrers + only the APIs above) before any public deployment.
 
 ## API at a glance
 
@@ -168,6 +168,6 @@ MAPS_API_KEY=your-maps-platform-key
 
 <div align="center">
 
-Built with ❤️ for better living and smarter communities · Powered by Google Cloud & Gemini
+Built for better living and smarter communities · Powered by Google Cloud & Gemini
 
 </div>
