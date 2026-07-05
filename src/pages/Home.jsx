@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useCity, detectCity } from '../lib/cityStore.jsx'
 import { useAuth } from '../lib/auth.jsx'
 import { apiNeighborhoods } from '../lib/api.js'
+import { adaptList } from '../lib/adapt.js'
 import { LogoMark } from '../components/ui/Logo.jsx'
 import {
   House,
@@ -15,6 +16,7 @@ import {
   Coffee,
   Heart,
   User,
+  MapPin,
   Search,
   Wind,
   Database,
@@ -62,93 +64,99 @@ function MarketingNav() {
 }
 
 /* ------------------------------- Hero visual ------------------------------ */
-function FitPin({ name, score, className }) {
+// Illustrative fallback so the hero pins never render empty if the API is cold.
+// Replaced by real top matches the moment live data loads.
+const SAMPLE_PINS = [
+  { name: 'Bandra West, Mumbai', fitScore: 84, match: 'Excellent Match', tags: ['Safe', 'Lively', 'Well Connected'], subscores: { air_quality: 70, affordability: 52, commute: 80 }, anomalies: [] },
+  { name: 'Koramangala, Bengaluru', fitScore: 82, match: 'Excellent Match', tags: ['Trendy', 'Great Food', 'Young Crowd'], subscores: { air_quality: 78, affordability: 64, commute: 74 }, anomalies: [{ label: 'Standout safety', kind: 'good' }] },
+  { name: 'Indiranagar, Bengaluru', fitScore: 80, match: 'Good Match', tags: ['Nightlife', 'Cafés', 'Metro Access'], subscores: { air_quality: 74, affordability: 60, commute: 72 }, anomalies: [] },
+  { name: 'Powai, Mumbai', fitScore: 78, match: 'Good Match', tags: ['Green', 'Peaceful', 'Family Friendly'], subscores: { air_quality: 80, affordability: 58, commute: 66 }, anomalies: [] },
+  { name: 'Viman Nagar, Pune', fitScore: 76, match: 'Good Match', tags: ['Airport Nearby', 'Modern', 'Calm'], subscores: { air_quality: 66, affordability: 70, commute: 70 }, anomalies: [{ label: 'Unusually affordable', kind: 'good' }] },
+]
+
+// Fixed positions spread across the skyline (upper, mid, lower on both sides),
+// all kept clear of the left text column and the CTA. Order matches the pin
+// array; a sixth "your perfect place" marker sits in the centre.
+const PIN_POS = [
+  'left-[2%] top-[28%]', // upper-left
+  'left-[56%] top-[14%]', // upper-right
+  'left-[66%] top-[42%]', // mid far-right
+  'left-[12%] top-[75%]', // lower-left
+  'left-[56%] top-[72%]', // lower-right
+]
+
+// A FitScore card that opens on hover: name + score + a short tag line always
+// visible (like the reference), with the pillar breakdown, anomaly flag and
+// live caption revealed on hover. Driven by the same live API the app runs on.
+function HoverPin({ d, live, className }) {
+  const flag = d.anomalies?.[0]
+  const tagLine = (d.tags || []).slice(0, 3).join(' · ') || d.match
+  const bars = [
+    ['Air Quality', d.subscores.air_quality, '#F5A63B'],
+    ['Affordability', d.subscores.affordability, '#3FB984'],
+    ['Commute', d.subscores.commute, '#4F86F7'],
+  ]
   return (
-    <div className={`absolute rounded-xl bg-white/90 backdrop-blur-sm px-4 py-2.5 shadow-float ${className}`}>
-      <div className="flex items-center gap-2">
-        <p className="text-[11px] font-semibold text-ink">{name}</p>
-        <div className="text-right">
-          <p className="font-serif text-sm leading-none text-brand-700">{score}</p>
-          <p className="text-[8px] font-medium uppercase tracking-wide text-muted">FitScore</p>
+    <div className={`group absolute z-10 hover:z-30 ${className}`}>
+      <div className="w-[232px] cursor-default rounded-xl border border-line bg-white/95 px-3.5 py-2.5 shadow-float backdrop-blur-sm">
+        {/* header row: name + score, then a full-width tag line below */}
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{d.name || d.short}</p>
+          <div className="shrink-0 text-right">
+            <p className="font-serif text-lg leading-none text-brand-700">{d.fitScore}</p>
+            <p className="text-[8px] font-medium uppercase tracking-wide text-muted">FitScore</p>
+          </div>
+        </div>
+        <p className="mt-1 flex items-center gap-1 text-[10px] text-muted">
+          <ShieldCheck size={11} className="shrink-0 text-aff" />
+          <span className="truncate">{tagLine}</span>
+        </p>
+        {/* pillar detail, revealed on hover */}
+        <div className="grid grid-rows-[0fr] opacity-0 transition-all duration-200 group-hover:mt-2.5 group-hover:grid-rows-[1fr] group-hover:opacity-100">
+          <div className="min-h-0 overflow-hidden">
+            <div className="space-y-1.5 border-t border-line pt-2.5">
+              {bars.map(([label, val, color]) => (
+                <div key={label} className="flex items-center gap-2 text-[10px]">
+                  <span className="w-[68px] shrink-0 text-ink-soft">{label}</span>
+                  <div className="h-1.5 flex-1 rounded-full bg-line">
+                    <div className="h-1.5 rounded-full" style={{ width: `${val}%`, backgroundColor: color }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            {flag && (
+              <span
+                className={`mt-2.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  flag.kind === 'good' ? 'bg-[#EAF7F0] text-aff' : 'bg-[#FDECEC] text-red-600'
+                }`}
+              >
+                <TriangleAlert size={10} /> {flag.label}
+              </span>
+            )}
+            <p className="mt-2.5 text-[9px] text-muted">{live ? 'Live from Google + BigQuery ML' : 'Sample match preview'}</p>
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-// Illustrative fallback so the hero preview never renders empty if the API is
-// cold. Replaced by a real top match the moment live data loads.
-const SAMPLE_PREVIEW = {
-  short: 'Cyber City, Gurgaon',
-  fitScore: 82,
-  match: 'Excellent Match',
-  subscores: { air_quality: 71, affordability: 64, commute: 79, safety: 78, lifestyle: 88 },
-  anomalies: [{ label: 'Standout safety', kind: 'good' }],
-}
-
-// A real product snapshot in the hero: the current city's top-scoring locality,
-// its FitScore, three live pillar bars, and any anomaly flag. Uses the same
-// live API the app runs on, so the hero shows the actual intelligence, not a
-// mockup. Falls back to a labelled sample if the backend is unreachable.
-function HeroPreview() {
+function HeroVisual() {
   const { city } = useCity()
-  const [top, setTop] = useState(null)
+  const [list, setList] = useState(null)
 
   useEffect(() => {
     let alive = true
-    apiNeighborhoods(city).then((list) => {
-      if (alive && list?.length) setTop([...list].sort((a, b) => b.fitScore - a.fitScore)[0])
+    apiNeighborhoods(city).then((res) => {
+      if (alive && res?.length) setList(adaptList([...res].sort((a, b) => b.fitScore - a.fitScore)).slice(0, 5))
     })
     return () => {
       alive = false
     }
   }, [city])
 
-  const live = !!top
-  const d = top || SAMPLE_PREVIEW
-  const bars = [
-    ['Air Quality', d.subscores.air_quality, '#F5A63B'],
-    ['Affordability', d.subscores.affordability, '#3FB984'],
-    ['Commute', d.subscores.commute, '#4F86F7'],
-  ]
-  const flag = d.anomalies?.[0]
-  return (
-    <div className="w-[248px] rounded-2xl border border-line bg-white/95 p-4 shadow-float backdrop-blur-sm">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-ink">{d.short || d.name}</p>
-          <p className="text-xs font-medium text-aff">{d.match}</p>
-        </div>
-        <div className="shrink-0 text-right">
-          <p className="font-serif text-2xl leading-none text-brand-700">{d.fitScore}</p>
-          <p className="text-[9px] font-medium uppercase tracking-wide text-muted">FitScore</p>
-        </div>
-      </div>
-      <div className="mt-3 space-y-2">
-        {bars.map(([label, val, color]) => (
-          <div key={label} className="flex items-center gap-2 text-[11px]">
-            <span className="w-20 shrink-0 text-ink-soft">{label}</span>
-            <div className="h-1.5 flex-1 rounded-full bg-line">
-              <div className="h-1.5 rounded-full" style={{ width: `${val}%`, backgroundColor: color }} />
-            </div>
-          </div>
-        ))}
-      </div>
-      {flag && (
-        <span
-          className={`mt-3 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-            flag.kind === 'good' ? 'bg-[#EAF7F0] text-aff' : 'bg-[#FDECEC] text-red-600'
-          }`}
-        >
-          <TriangleAlert size={10} /> {flag.label}
-        </span>
-      )}
-      <p className="mt-3 text-[10px] text-muted">{live ? 'Live from Google + BigQuery ML' : 'Sample match preview'}</p>
-    </div>
-  )
-}
-
-function HeroVisual() {
+  const live = !!list
+  const pins = (list || SAMPLE_PINS).slice(0, 5)
   return (
     <div className="relative w-full">
       {/* Real skyline asset saved to /public/hero-skyline.png */}
@@ -159,13 +167,20 @@ function HeroVisual() {
         draggable={false}
       />
 
-      {/* small ambient FitScore pins */}
-      <FitPin name="Koramangala" score={86} className="right-[calc(4%+0.5cm)] top-[26%]" />
-      <FitPin name="HITEC City" score={80} className="right-[calc(6%+0.5cm)] top-[50%]" />
+      {/* live FitScore cards spread across the skyline: hover any to open it */}
+      {pins.map((d, i) => (
+        <HoverPin key={d.id || d.name} d={d} live={live} className={PIN_POS[i]} />
+      ))}
 
-      {/* the real product snapshot: current city's top live match */}
-      <div className="absolute bottom-[6%] left-[1%]">
-        <HeroPreview />
+      {/* central "your perfect place" marker (decorative) */}
+      <div className="absolute left-[34%] top-[54%] flex items-center gap-2 rounded-xl bg-white/95 px-4 py-3 shadow-float backdrop-blur-sm">
+        <span className="grid h-6 w-6 place-items-center rounded-md bg-brand-50 text-brand-600">
+          <MapPin size={12} />
+        </span>
+        <div>
+          <p className="text-[11px] font-semibold text-ink">Your perfect place</p>
+          <p className="text-[9px] text-muted">is out there</p>
+        </div>
       </div>
     </div>
   )

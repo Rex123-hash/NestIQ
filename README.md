@@ -1,152 +1,283 @@
 <div align="center">
 
-# NestIQ — AI-Powered Decision Intelligence Platform
+# <img src="public/favicon.svg" height="44" align="center" alt="" /> &nbsp;NestIQ
+
+### AI-Powered Decision Intelligence Platform
 
 **Find the right neighborhood. For your life.**
 
-*Ask in plain language → specialist AI agents score every locality on live data → get a ranked, explainable answer in seconds.*
+Ask in plain language. Specialist AI agents score every locality on live data. Get a ranked, explainable answer in seconds.
 
-Built for **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon** (Problem Statement: *AI for Better Living and Smarter Communities*)
+![React](https://img.shields.io/badge/React_18-7C5CF6?style=flat-square&logo=react&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-7C5CF6?style=flat-square&logo=vite&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-7C5CF6?style=flat-square&logo=fastapi&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini_on_Vertex_AI-7C5CF6?style=flat-square&logo=googlegemini&logoColor=white)
+![BigQuery](https://img.shields.io/badge/BigQuery_+_BQML-7C5CF6?style=flat-square&logo=googlebigquery&logoColor=white)
+![Maps](https://img.shields.io/badge/Google_Maps_Platform-7C5CF6?style=flat-square&logo=googlemaps&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-87_passing-3FB984?style=flat-square)
 
-**[Live demo → nestiq-india.web.app](https://nestiq-india.web.app)**
+Built for the **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon**
+Problem Statement: *AI for Better Living and Smarter Communities*
 
-`Gemini on Vertex AI` · `BigQuery + BigQuery ML` · `Google Maps Platform` · `FastAPI` · `React` · `69 automated tests`
+**[Live Demo → nestiq-india.web.app](https://nestiq-india.web.app)**
 
 </div>
 
 ---
 
-**Live Demo:** https://nestiq-india.web.app
+## <img src="assets/readme/overview.svg" height="22" align="center" alt="" /> &nbsp;Overview
 
-You describe your ideal neighborhood in one sentence. NestIQ turns it into a transparently ranked, explainable shortlist in seconds — every flag sourced, every rent estimated, every commute calculated, and every air quality forecast generated via BigQuery ML.
+**The persona.** A young professional or student relocating to a new city for a job. They have three days to pick a neighborhood they have never seen. They need to balance rent, commute time to a new office, and safety — and in Indian metros, they *must* also weigh air quality. Today that means juggling a dozen browser tabs: rent portals, a maps app for commute, word-of-mouth for safety, and a separate app for AQI. The data exists, but it is scattered, unpersonalized, and never predictive.
 
-It's not a basic search filter. It's a **parallel multi-agent system** that converts natural language into weighted priorities, pulls live data from Google Maps APIs, and streams the specialist agent scoring process live over SSE.
+**NestIQ turns all of that into a single decision.** You describe what you need in one sentence — *"clean air, safe area under ₹25,000, short commute"* — and NestIQ returns a ranked shortlist of localities, each with a transparent **FitScore**, a live air-quality forecast, cited resident sentiment, and a plain-language explanation of *why* it fits **you**.
 
-![NestIQ App Preview](https://i.imgur.com/example-nestiq-preview.png)
+It is not a search filter with sliders. It is a **parallel multi-agent system** that converts natural language into weighted priorities, pulls live data from Google Maps Platform, forecasts air quality with a model it trains itself in BigQuery ML, and streams the specialist scoring process to the browser over Server-Sent Events so you can watch the system think.
+
+> **Design principle: zero hallucination.** Every number NestIQ shows is traceable to a live source. FitScores come strictly from Google Maps and Air Quality APIs. Natural-language questions are turned into real BigQuery SQL and the exact query is shown to you alongside the answer. Gemini explains the numbers; it never invents them.
+
+---
+
+## <img src="assets/readme/different.svg" height="22" align="center" alt="" /> &nbsp;What makes it different
+
+| Capability | What is behind it |
+|---|---|
+| **Zero hallucination, everything sourced** | FitScores are derived strictly from live Google Maps and Air Quality APIs. NL questions become real BigQuery SQL, and the generated query is shown to the user next to the cited answer. |
+| **Conversational analytics (NL → SQL)** | Ask a cross-locality question ("Where is rent under ₹25k and AQI under 150?") and Gemini writes a real **BigQuery SQL** query, runs it against the locality warehouse, and answers grounded in the returned rows — with the SQL shown to you. |
+| **Self-building dataset + our own ML forecast** | Every search snapshots live features into BigQuery (`india_localities`) and appends hourly AQI (`india_aqi_history`). A **BigQuery ML ARIMA_PLUS** model trained on that accumulating history produces our own AQI forecast, with confidence intervals, alongside Google's. |
+| **Anomaly detection** | NestIQ automatically flags localities that break the city pattern — a cross-sectional outlier (a metric ≥ 1.5σ from the city mean, e.g. *"unusually polluted"*, *"unusually affordable"*) and a temporal AQI spike versus a locality's own 24-hour history. Directly answers the PS requirement to "identify patterns, trends, and anomalies." |
+| **Explainable FitScore, never a black box** | A 0–100 match across five pillars, weighted by *your own words*. A published methodology panel shows every pillar's weight, why it carries that weight, and its live data source. Weights re-tune live with sliders. |
+| **Agent fan-out you can watch** | A Planner parses the request, a Data Collector pulls live Google signals, and five specialist pillar agents score localities in parallel — streamed to the UI over **SSE** so the reasoning is visible, not a spinner. |
+| **Air quality as a first-class pillar** | Live **CPCB AQI** per locality via the Google Air Quality API — current reading, 24-hour history, and 24-hour forecast — weighted into every recommendation. Built for the reality of Indian cities. |
+| **Cited resident sentiment** | Grounded retrieval: Gemini + Google Search surfaces what residents say online, summarized with clickable source citations, cached for 24 hours. |
+| **9 cities, Tier-1 to Tier-3** | Delhi NCR, Mumbai, Bengaluru, Kolkata, Hyderabad, Chennai, Pune, **Patna**, and **Ranchi** — decision intelligence is not just for the metros. |
+
+---
+
+## <img src="assets/readme/architecture.svg" height="22" align="center" alt="" /> &nbsp;How it works
 
 ```text
-                User describes ideal home → Planner Agent (Extracts weights & constraints)
-                                                     ↓
-                            Data Collector Agent (Pulls live Google APIs)
-                                                     ↓
-         ┌──────────────────────┬──────────────────────┬──────────────────────┬──────────────────────┐
-         │                      │                      │                      │                      │
-   Air Quality Agent      Commute Agent         Safety Agent         Lifestyle Agent      Affordability Agent
-   • Live CPCB AQI        • Distance Matrix      • Crime baselines    • Google Places      • Curated market rent
-   • 24h history          • Live traffic         • Anomaly flags      • 1.5km radius       • Budget matching
-   • BQML forecast        • To city work hub                          • Amenities count    • Min-Max normalized
-         │                      │                      │                      │                      │
-         └──────────────────────┴───────────┬──────────┴──────────────────────┴──────────────────────┘
-                                            ↓
-                                    Orchestrator Agent
-                                 (Applies Gemini-extracted weights)
-                                            ↓
-                                    Final FitScore → SSE complete event
+        "clean air, safe, under ₹25k"
+                     │
+                     ▼
+        ┌──────────────────────────┐
+        │      Planner Agent       │   Gemini extracts budget, constraints,
+        │   (natural language →    │   and a weight per pillar from your words
+        │     weights + budget)    │
+        └────────────┬─────────────┘
+                     ▼
+        ┌──────────────────────────┐
+        │   Data Collector Agent   │   Live fan-out to Google Maps Platform
+        │   (live Google signals)  │   (30-min stale-while-revalidate cache)
+        └────────────┬─────────────┘
+                     ▼
+   ┌──────────┬──────────┬──────────┬──────────┬──────────────┐
+   │ Air      │ Commute  │ Safety   │ Lifestyle│ Affordability │
+   │ Quality  │ Agent    │ Agent    │ Agent    │ Agent         │
+   │ • CPCB   │ • Traffic│ • Profile│ • Places │ • Rent vs      │
+   │   AQI    │   Matrix │ • Env.   │   1.5 km │   budget       │
+   │ • 24h    │ • To hub │   health │ • Amenity│ • Min-max      │
+   │   + BQML │          │          │   density│   normalized   │
+   └────┬─────┴────┬─────┴────┬─────┴────┬─────┴──────┬────────┘
+        └──────────┴──────────┼──────────┴────────────┘
+                              ▼
+                    ┌──────────────────┐
+                    │ Orchestrator     │   Combines pillar sub-scores with
+                    │ (weighted score) │   your Gemini-extracted weights
+                    └────────┬─────────┘
+                             ▼
+              Ranked FitScores + anomaly flags
+              streamed to the UI over SSE, then
+              explained by Gemini on the detail page
 ```
 
-Everything runs in a highly optimized architecture: React/Vite frontend and a FastAPI Python backend utilizing BigQuery and Vertex AI.
+**The flow.** Your sentence goes to Gemini, which extracts a budget and a weight for each pillar. Live AQI, amenity, and commute data is fetched per locality (cached 30 minutes). Each pillar agent normalizes its metric across the city, the orchestrator combines them with your weights into FitScores, and results stream back with anomaly flags and explanations. Every search also snapshots the features into BigQuery, so the warehouse — and the ARIMA_PLUS forecast trained on it — grows with use.
 
 ---
 
-## 🌟 What makes it different (Zero Hallucination)
+## <img src="assets/readme/fitscore.svg" height="22" align="center" alt="" /> &nbsp;The FitScore
 
-| Feature | What's behind it |
+```text
+FitScore = Σ (pillar_subscore × your_weight) / Σ weights
+```
+
+| Pillar | Signal | Source | Default weight |
+|---|---|---|---|
+| **Air Quality** | Live CPCB AQI (lower is cleaner) | Google Air Quality API | 25% |
+| **Affordability** | Median monthly rent vs. your budget | Curated market estimate (labeled in-app) | 20% |
+| **Safety** | Locality safety index blended with live environmental health | Curated baseline (labeled — open locality-level crime data does not exist for India) | 20% |
+| **Commute** | Live drive time with traffic to the city's work hub | Google Distance Matrix | 20% |
+| **Lifestyle** | Amenities within 1.5 km (restaurants, cafes, gyms, parks, markets) | Google Places (New) | 15% |
+
+Sub-scores are **min-max normalized within the selected city**, so a 90 in Patna means "best in Patna," not "as clean as Zurich." Air Quality carries the highest default weight because, across Indian cities, it is the most health-critical signal and the one that varies most between localities. **The weights are yours** — parsed from your query by Gemini and adjustable live with sliders. The detail page publishes the full rubric so the score is explainable, never a black box.
+
+---
+
+## <img src="assets/readme/anomaly.svg" height="22" align="center" alt="" /> &nbsp;Anomaly detection
+
+NestIQ automatically surfaces localities that break the pattern — free of extra API calls, reusing metrics already fetched:
+
+- **Cross-sectional outliers.** For each metric, a locality flagged when its value sits **≥ 1.5σ from the city mean** — for example *"Unusually polluted — AQI 251, 1.7σ above the city average"* or *"Unusually affordable — ₹17,000/mo, 1.5σ below."* Shown as an "Anomalies detected" panel on results and as flag chips on the detail page.
+- **Temporal AQI spikes.** On the Air Quality tab, the current reading is compared to the locality's own 24-hour history; a genuine spike (≥ 1.5σ from its rolling mean) is flagged, so a pollution event is caught the moment it happens.
+
+Guardrails keep it honest: a minimum-sample floor and a two-flags-per-locality cap prevent false positives on thin data.
+
+---
+
+## <img src="assets/readme/techstack.svg" height="22" align="center" alt="" /> &nbsp;Tech stack
+
+| Layer | Technology |
 |---|---|
-| **Zero Hallucination. Everything Sourced.** | Judges can trust the output. FitScores are derived strictly from live Google Maps and AQI APIs. Natural language questions are converted to BigQuery SQL, and the exact SQL query is shown to the user alongside the cited answer. |
-| **Conversational analytics (NL→SQL)** | Ask NestIQ a cross-locality question (e.g., "Where is rent under 25k and AQI under 150?") and Gemini writes a real **BigQuery SQL** query, runs it against our locality warehouse, and answers grounded in the rows — *with the generated SQL shown to you*. |
-| **Self-building dataset + BQML forecast** | Every search snapshots live locality features into **BigQuery** (`india_localities`) and appends hourly AQI readings (`india_aqi_history`). A **BigQuery ML ARIMA_PLUS** model trained on that history produces our own AQI forecast alongside Google's. |
-| **Agent fan-out you can watch** | A Planner parses your request, a Data Collector pulls live Google signals, and five specialist pillar agents score localities in parallel — streamed to the UI over **SSE** so you see the system think. |
-| **Air Quality as a first-class pillar** | Live **CPCB AQI** per locality via the Google Air Quality API — current, 24h history, and 24h forecast — weighted into every recommendation. Built for the reality of Indian cities. |
-| **Explainable FitScore** | A personalized 0–100 match across five pillars. Weights come from *your own words*, parsed by Gemini — and you can re-tune them live. Fully transparent breakdown, never a black box. |
-| **10 cities, Tier-1 to Tier-3** | Delhi NCR, Mumbai, Bengaluru, Kolkata, Hyderabad, Chennai, Pune, **Patna**, **Ranchi** — decision intelligence isn't just for metros. |
+| **AI / LLM** | **Gemini 2.5 Flash on Vertex AI** — structured output (Pydantic schemas), NL → weights, NL → SQL, grounded Q&A, explanations, Google-Search-grounded web reviews |
+| **Data warehouse & ML** | **BigQuery** (locality snapshots + hourly AQI history) · **BigQuery ML ARIMA_PLUS** (AQI forecasting with confidence intervals) |
+| **Live data** | **Google Maps Platform** — Air Quality API (CPCB), Places API (New), Distance Matrix, Maps JavaScript SDK, Place Photos |
+| **Backend** | **FastAPI** (Python) · Server-Sent Events streaming · self-healing Vertex client · read-only SQL guards |
+| **Frontend** | **React 18 + Vite** · Tailwind CSS · Recharts · lucide-react · Google Identity Services (sign-in) + guest mode |
+| **Auth & state** | Client-side Google sign-in (JWT decode) · localStorage watchlist, saved localities, and recent questions |
+| **Deployment** | Cloud Run (backend) · Firebase Hosting (frontend) |
 
 ---
 
-## 📂 Project Structure
+## <img src="assets/readme/data.svg" height="22" align="center" alt="" /> &nbsp;Data sources & honesty
+
+Being explicit about provenance is a feature, not a footnote:
+
+- **Live** — CPCB AQI (via Google), amenity counts, commute times, and locality photos are fetched in real time and cached for 30 minutes.
+- **Estimated & labeled** — median rents and safety baselines are curated market estimates; open locality-level data for these does not exist in India, and the UI says so wherever they appear.
+- **Accumulating** — BigQuery tables grow with every search, and the ARIMA_PLUS forecast model improves as history builds up.
+- **Reference pipeline** — the repo also contains a complete NYC pipeline (Zillow ZORI + NYC 311 + NYPD collisions in BigQuery, rent forecasting with ARIMA_PLUS) that validated the architecture on fully open public data.
+
+---
+
+## <img src="assets/readme/resilience.svg" height="22" align="center" alt="" /> &nbsp;Resilience & production
+
+Production-class safety nets so the platform stays up under demo conditions:
+
+- **SQL guards against injection** — `DROP`, `DELETE`, stacked statements, and `EXPORT DATA` are rejected *before* any BigQuery client is even constructed.
+- **Stale-while-revalidate caching** — locality base metrics cached 30 minutes; Gemini explanations, detail payloads, and web reviews cached up to 24 hours, so responses are instant and LLM cost stays low.
+- **Parallel fan-out** — the five pillar agents and all Google calls run concurrently, keeping a full search to roughly 2–3 seconds cold and about 10 ms warm.
+- **Concurrent-build de-duplication** — simultaneous requests for the same city share one live build instead of each hammering Google.
+- **Graceful fallbacks** — if the Air Quality API is cold or rate-limited, the system falls back to BigQuery snapshots or clearly labeled samples rather than failing.
+- **Non-blocking logging** — BigQuery snapshot writes happen off the request thread and only when data actually changed.
+
+---
+
+## <img src="assets/readme/structure.svg" height="22" align="center" alt="" /> &nbsp;Project structure
 
 ```text
 NestIQ/
-├── src/                        ← React frontend (Vite)
-│   ├── pages/                  ← Home, Results, NeighborhoodDetail, AskNestIQ
-│   ├── components/             ← AgentDashboard (SSE streaming), FitScore gauges
-│   └── lib/                    ← API client, SSE parsers
+├── src/                         React frontend (Vite)
+│   ├── pages/                   Home · Results · NeighborhoodDetail (7 tabs) · Compare · Saved · Alerts · Ask · SignIn
+│   ├── components/              result cards · agent progress (SSE) · filters · maps · FitScore gauges · layout
+│   └── lib/                     API client · SSE parser · city store · auth · saved/recent stores · adapters
 ├── backend/
 │   ├── app/
-│   │   ├── main.py             ← FastAPI endpoints (SSE stream, detail, ask)
-│   │   ├── gemini.py           ← NL→weights, NL→SQL, explanations, grounded RAG
-│   │   ├── maps.py             ← Air Quality / Places / Distance Matrix
-│   │   ├── bq_india.py         ← BigQuery snapshots, BQML forecast, SQL guards
-│   │   ├── india.py            ← 9 cities · 50+ localities
-│   │   └── fitscore.py         ← Normalization + weighted scoring engine
-│   ├── tests/                  ← 69 automated tests (backend)
-│   └── seed_bq_india.py        ← Seed BigQuery tables from live data
+│   │   ├── main.py              FastAPI endpoints (search, SSE stream, detail, reviews, ask, cities)
+│   │   ├── gemini.py            NL → weights, NL → SQL, explanations, grounded Q&A, web reviews
+│   │   ├── maps.py              Air Quality / Places / Distance Matrix + India scoring + anomaly flags
+│   │   ├── bq_india.py          BigQuery snapshots, AQI history, ARIMA_PLUS forecast, SQL guards
+│   │   ├── india.py             9 cities · 53 localities (curated geo anchors) · FitScore weights
+│   │   └── fitscore.py          normalization + weighted scoring engine
+│   ├── tests/                   69 backend tests (fully offline)
+│   └── seed_bq_india.py         seed BigQuery tables from live data
+├── assets/readme/               themed section icons
 └── README.md
 ```
 
 ---
 
-## 🛠 Setup & Local Development
+## <img src="assets/readme/setup.svg" height="22" align="center" alt="" /> &nbsp;Setup & local development
 
-### 1. Configure environment
+**Prerequisites:** Node 18+, Python 3.12+, and a GCP project with **BigQuery, Vertex AI, Air Quality, Places (New), and Distance Matrix** APIs enabled, plus `gcloud auth application-default login`.
+
+**1. Backend (FastAPI)**
+
 ```bash
 cd backend
-cp .env.example .env
-# Fill in your GCP_PROJECT, GEMINI_MODEL, MAPS_API_KEY
-```
-
-> **Note:** Requires `generativelanguage.googleapis.com`, `bigquery.googleapis.com`, and Maps Platform (Air Quality, Places, Distance Matrix). 
-
-### 2. Run Backend (FastAPI)
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate  # (or .venv\Scripts\activate on Windows)
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m uvicorn app.main:app --port 8080 --reload
+cp .env.example .env                                    # fill in the values below
+python seed_bq_india.py delhi-ncr                       # optional: seed BigQuery from live data
+python -m uvicorn app.main:app --port 8080
 ```
 
-### 3. Run Frontend (React/Vite)
+`backend/.env`:
+
+```env
+GCP_PROJECT=your-project-id
+GCP_LOCATION=us-central1
+BQ_DATASET=nestiq
+GEMINI_MODEL=gemini-2.5-flash
+MAPS_API_KEY=your-maps-platform-key
+```
+
+**2. Frontend (React + Vite)**
+
 ```bash
 npm install
-npm run dev
-# Opens on http://localhost:5173
+npm run dev                                             # http://localhost:5173
 ```
+
+Optional: set `VITE_GOOGLE_CLIENT_ID` in a root `.env` to enable "Continue with Google" (guest mode works without it).
+
+> **Security:** `.env` files are gitignored. Restrict your Maps key (HTTP referrers + only the APIs above) before any public deployment.
 
 ---
 
-## 📡 API Endpoints
+## <img src="assets/readme/api.svg" height="22" align="center" alt="" /> &nbsp;API reference
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/search` | NL query → Gemini weights → live-data FitScore ranking |
-| `GET` | `/api/search/stream` | Multi-agent orchestration (SSE stream of agent progress) |
-| `GET` | `/api/neighborhood/{id}` | Full locality detail: sub-scores, Gemini "why", AQI history + **BQML forecast** |
-| `GET` | `/api/neighborhood/{id}/reviews` | Community reviews (Gemini + Google Search grounding) |
-| `POST` | `/api/ask` | Ask NestIQ: **NL→SQL on BigQuery** (SQL + rows returned) |
+| `GET` | `/api/search/stream` | Same, streamed as SSE agent events (Planner → Collector → 5 pillar agents → Orchestrator) |
+| `GET` | `/api/neighborhood/{id}` | Full locality detail: sub-scores, anomaly flags, Gemini "why", AQI history + Google forecast + **BQML forecast** |
+| `GET` | `/api/neighborhood/{id}/reviews` | Cited resident sentiment (Gemini + Google Search grounding) |
+| `POST` | `/api/ask` | Ask NestIQ: **NL → SQL on BigQuery** (SQL + rows returned) for cross-locality questions; grounded Gemini for locality questions |
 | `GET` | `/api/cities` | Supported cities |
 
 ---
 
-## 🛡️ Resilience & Graceful Degradation
-Production-class safety nets so the platform stays up:
+## <img src="assets/readme/testing.svg" height="22" align="center" alt="" /> &nbsp;Testing & quality
 
-- **SQL Guards against Injection:** `DROP`, `DELETE`, stacked statements, and `EXPORT DATA` are rejected *before* any BigQuery client is constructed. 
-- **Stale-While-Revalidate Caching:** Locality base metrics are cached for 30 mins; Gemini explanations and community web reviews are cached for 24h. Ensures instant responses and saves LLM costs.
-- **Graceful Data Fallbacks:** If the live Air Quality API is cold or rate-limited, the system seamlessly falls back to historical BigQuery snapshots or labeled samples.
-- **Parallel Fan-out:** The 5 pillar agents run in parallel, drastically reducing time-to-insight to under 3 seconds per search.
-- **Test Coverage:** 69 backend tests run offline via mocked dependencies, verifying everything from the normalization bounds to the SSE streaming payload.
+**87 automated tests** (69 backend + 18 frontend) run fully offline — every external service is stubbed — in a few seconds.
+
+| Suite | Focus |
+|---|---|
+| `backend/tests/test_fitscore.py` | Scoring engine: normalization bands, weight-driven re-ranking (max-weighting Air Quality vs. Lifestyle provably flips the winner), anomaly flags (outliers flagged, central localities and thin data are not), match labels, edge cases |
+| `backend/tests/test_sql_guards.py` | NL → SQL safety: injection attempts (`DROP`, `DELETE`, stacked statements, `EXPORT DATA`) rejected before any BigQuery client is constructed |
+| `backend/tests/test_api.py` | Full API contract: search ranking order, detail with BQML confidence bounds, NL → SQL ask path, 404s, and the SSE agent stream |
+| `backend/tests/test_maps_cache.py`, `test_efficiency.py`, `test_bq_logging.py` | Stale-while-revalidate cache, parallel fan-out, concurrent-build de-dup, detail cache, single-log-per-build |
+| `backend/tests/test_india_catalog.py` | Data integrity: 9 cities, globally-unique locality IDs, coordinates inside India, sane ranges |
+| `src/lib/*.test.{js,jsx}` | Frontend: Indian-notation rent formatting (₹1,25,000), tag derivation, map-pin bounds, city auto-detection from free text |
+
+```bash
+cd backend && python -m pytest -q     # 69 passed
+npm test                              # 18 passed
+```
+
+---
+
+## <img src="assets/readme/demo.svg" height="22" align="center" alt="" /> &nbsp;Demo flow
+
+1. **The persona.** You are Aditya, relocating to Delhi with three days to pick an apartment.
+2. **The search.** Open NestIQ and type *"Clean air, safe area under ₹25,000, short commute."*
+3. **The agents.** Watch the Planner, Data Collector, and five specialist agents light up the dashboard over live SSE.
+4. **The results.** Scan the ranked shortlist and the "Anomalies detected" panel, then open the top match.
+5. **The proof (zero hallucination).** Open "How it works" on the FitScore to see the transparent rubric. Check the Air Quality tab for the live Google AQI line *and* our own **BigQuery ML ARIMA_PLUS** forecast line.
+6. **Ask NestIQ.** Go to the Ask tab and type *"Which locality has the cheapest rent but AQI under 150?"* Watch Gemini write the raw SQL, run it against BigQuery, and return a grounded answer with the query shown.
 
 ---
 
-## 🚀 Hackathon Demo Flow (Try this!)
+## <img src="assets/readme/roadmap.svg" height="22" align="center" alt="" /> &nbsp;Roadmap
 
-1. **The Persona:** You are Rahul, relocating to Delhi with 3 days to pick an apartment. 
-2. **The Search:** Open NestIQ. Type *"Clean air, safe area under ₹25,000, short commute"*.
-3. **The Agents:** Watch the Planner, Data Collector, and 5 specialist agents light up the dashboard via live SSE streaming.
-4. **The Results:** Click on the top-ranked neighborhood. 
-5. **The Proof (Zero Hallucination):** Hover over the FitScore to see the transparent rubric. Check the Air Quality tab to see the live Google AQI line *and* our custom **BigQuery ML ARIMA_PLUS** forecast line.
-6. **Ask NestIQ:** Go to the "Ask" tab. Type *"Which locality has the cheapest rent but AQI under 150?"* Watch Gemini write the raw SQL query, execute it against BigQuery, and return a perfectly grounded answer.
+- Real rent ingestion (city rent indices) into BigQuery
+- Watchlist push alerts on AQI threshold crossings via Cloud Scheduler
+- Hindi and regional-language interface
+- CI/CD for Cloud Run + Firebase Hosting
 
 ---
+
 <div align="center">
+
 Built for better living and smarter communities · Powered by Google Cloud & Gemini
+
 </div>
