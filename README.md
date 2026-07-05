@@ -128,12 +128,14 @@ Guardrails keep it honest: a minimum-sample floor and a two-flags-per-locality c
 | Layer | Technology |
 |---|---|
 | **AI / LLM** | **Gemini 2.5 Flash on Vertex AI** — structured output (Pydantic schemas), NL → weights, NL → SQL, grounded Q&A, explanations, Google-Search-grounded web reviews |
-| **Data warehouse & ML** | **BigQuery** (locality snapshots + hourly AQI history) · **BigQuery ML ARIMA_PLUS** (AQI forecasting with confidence intervals) |
+| **Data warehouse & ML** | **BigQuery** (locality snapshots + hourly AQI history) · **BigQuery ML ARIMA_PLUS** (AQI forecasting with confidence intervals) · **BigQuery public datasets** (NYC 311, NYPD collisions) for the reference pipeline |
 | **Live data** | **Google Maps Platform** — Air Quality API (CPCB), Places API (New), Distance Matrix, Maps JavaScript SDK, Place Photos |
 | **Backend** | **FastAPI** (Python) · Server-Sent Events streaming · self-healing Vertex client · read-only SQL guards |
-| **Frontend** | **React 18 + Vite** · Tailwind CSS · Recharts · lucide-react · Google Identity Services (sign-in) + guest mode |
-| **Auth & state** | Client-side Google sign-in (JWT decode) · localStorage watchlist, saved localities, and recent questions |
-| **Deployment** | Cloud Run (backend) · Firebase Hosting (frontend) |
+| **Frontend** | **React 18 + Vite** · Tailwind CSS · Recharts · lucide-react · **Google Identity Services** (OAuth sign-in) + guest mode |
+| **Auth & state** | Client-side **Google sign-in** (Google Identity Services, JWT decode) · localStorage watchlist, saved localities, and recent questions |
+| **Deployment & CI** | **Cloud Run** (backend, containerized by **Cloud Build** and stored in **Artifact Registry**) · **Firebase Hosting** (frontend) |
+
+> **Google Cloud footprint.** Vertex AI (Gemini 2.5 Flash) · Google Search grounding · BigQuery · BigQuery ML (ARIMA_PLUS) · BigQuery public datasets · Google Maps Platform (Air Quality, Places New, Distance Matrix, Maps JS SDK, Place Photos) · Google Identity Services (OAuth sign-in) · Cloud Run · Cloud Build · Artifact Registry · Firebase Hosting.
 
 ---
 
