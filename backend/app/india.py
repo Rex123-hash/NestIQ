@@ -6,6 +6,11 @@ market estimates (no open locality-level dataset exists for India) and are
 labelled as estimates in the UI.
 """
 
+# Single source of truth for the India FitScore pillar weights.
+# gemini.py (query parsing) and maps.py (scoring) both import from here so the
+# backend can never disagree with itself.
+INDIA_DEFAULT_WEIGHTS = {"affordability": 20, "safety": 20, "commute": 20, "lifestyle": 15, "air_quality": 25}
+
 CITIES = {
     "delhi-ncr": {
         "id": "delhi-ncr",

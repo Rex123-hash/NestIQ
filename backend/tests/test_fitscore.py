@@ -63,6 +63,36 @@ class TestScoreIndia:
     def test_empty_input_returns_empty(self):
         assert score_india([]) == []
 
+    def test_every_result_carries_anomalies_list(self):
+        for r in score_india(fake_features()):
+            assert isinstance(r["anomalies"], list)
+
+
+class TestAnomalies:
+    def _feats(self):
+        # Four near-identical localities plus one with a wildly high AQI. Only
+        # AQI varies, so only the outlier should be flagged.
+        base = {"aqi_category": "x", "aqi_pollutant": "pm25", "photo": "", "short": "S",
+                "accent": "#111", "lat": 0.0, "lng": 0.0, "median_rent": 20000,
+                "safety_est": 75, "amenity_count": 15, "commute_min": 30}
+        aqis = {"a": 90, "b": 95, "c": 100, "d": 92, "polluted": 400}
+        return [{**base, "id": k, "name": k, "aqi": v} for k, v in aqis.items()]
+
+    def test_flags_the_outlier(self):
+        ranked = score_india(self._feats())
+        polluted = next(r for r in ranked if r["id"] == "polluted")
+        assert "Unusually polluted" in [a["label"] for a in polluted["anomalies"]]
+
+    def test_central_locality_has_no_flags(self):
+        ranked = score_india(self._feats())
+        c = next(r for r in ranked if r["id"] == "c")
+        assert c["anomalies"] == []
+
+    def test_small_city_skips_anomalies(self):
+        # Fewer than 4 localities: distribution too small to flag anything.
+        for r in score_india(fake_features()):
+            assert r["anomalies"] == []
+
 
 class TestScoreNeighborhoodsNYC:
     def make(self):

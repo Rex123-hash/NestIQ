@@ -27,7 +27,7 @@ def slow_fetchers(monkeypatch):
         return f
 
     monkeypatch.setattr(maps, "air_quality", slow({"aqi": 100, "category": "Moderate", "dominant": "pm25"}))
-    monkeypatch.setattr(maps, "amenity_count", slow(12))
+    monkeypatch.setattr(maps, "amenity_profile", slow({"total": 12, "breakdown": {"restaurant": 12}}))
     monkeypatch.setattr(maps, "commute_minutes", slow(30))
     monkeypatch.setattr(maps, "locality_photo", slow(""))
     maps._cache.clear()
@@ -54,6 +54,25 @@ def test_fresh_cache_is_served_without_refetching(slow_fetchers):
     feats = maps.build_city_features("delhi-ncr")
     assert len(feats) == LOC_COUNT
     assert slow_fetchers["n"] == before
+
+
+def test_concurrent_cold_requests_share_one_build(slow_fetchers):
+    import threading
+
+    results = []
+
+    def hit():
+        results.append(maps.build_city_features("delhi-ncr"))
+
+    threads = [threading.Thread(target=hit) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert all(len(r) == LOC_COUNT for r in results)
+    # The three concurrent requests must not each fan out to Google.
+    assert slow_fetchers["n"] == LOC_COUNT * 4
 
 
 def test_expired_cache_served_instantly_and_refreshed_in_background(slow_fetchers):

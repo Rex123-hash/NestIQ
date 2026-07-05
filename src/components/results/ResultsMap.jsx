@@ -17,7 +17,7 @@ export default function ResultsMap({ items, loading }) {
               Loading locality map…
             </>
           ) : (
-            'Map unavailable — no results to plot.'
+            'Map unavailable. No results to plot.'
           )}
         </div>
       </div>

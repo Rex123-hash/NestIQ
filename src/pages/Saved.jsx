@@ -19,7 +19,7 @@ export default function Saved() {
       <div className="flex flex-col gap-4 border-b border-line bg-white px-6 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-8">
         <div>
           <h1 className="font-serif text-3xl text-ink">Saved Localities</h1>
-          <p className="text-sm text-muted">Localities you've bookmarked — tap the heart on any match to save it.</p>
+          <p className="text-sm text-muted">Localities you've bookmarked. Tap the heart on any match to save it.</p>
         </div>
         <Link to="/results" className="flex items-center gap-2 rounded-xl border border-brand-200 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50">
           <Search size={16} /> Find more

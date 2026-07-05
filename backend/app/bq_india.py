@@ -11,6 +11,7 @@ off the live Maps path — this layer is additive.
 """
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timezone
 
 from google.cloud import bigquery
@@ -157,12 +158,15 @@ def ensure_ready() -> None:
 
 
 def log_snapshot_safe(city: str, ranked: list[dict]) -> None:
-    """Fire-and-forget snapshot log; never breaks the request path."""
-    try:
-        ensure_ready()
-        log_localities(city, ranked)
-    except Exception as e:  # noqa: BLE001
-        print(f"[bq_india] log_snapshot_safe skipped: {e}")
+    """Fire-and-forget snapshot log; never breaks or delays the request path."""
+    def work():
+        try:
+            ensure_ready()
+            log_localities(city, ranked)
+        except Exception as e:  # noqa: BLE001
+            print(f"[bq_india] log_snapshot_safe skipped: {e}")
+
+    threading.Thread(target=work, daemon=True).start()
 
 
 def aqi_forecast_bqml(locality_id: str, horizon: int = 24) -> list[dict]:

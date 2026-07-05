@@ -1,9 +1,8 @@
-import { useState } from 'react'
-import { Sparkles, Send, Utensils, ShieldCheck, Home, Train, TreePine, ShoppingCart, DollarSign, Building2, CalendarDays, TrendingUp, MessageSquare, Trash2, Database } from 'lucide-react'
-import { apiAsk } from '../lib/api.js'
+import { useState, useEffect } from 'react'
+import { Sparkles, Send, ShieldCheck, Home, Train, TreePine, ShoppingCart, DollarSign, Building2, TrendingUp, MessageSquare, Trash2, Database } from 'lucide-react'
+import { apiAsk, apiNeighborhoods } from '../lib/api.js'
 import { useCity } from '../lib/cityStore.jsx'
-
-const CHIPS = ['Which locality has the cleanest air?', 'Cheapest safe area', 'Shortest commute to the hub', 'Best overall FitScore', 'Where is rent lowest?', 'Most amenities nearby']
+import { useRecent, pushRecent, removeRecent, clearRecent, relativeTime } from '../lib/recent.js'
 
 const POPULAR = [
   ['Which locality has the best air quality?', 'Find the lowest-AQI areas with cleaner air to breathe.', TreePine, '#3FB984'],
@@ -14,18 +13,12 @@ const POPULAR = [
   ['Give me the best overall pick', 'The top FitScore balancing air, rent, commute and amenities.', TrendingUp, '#2FB6A8'],
 ]
 
+// Fallback suggestions shown only until live city data loads.
 const SUGGESTIONS = [
   ['Is the air safe to go out today?', 'Get an AQI-based health read for this area.', TreePine],
   ['Which localities are similar on air + rent?', 'Compare AQI, rent and commute side by side.', Building2],
   ['Best area for a family on a budget?', 'Balance air quality, safety, rent and amenities.', Home],
   ['Rank localities by air quality', 'Cleanest-air areas first.', TrendingUp],
-]
-
-const RECENT = [
-  ['Which locality has the cleanest air right now?', 'Air Quality', '2 hours ago'],
-  ['Cheapest locality under my budget', 'Affordability', 'Yesterday'],
-  ['Shortest commute to the city hub', 'Commute', '2 days ago'],
-  ['Compare air quality across localities', 'Air Quality', '3 days ago'],
 ]
 
 const STEPS = [
@@ -40,11 +33,34 @@ export default function AskNestIQ() {
   const [q, setQ] = useState('')
   const [answer, setAnswer] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [liveSug, setLiveSug] = useState([])
+  const recent = useRecent()
+
+  // Build genuinely personalized suggestions from the current city's live data.
+  useEffect(() => {
+    let alive = true
+    setLiveSug([])
+    apiNeighborhoods(city).then((list) => {
+      if (!alive || !list?.length) return
+      const clean = [...list].sort((a, b) => (a.aqi ?? 1e9) - (b.aqi ?? 1e9))[0]
+      const cheap = [...list].sort((a, b) => (a.median_rent ?? 1e9) - (b.median_rent ?? 1e9))[0]
+      const sug = []
+      if (clean) sug.push([`Why is ${clean.name} the cleanest-air area right now?`, `Live AQI ${clean.aqi}, the lowest in ${cityName} today.`, TreePine])
+      if (cheap) sug.push([`Is ${cheap.name} a good budget pick?`, `Lowest median rent in ${cityName} at ₹${Number(cheap.median_rent).toLocaleString('en-IN')}.`, DollarSign])
+      setLiveSug(sug)
+    })
+    return () => {
+      alive = false
+    }
+  }, [city, cityName])
+
+  const suggestions = liveSug.length ? [...liveSug, ...SUGGESTIONS.slice(0, 2)] : SUGGESTIONS
 
   async function submit(text) {
     const question = (text ?? q).trim()
     if (!question) return
     setQ(question)
+    pushRecent(question)
     setLoading(true)
     setAnswer(null)
     const res = await apiAsk(question, null, city)
@@ -124,13 +140,6 @@ export default function AskNestIQ() {
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="text-sm text-muted">Try asking about:</span>
-        {CHIPS.map((c) => (
-          <button key={c} onClick={() => submit(c)} className="chip hover:border-brand-300 hover:text-brand-700">{c}</button>
-        ))}
-      </div>
-
       <div className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         {/* popular questions */}
         <div>
@@ -150,20 +159,31 @@ export default function AskNestIQ() {
           </div>
 
           <h3 className="mt-6 flex items-center justify-between text-sm font-semibold text-ink">
-            Recent Conversations <button className="text-xs font-medium text-brand-700">View all →</button>
+            Recent Questions
+            {recent.length > 0 && (
+              <button onClick={clearRecent} className="text-xs font-medium text-brand-700 hover:text-brand-800">Clear all</button>
+            )}
           </h3>
           <div className="mt-3 flex flex-col gap-2">
-            {RECENT.map(([q, cat, time]) => (
-              <div key={q} className="flex items-center gap-3 rounded-xl border border-line bg-white p-3">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600"><MessageSquare size={15} /></span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-ink">{q}</p>
-                  <p className="text-[11px] text-muted">{cat}</p>
-                </div>
-                <span className="hidden shrink-0 text-xs text-muted sm:block">{time}</span>
-                <button className="shrink-0 text-muted hover:text-[#E5484D]"><Trash2 size={15} /></button>
+            {recent.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-line bg-white p-5 text-center text-sm text-muted">
+                Your questions will show up here as you ask them.
               </div>
-            ))}
+            ) : (
+              recent.map((r) => (
+                <div key={r.id} className="flex items-center gap-3 rounded-xl border border-line bg-white p-3">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600"><MessageSquare size={15} /></span>
+                  <button onClick={() => submit(r.q)} className="min-w-0 flex-1 text-left">
+                    <p className="truncate text-sm text-ink hover:text-brand-700">{r.q}</p>
+                    <p className="text-[11px] text-muted">{r.category}</p>
+                  </button>
+                  <span className="hidden shrink-0 text-xs text-muted sm:block">{relativeTime(r.at)}</span>
+                  <button onClick={() => removeRecent(r.id)} className="shrink-0 text-muted hover:text-[#E5484D]" aria-label="Remove question">
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -172,10 +192,12 @@ export default function AskNestIQ() {
           <div className="card p-5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-ink">NestIQ Suggestions</h3>
-              <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">Personalized for you</span>
+              <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">
+                {liveSug.length ? `Live in ${cityName}` : 'Suggested'}
+              </span>
             </div>
             <div className="mt-3 flex flex-col gap-2">
-              {SUGGESTIONS.map(([q, d, Icon]) => (
+              {suggestions.map(([q, d, Icon]) => (
                 <button key={q} onClick={() => submit(q)} className="flex items-start gap-3 rounded-xl border border-line p-3 text-left transition hover:border-brand-200">
                   <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600"><Icon size={15} /></span>
                   <div>

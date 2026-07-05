@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCity, detectCity } from '../lib/cityStore.jsx'
+import { useAuth } from '../lib/auth.jsx'
 import { LogoMark } from '../components/ui/Logo.jsx'
 import {
   House,
@@ -11,7 +12,6 @@ import {
   PiggyBank,
   TrainFront,
   Coffee,
-  TrendingUp,
   Heart,
   User,
   MapPin,
@@ -22,6 +22,8 @@ import {
   Navigation,
   Cpu,
   ListChecks,
+  LogIn,
+  X,
 } from 'lucide-react'
 
 /* ----------------------------- Top navigation ---------------------------- */
@@ -61,12 +63,12 @@ function MarketingNav() {
 /* ------------------------------- Hero visual ------------------------------ */
 function FitPin({ name, score, className }) {
   return (
-    <div className={`absolute rounded-2xl bg-white px-4 py-2.5 shadow-float ${className}`}>
-      <div className="flex items-center gap-3">
-        <p className="text-sm font-semibold text-ink">{name}</p>
+    <div className={`absolute rounded-xl bg-white/90 backdrop-blur-sm px-4 py-2.5 shadow-float ${className}`}>
+      <div className="flex items-center gap-2">
+        <p className="text-[11px] font-semibold text-ink">{name}</p>
         <div className="text-right">
-          <p className="font-serif text-xl leading-none text-brand-700">{score}</p>
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted">FitScore</p>
+          <p className="font-serif text-sm leading-none text-brand-700">{score}</p>
+          <p className="text-[8px] font-medium uppercase tracking-wide text-muted">FitScore</p>
         </div>
       </div>
     </div>
@@ -76,28 +78,28 @@ function FitPin({ name, score, className }) {
 function HeroVisual() {
   return (
     <div className="relative w-full">
-      {/* Real skyline asset — save the reference image to /public/hero-skyline.png */}
+      {/* Real skyline asset saved to /public/hero-skyline.png */}
       <img
         src="/hero-skyline.png"
-        alt="New York City neighborhoods"
+        alt="Indian city neighborhoods"
         className="w-full select-none"
         draggable={false}
       />
 
       {/* live floating FitScore cards overlaid on the skyline */}
-      <FitPin name="Hudson Yards" score={78} className="left-[3%] top-[42%]" />
-      <FitPin name="Astoria, Queens" score={86} className="right-[4%] top-[36%]" />
-      <FitPin name="Park Slope" score={82} className="right-[7%] top-[60%]" />
-      <FitPin name="Jersey City" score={74} className="left-[2%] top-[64%]" />
+      <FitPin name="Cyber City" score={82} className="left-[calc(3%+1.6cm)] top-[42%]" />
+      <FitPin name="Koramangala" score={86} className="right-[calc(4%+0.5cm)] top-[36%]" />
+      <FitPin name="HITEC City" score={80} className="right-[calc(7%+0.5cm)] top-[60%]" />
+      <FitPin name="Indirapuram" score={74} className="left-[calc(2%+1.6cm)] top-[64%]" />
 
-      <div className="absolute left-[34%] top-[48%] rounded-2xl bg-white px-4 py-3 shadow-float">
-        <div className="flex items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-50 text-brand-600">
-            <MapPin size={16} />
+      <div className="absolute left-[calc(34%+1.2cm)] top-[48%] rounded-xl bg-white/90 backdrop-blur-sm px-4 py-3 shadow-float">
+        <div className="flex items-center gap-1.5">
+          <span className="grid h-6 w-6 place-items-center rounded-md bg-brand-50 text-brand-600">
+            <MapPin size={12} />
           </span>
           <div>
-            <p className="text-sm font-semibold text-ink">Your perfect place</p>
-            <p className="text-xs text-muted">is out there</p>
+            <p className="text-[11px] font-semibold text-ink">Your perfect place</p>
+            <p className="text-[9px] text-muted">is out there</p>
           </div>
         </div>
       </div>
@@ -109,12 +111,32 @@ function HeroVisual() {
 function Hero() {
   const navigate = useNavigate()
   const { setCity, cities } = useCity()
+  const { user, signInAsGuest } = useAuth()
   const [q, setQ] = useState('')
+  const [err, setErr] = useState('')
+  const [gateOpen, setGateOpen] = useState(false)
+
   const go = () => {
-    const match = detectCity(q, cities)
+    const query = q.trim()
+    if (!query) {
+      setErr('Please describe what you are looking for first.')
+      return
+    }
+    setErr('')
+    const match = detectCity(query, cities)
     if (match) setCity(match.id)
-    navigate('/results', { state: { query: q } })
+    // Already signed in (or guest): go straight to results. Otherwise ask.
+    if (user) navigate('/results', { state: { query } })
+    else setGateOpen(true)
   }
+
+  const proceedAsGuest = () => {
+    signInAsGuest()
+    setGateOpen(false)
+    navigate('/results', { state: { query: q.trim() } })
+  }
+  const proceedToSignIn = () => navigate('/signin', { state: { resumeQuery: q.trim() } })
+
   const checks = ['Personalized for you', 'Cited & explainable', 'Trusted public data']
   return (
     <section className="relative overflow-hidden">
@@ -127,7 +149,7 @@ function Hero() {
         </h1>
         <p className="mt-6 max-w-md text-base leading-relaxed text-muted">
           NestIQ analyzes rent, safety, commute, amenities, and real community insights to help you
-          choose the perfect place to live—backed by data, powered by AI.
+          choose the perfect place to live, backed by data and powered by AI.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2">
@@ -147,13 +169,16 @@ function Hero() {
             <div className="min-w-0 flex-1">
               <input
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
+                onChange={(e) => {
+                  setQ(e.target.value)
+                  if (err) setErr('')
+                }}
                 onKeyDown={(e) => e.key === 'Enter' && go()}
                 className="w-full text-sm text-ink outline-none placeholder:text-muted"
-                placeholder="Describe what you're looking for in a neighborhood..."
+                placeholder="Describe your ideal neighborhood..."
               />
               <p className="mt-0.5 text-xs text-muted">
-                Example: "Safe area, under $2000 rent, short commute to Midtown"
+                Example: "Clean air, under ₹25,000 rent, short commute to Cyber City"
               </p>
             </div>
             <button onClick={go} className="btn-primary shrink-0">
@@ -161,6 +186,7 @@ function Hero() {
               <ArrowRight size={16} />
             </button>
           </div>
+          {err && <p className="mt-2 px-1 text-xs font-medium text-[#E5484D]">{err}</p>}
         </div>
 
         <p className="mt-4 flex items-center gap-2 text-sm text-muted">
@@ -170,21 +196,50 @@ function Hero() {
       </div>
 
       {/* full-bleed skyline pinned to the right edge (below text on mobile) */}
-      <div className="mt-8 lg:absolute lg:right-0 lg:top-1/2 lg:mt-0 lg:w-[50%] lg:-translate-y-1/2">
+      <div className="mt-8 lg:absolute lg:right-[-2.6cm] lg:top-1/2 lg:mt-0 lg:w-[66%] lg:-translate-y-1/2 lg:scale-[0.9]">
         <HeroVisual />
       </div>
       </div>
+
+      {gateOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 px-4 backdrop-blur-sm" onClick={() => setGateOpen(false)}>
+          <div className="w-full max-w-sm rounded-2xl border border-line bg-white p-6 text-center shadow-float" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setGateOpen(false)} className="ml-auto flex text-muted hover:text-ink" aria-label="Close">
+              <X size={18} />
+            </button>
+            <span className="mx-auto block w-fit"><LogoMark size={40} radius={12} /></span>
+            <h3 className="mt-3 font-serif text-xl text-ink">Almost there</h3>
+            <p className="mx-auto mt-1 max-w-xs text-sm text-muted">
+              Sign in to save your searches and get personalized matches, or keep going as a guest.
+            </p>
+            <p className="mt-3 truncate rounded-lg bg-band px-3 py-2 text-xs text-ink-soft" title={q}>
+              "{q.trim()}"
+            </p>
+            <div className="mt-5 flex flex-col gap-2.5">
+              <button onClick={proceedToSignIn} className="btn-primary w-full justify-center">
+                <LogIn size={16} /> Sign in
+              </button>
+              <button
+                onClick={proceedAsGuest}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-line py-2.5 text-sm font-medium text-ink-soft transition hover:border-brand-300 hover:text-brand-700"
+              >
+                <User size={16} /> Continue as guest
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
 
 /* ------------------------------ Feature band ------------------------------ */
 const FEATURES = [
-  { icon: PiggyBank, tint: 'bg-[#E8F6EF] text-aff', title: 'Affordability', sub: 'Rent trends & forecasts' },
-  { icon: ShieldCheck, tint: 'bg-brand-50 text-brand-600', title: 'Safety', sub: 'Crime & collision analysis' },
-  { icon: TrainFront, tint: 'bg-[#E7F6EE] text-aff', title: 'Commute', sub: 'Travel time to anywhere' },
-  { icon: Coffee, tint: 'bg-[#FCEBF2] text-life', title: 'Lifestyle', sub: 'Amenities & vibe match' },
-  { icon: TrendingUp, tint: 'bg-[#FDF0DF] text-trend', title: 'Trend', sub: 'Up-and-coming areas' },
+  { icon: PiggyBank, tint: 'bg-[#E8F6EF] text-aff', title: 'Affordability', sub: 'Rent vs. your budget' },
+  { icon: ShieldCheck, tint: 'bg-brand-50 text-brand-600', title: 'Safety', sub: 'Locality safety profile' },
+  { icon: TrainFront, tint: 'bg-[#E7F6EE] text-aff', title: 'Commute', sub: 'Live drive time to the hub' },
+  { icon: Coffee, tint: 'bg-[#FCEBF2] text-life', title: 'Lifestyle', sub: 'Amenities within 1.5 km' },
+  { icon: Wind, tint: 'bg-[#FDF0DF] text-trend', title: 'Air Quality', sub: 'Live AQI & forecast' },
 ]
 
 function FeatureBand() {
@@ -212,9 +267,9 @@ function FeatureBand() {
 
 /* ------------------------------ How it works ----------------------------- */
 const STEPS = [
-  { icon: Search, title: 'Tell us what matters', desc: 'Describe your ideal home in plain words — clean air, budget, short commute, safety.' },
+  { icon: Search, title: 'Tell us what matters', desc: 'Describe your ideal home in plain words: clean air, budget, short commute, safety.' },
   { icon: Cpu, title: 'AI agents analyze live data', desc: 'Specialist agents score every locality on air quality, affordability, commute, lifestyle and safety from live Google + BigQuery data.' },
-  { icon: ListChecks, title: 'Get ranked, explainable matches', desc: 'A weighted FitScore ranks localities for you — every number cited, every match explained.' },
+  { icon: ListChecks, title: 'Get ranked, explainable matches', desc: 'A weighted FitScore ranks localities for you, with every number cited and every match explained.' },
 ]
 
 function HowItWorks() {
@@ -241,7 +296,7 @@ function HowItWorks() {
 /* ------------------------------ Data sources ------------------------------ */
 const SOURCES = [
   { icon: Wind, tint: 'bg-[#E8F6EF] text-aff', title: 'Google Air Quality API', desc: 'Live CPCB AQI, dominant pollutants, and 24-hour history per locality.' },
-  { icon: Building2, tint: 'bg-[#FCEBF2] text-life', title: 'Google Places', desc: 'Amenity density — restaurants, gyms, parks, schools and shops nearby.' },
+  { icon: Building2, tint: 'bg-[#FCEBF2] text-life', title: 'Google Places', desc: 'Amenity density: restaurants, gyms, parks, schools and shops nearby.' },
   { icon: Navigation, tint: 'bg-[#EAF1FD] text-commute', title: 'Google Maps Distance Matrix', desc: "Real drive time with traffic to each city's main work hub." },
   { icon: Database, tint: 'bg-brand-50 text-brand-600', title: 'BigQuery + BQML', desc: 'A self-building dataset with ARIMA_PLUS air-quality forecasts.' },
   { icon: Sparkles, tint: 'bg-[#FDF0DF] text-trend', title: 'Gemini on Vertex AI', desc: 'Understands your request, writes the SQL, and explains every match.' },
@@ -252,7 +307,7 @@ function DataSources() {
     <section id="data" className="scroll-mt-24 py-16">
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
         <h2 className="text-center font-serif text-2xl text-ink md:text-3xl">Trusted data, cited sources</h2>
-        <p className="mx-auto mt-2 max-w-xl text-center text-sm text-muted">Every score is grounded in live, verifiable data — no black boxes.</p>
+        <p className="mx-auto mt-2 max-w-xl text-center text-sm text-muted">Every score is grounded in live, verifiable data, with no black boxes.</p>
         <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {SOURCES.map((s) => (
             <div key={s.title} className="flex items-start gap-4 rounded-2xl border border-line bg-white p-5">
@@ -282,7 +337,7 @@ function About() {
       <div className="mx-auto max-w-[1000px] px-6 text-center md:px-10">
         <h2 className="font-serif text-2xl text-ink md:text-3xl">About NestIQ</h2>
         <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-muted">
-          Choosing where to live is one of life's biggest decisions — yet most people make it on gut feel and a
+          Choosing where to live is one of life's biggest decisions, yet most people make it on gut feel and a
           few listings. NestIQ turns rent, air quality, safety, commute, and amenities into one clear, explainable
           FitScore, so you can decide with data. Built air-quality-first, covering metros down to Tier-2 cities like
           Patna and Ranchi.

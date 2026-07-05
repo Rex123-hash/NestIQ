@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
-import { TrainFront, ShieldCheck, DollarSign, IndianRupee, Wind, Heart } from 'lucide-react'
+import { TrainFront, DollarSign, IndianRupee, Wind, Heart } from 'lucide-react'
 import ScoreGauge from '../ui/ScoreGauge.jsx'
 import { useMapsKey, placesPhotoUrl } from '../../lib/gmaps.js'
 import { useCity } from '../../lib/cityStore.jsx'
@@ -71,19 +71,11 @@ export default function NeighborhoodCard({ n, rank }) {
               <b className="font-semibold">{n.commuteMin} min</b>
               <span className="text-muted">to work</span>
             </span>
-            {n.aqi != null ? (
-              <span className="flex items-center gap-1.5 text-ink-soft">
-                <Wind size={15} className="text-aff" />
-                <b className="font-semibold">{n.aqi}</b>
-                <span className="text-muted">AQI · {(n.aqiCategory || '').replace(' air quality', '')}</span>
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-ink-soft">
-                <ShieldCheck size={15} className="text-aff" />
-                <b className="font-semibold">{n.crimeLabel}</b>
-                <span className="text-muted">Crime Index</span>
-              </span>
-            )}
+            <span className="flex items-center gap-1.5 text-ink-soft">
+              <Wind size={15} className="text-aff" />
+              <b className="font-semibold">{n.aqi ?? '—'}</b>
+              <span className="text-muted">AQI{n.aqiCategory ? ` · ${n.aqiCategory.replace(' air quality', '')}` : ''}</span>
+            </span>
             <span className="flex items-center gap-1.5 text-ink-soft">
               <RentIcon size={15} className="text-muted" />
               <b className="font-semibold">{n.rentDisplay || `$${n.rent.toLocaleString()}`}</b>
@@ -98,9 +90,11 @@ export default function NeighborhoodCard({ n, rank }) {
                   {t}
                 </span>
               ))}
-              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-muted">
-                +{n.extraTags} more
-              </span>
+              {n.extraTags > 0 && (
+                <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-muted">
+                  +{n.extraTags} more
+                </span>
+              )}
             </div>
             <div className="flex shrink-0 flex-col items-center">
               <ScoreGauge score={n.fitScore} size={64} />

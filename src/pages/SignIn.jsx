@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { UserRound, ShieldCheck, ArrowLeft } from 'lucide-react'
 import { useAuth, GOOGLE_CLIENT_ID } from '../lib/auth.jsx'
 import { LogoMark } from '../components/ui/Logo.jsx'
 
 export default function SignIn() {
   const navigate = useNavigate()
+  const { state } = useLocation()
   const { signInWithGoogle, signInAsGuest } = useAuth()
   const btnRef = useRef(null)
   const [error, setError] = useState('')
+
+  // If sign-in was triggered mid-search from the home page, resume straight to
+  // results with that query; otherwise land on the home page.
+  const afterAuth = () =>
+    state?.resumeQuery ? navigate('/results', { state: { query: state.resumeQuery } }) : navigate('/')
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return
@@ -18,7 +24,7 @@ export default function SignIn() {
       window.google.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
         callback: (resp) => {
-          if (signInWithGoogle(resp.credential)) navigate('/')
+          if (signInWithGoogle(resp.credential)) afterAuth()
           else setError('Could not read your Google profile. Try again.')
         },
       })
@@ -49,7 +55,7 @@ export default function SignIn() {
 
   const guest = () => {
     signInAsGuest()
-    navigate('/')
+    afterAuth()
   }
 
   return (

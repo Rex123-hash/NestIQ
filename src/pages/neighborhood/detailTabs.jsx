@@ -1,7 +1,5 @@
+import { useState, useEffect } from 'react'
 import {
-  PieChart,
-  Pie,
-  Cell,
   LineChart,
   Line,
   XAxis,
@@ -12,29 +10,23 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import {
-  MapPin,
-  TrendingUp,
-  TrendingDown,
-  Star,
-  Clock,
   Train,
-  Car,
-  Bike,
-  Footprints,
   ShieldCheck,
   Info,
   Lightbulb,
   CircleCheck,
   Building2,
-  Users,
   Sparkles,
   DollarSign,
   Heart,
-  ExternalLink,
   Wind,
+  MessageSquareQuote,
+  ExternalLink,
+  TriangleAlert,
 } from 'lucide-react'
-import { SUBSCORES, WEIGHTS, rentTrend } from '../../data/neighborhoods.js'
-import { RentTrendArea } from '../../components/charts/RentTrendChart.jsx'
+import { SUBSCORES, WEIGHTS, SOURCE_CHIPS, RUBRIC, METHOD_NOTE } from '../../data/neighborhoods.js'
+import { ordinal } from '../../lib/adapt.js'
+import { apiReviews } from '../../lib/api.js'
 import LocalityMap from '../../components/LocalityMap.jsx'
 
 const SUB_COLOR = {
@@ -60,7 +52,7 @@ function Panel({ title, action, children, className = '' }) {
   )
 }
 
-function SubHeader({ title, sub, score, band, why }) {
+function SubHeader({ title, sub, score, band, why, scoreLabel }) {
   return (
     <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
       <div>
@@ -69,7 +61,7 @@ function SubHeader({ title, sub, score, band, why }) {
       </div>
       <div className="flex gap-3 lg:w-[52%]">
         <div className="card flex-1 p-4">
-          <p className="text-xs text-muted">{title.split(' ')[0]} Sub-score</p>
+          <p className="text-xs text-muted">{scoreLabel || `${title.split(' ')[0]} Sub-score`}</p>
           <p className="font-serif text-3xl text-brand-700">
             {score}
             <span className="text-base text-muted">/100</span>
@@ -82,51 +74,99 @@ function SubHeader({ title, sub, score, band, why }) {
         <div className="card flex-1 bg-brand-50/50 p-4">
           <p className="text-sm font-semibold text-ink">Why this score?</p>
           <p className="mt-1 text-xs leading-relaxed text-muted">{why}</p>
-          <button className="mt-2 text-xs font-medium text-brand-700">See calculation →</button>
         </div>
       </div>
     </div>
   )
 }
 
-function BarRow({ label, value, max = 100, suffix = '', color = '#7C5CF6' }) {
+// "2nd-cheapest of 8" style label from a city-rank insight.
+function rankLabel(insight, word) {
+  if (!insight) return 'not yet ranked'
+  return `${ordinal(insight.rank)}-${word} of ${insight.total}`
+}
+
+// Ranked comparison bars: every locality in the city on one metric, with this
+// locality highlighted. Replaces the four identical metric grids that used to
+// echo the same rent/AQI/commute numbers across every tab.
+function PeerBars({ peers, metricKey, lowerBetter, currentId, unit = '', color = '#7C5CF6', format }) {
+  const rows = (peers || []).filter((p) => Number.isFinite(p[metricKey]))
+  if (!rows.length) return <p className="text-sm text-muted">Comparison data unavailable right now.</p>
+  const max = Math.max(...rows.map((p) => p[metricKey])) || 1
+  const sorted = [...rows].sort((a, b) => (lowerBetter ? a[metricKey] - b[metricKey] : b[metricKey] - a[metricKey]))
   return (
-    <div className="flex items-center gap-3 text-sm">
-      <span className="w-40 shrink-0 text-ink-soft">{label}</span>
-      <div className="h-2 flex-1 rounded-full bg-line">
-        <div className="h-2 rounded-full" style={{ width: `${(value / max) * 100}%`, backgroundColor: color }} />
-      </div>
-      <span className="w-14 shrink-0 text-right font-semibold text-ink">
-        {value}
-        {suffix}
-      </span>
+    <div className="space-y-2.5">
+      {sorted.map((p) => {
+        const val = p[metricKey]
+        const isMe = p.id === currentId
+        return (
+          <div key={p.id} className="flex items-center gap-3 text-sm">
+            <span className={`w-32 shrink-0 truncate ${isMe ? 'font-semibold text-ink' : 'text-ink-soft'}`}>{p.short || p.name}</span>
+            <div className="h-2 flex-1 rounded-full bg-line">
+              <div className="h-2 rounded-full" style={{ width: `${(val / max) * 100}%`, backgroundColor: isMe ? color : `${color}55` }} />
+            </div>
+            <span className={`w-20 shrink-0 text-right ${isMe ? 'font-semibold text-ink' : 'text-muted'}`}>
+              {format ? format(val) : val}
+              {unit}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
 
-function MapBox({ label = 'Map', className = '' }) {
-  return (
-    <div className={`relative overflow-hidden rounded-xl border border-line ${className}`}>
-      <div className="absolute inset-0 bg-gradient-to-br from-[#DCEAF3] via-[#EAF0EC] to-[#E7EFE6]" />
-      <svg className="absolute inset-0 h-full w-full text-white/70" fill="none" stroke="currentColor">
-        {[...Array(8)].map((_, i) => (
-          <line key={i} x1="0" y1={i * 40 + 10} x2="600" y2={i * 40 - 10} strokeWidth="1.5" />
-        ))}
-        {[...Array(9)].map((_, i) => (
-          <line key={`v${i}`} x1={i * 60} y1="0" x2={i * 60 - 30} y2="360" strokeWidth="1.5" />
-        ))}
-      </svg>
-      <span className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 text-sm font-semibold text-brand-700">
-        <MapPin size={18} /> {label}
-      </span>
-    </div>
-  )
+const inr = (v) => '₹' + Number(v).toLocaleString('en-IN')
+
+const AMENITY_LABELS = {
+  restaurant: 'Restaurants', cafe: 'Cafes', supermarket: 'Supermarkets',
+  gym: 'Gyms', park: 'Parks', shopping_mall: 'Malls',
 }
 
 /* -------------------------------- Overview -------------------------------- */
 const SUB_ICON = { affordability: DollarSign, safety: ShieldCheck, commute: Train, lifestyle: Heart, air_quality: Wind }
 
+// Plain-language read of the AQI forecast so the prediction is visible, not
+// buried in a chart. Prefers our BigQuery ML (ARIMA_PLUS) series, falls back to
+// the Google forecast. Returns null when there is nothing to predict from.
+function forecastTrend(n) {
+  const series = n.aqiSeries || {}
+  const fc = (series.bqmlForecast?.length ? series.bqmlForecast : series.forecast) || []
+  const now = n.aqi
+  if (!fc.length || !Number.isFinite(now)) return null
+  const vals = fc.map((f) => f.aqi).filter(Number.isFinite)
+  if (!vals.length) return null
+  const peak = Math.max(...vals)
+  const end = vals[vals.length - 1]
+  const delta = end - now
+  const source = series.bqmlForecast?.length ? 'BigQuery ML' : 'Google forecast'
+  // Higher AQI is worse, so a rising value means air quality worsens.
+  let dir = 'holding steady around AQI'
+  if (delta >= 8) dir = 'worsening toward AQI'
+  else if (delta <= -8) dir = 'improving toward AQI'
+  return { peak, end, dir, source }
+}
+
+// Temporal anomaly: is the current AQI a spike (or dip) versus its own recent
+// 24h history? Flags when the latest reading is >=1.5σ off its rolling mean.
+// Free: reuses the live history series already on the page.
+function aqiSpike(n) {
+  const hist = (n.aqiSeries?.history || []).map((h) => h.aqi).filter(Number.isFinite)
+  const now = n.aqi
+  if (hist.length < 6 || !Number.isFinite(now)) return null
+  const mean = hist.reduce((a, b) => a + b, 0) / hist.length
+  const sd = Math.sqrt(hist.reduce((a, b) => a + (b - mean) ** 2, 0) / hist.length)
+  if (sd <= 0) return null
+  const z = (now - mean) / sd
+  if (z >= 1.5) return { dir: 'spiking above', mean: Math.round(mean), z: Math.abs(z) }
+  if (z <= -1.5) return { dir: 'dropping below', mean: Math.round(mean), z: Math.abs(z) }
+  return null
+}
+
 export function OverviewTab({ n }) {
+  const ins = n.insights || { peers: [] }
+  const [showMethod, setShowMethod] = useState(false)
+  const fc = forecastTrend(n)
   const glance = [
     [Building2, 'Median Rent', n.rentDisplay || `$${n.rent.toLocaleString()}`, 'per month'],
     [Wind, 'Air Quality (AQI)', String(n.aqi ?? '—'), n.aqiCategory || ''],
@@ -135,17 +175,11 @@ export function OverviewTab({ n }) {
     [Sparkles, 'Lifestyle Score', `${n.subscores.lifestyle}/100`, ''],
   ]
   const highlights = [
-    `Live air quality: AQI ${n.aqi} — ${n.aqiCategory || ''}`,
+    `Live air quality: AQI ${n.aqi} (${n.aqiCategory || 'live'})`,
     `Around ${n.commuteMin} min to the main work hub by road`,
     `Median rent about ${n.rentDisplay || '$' + n.rent.toLocaleString()}/month`,
     `Air Quality sub-score ${n.subscores.air_quality}/100 vs. the rest of the city`,
     `Amenities & lifestyle score ${n.subscores.lifestyle}/100`,
-  ]
-  const legend = [
-    ['Subway Stations', '#4F86F7'],
-    ['Parks', '#3FB984'],
-    ['High Amenities', '#7C5CF6'],
-    ['Low Crime', '#2FB6A8'],
   ]
 
   return (
@@ -154,7 +188,14 @@ export function OverviewTab({ n }) {
       <div className="grid gap-5 lg:grid-cols-[1.05fr_1fr_1.35fr]">
         <Panel
           title="FitScore Breakdown"
-          action={<button className="flex items-center gap-1 text-xs text-muted"><Info size={13} /> How it works</button>}
+          action={
+            <button
+              onClick={() => setShowMethod((v) => !v)}
+              className="flex items-center gap-1 text-xs text-brand-700 hover:underline"
+            >
+              <Info size={13} /> {showMethod ? 'Hide methodology' : 'How it works'}
+            </button>
+          }
         >
           <div className="space-y-3">
             {SUBSCORES.map((s) => {
@@ -175,8 +216,29 @@ export function OverviewTab({ n }) {
             })}
           </div>
           <p className="mt-4 flex items-center gap-2 rounded-lg bg-[#F0F9F4] px-3 py-2 text-xs text-aff">
-            <ShieldCheck size={14} /> Scores are normalized across all neighborhoods in New York City
+            <ShieldCheck size={14} /> Scores are normalized across all localities in this city
           </p>
+
+          {showMethod && (
+            <div className="mt-4 border-t border-line pt-4">
+              <p className="text-xs font-semibold text-ink">How the FitScore is built</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted">{METHOD_NOTE}</p>
+              <ul className="mt-3 space-y-3">
+                {RUBRIC.map((r) => (
+                  <li key={r.key} className="text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-ink">{r.label}</span>
+                      <span className="rounded-full bg-brand-50 px-2 py-0.5 font-medium text-brand-700">Weight {WEIGHTS[r.key]}%</span>
+                    </div>
+                    <p className="mt-1 leading-relaxed text-muted">{r.why}</p>
+                    <p className="mt-1 flex items-center gap-1 text-[11px] text-ink-soft">
+                      <Info size={11} className="shrink-0" /> Source: {r.source}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Panel>
 
         <Panel title="At a Glance">
@@ -199,7 +261,16 @@ export function OverviewTab({ n }) {
 
       {/* row 2 */}
       <div className="grid gap-5 lg:grid-cols-3">
-        <Panel title="Air Quality — Next 24h">
+        <Panel title="Air Quality · Next 24h">
+          {fc && (
+            <div className="mb-3 flex items-start gap-2 rounded-xl bg-[#FDF6E9] px-3 py-2 text-xs text-ink-soft">
+              <Sparkles size={14} className="mt-0.5 shrink-0 text-trend" />
+              <p>
+                <b className="font-semibold">Predicted:</b> air quality {fc.dir} {fc.end} in the next 24h (peak {fc.peak}).
+                <span className="text-muted"> · {fc.source}</span>
+              </p>
+            </div>
+          )}
           <ResponsiveContainer width="100%" height={190}>
             <LineChart data={n.aqiSeries?.forecast || []} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F6" vertical={false} />
@@ -224,18 +295,19 @@ export function OverviewTab({ n }) {
           <div className="mt-3 flex items-start gap-2 rounded-xl bg-[#FDF6E9] p-3">
             <Lightbulb size={16} className="mt-0.5 shrink-0 text-trend" />
             <p className="text-xs text-ink-soft">
-              <b className="font-semibold">Tip</b> Consider areas near Ditmars Blvd for a quieter vibe or closer to Broadway for more nightlife.
+              <b className="font-semibold">Where it stands</b> {n.name} ranks {rankLabel(ins.aqi, 'cleanest')} for air quality and {rankLabel(ins.rent, 'cheapest')} for rent among localities in this city.
             </p>
           </div>
         </Panel>
 
-        <Panel title="AI Summary (Gemini)">
-          <blockquote className="rounded-xl bg-brand-50/60 p-4 text-sm leading-relaxed text-ink-soft">
-            {n.why || 'Generating an AI summary for this locality…'}
-          </blockquote>
+        <Panel title="Sources & method">
+          <p className="text-sm leading-relaxed text-ink-soft">
+            Every number on this page is normalized across this city's localities from live Google data,
+            then explained by Gemini. See the summary at the top of the page.
+          </p>
           <p className="mt-3 text-xs font-medium text-ink">Sources</p>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            {['Google Air Quality', 'Google Places', 'Google Maps', 'Gemini'].map((s) => (
+            {SOURCE_CHIPS.map((s) => (
               <span key={s} className="chip">{s}</span>
             ))}
           </div>
@@ -248,12 +320,7 @@ export function OverviewTab({ n }) {
 /* ------------------------------ Affordability ----------------------------- */
 export function AffordabilityTab({ n }) {
   const aff = n.subscores.affordability
-  const metrics = [
-    ['Median Rent', n.rentDisplay || `$${n.rent.toLocaleString()}`, 'per month (estimate)'],
-    ['Affordability Sub-score', `${aff}/100`, 'vs. this city'],
-    ['Air Quality (AQI)', String(n.aqi ?? '—'), n.aqiCategory || ''],
-    ['Commute', `${n.commuteMin} min`, 'to city hub'],
-  ]
+  const ins = n.insights || { peers: [] }
   return (
     <div>
       <SubHeader
@@ -261,24 +328,12 @@ export function AffordabilityTab({ n }) {
         sub={`Cost of living and value for money in ${n.name}.`}
         score={aff}
         band={aff >= 75 ? 'Excellent' : aff >= 55 ? 'Good' : 'Moderate'}
-        why={`Median rent here is about ${n.rentDisplay}/month, an affordability score of ${aff}/100 relative to other localities in this city.`}
+        why={`At ${n.rentDisplay}/month, ${n.name} is ${rankLabel(ins.rent, 'cheapest')} in the city, an affordability score of ${aff}/100.`}
       />
-      <div className="mb-5 grid gap-4 rounded-2xl border border-line bg-white p-5 sm:grid-cols-2 lg:grid-cols-4">
-        {metrics.map(([k, v, note]) => (
-          <div key={k}>
-            <p className="text-xs text-muted">{k}</p>
-            <p className="mt-1 text-xl font-semibold text-ink">{v}</p>
-            <p className="mt-0.5 text-xs text-aff">{note}</p>
-          </div>
-        ))}
-      </div>
-      <Panel title="What you're paying for">
-        <p className="text-sm leading-relaxed text-ink-soft">
-          {n.name} has a median rent of about <b>{n.rentDisplay}/month</b>. Weighed against its air
-          quality (AQI {n.aqi}, {n.aqiCategory}) and a ~{n.commuteMin} min commute to the city hub, it
-          scores <b>{aff}/100</b> on affordability versus other localities in this city.
-        </p>
-        <p className="mt-3 flex items-center gap-2 text-xs text-muted">
+      <Panel title="Rent compared with other localities">
+        <p className="mb-4 text-xs text-muted">Lower bars are more affordable · {n.short || n.name} is highlighted.</p>
+        <PeerBars peers={ins.peers} metricKey="rent" lowerBetter currentId={n.id} color="#3FB984" format={inr} />
+        <p className="mt-4 flex items-center gap-2 text-xs text-muted">
           <Info size={13} /> Rent is a market estimate; air quality, amenities and commute are live from Google Maps Platform.
         </p>
       </Panel>
@@ -287,20 +342,9 @@ export function AffordabilityTab({ n }) {
 }
 
 /* --------------------------------- Safety --------------------------------- */
-const crimeTrend = rentTrend.map((d, i) => ({
-  m: d.m,
-  astoria: 44 - i * 1.6,
-  nyc: 78 - i * 1.4,
-}))
-
 export function SafetyTab({ n }) {
   const s = n.subscores.safety
-  const metrics = [
-    ['Safety Sub-score', `${s}/100`, 'vs. this city'],
-    ['Air Quality (AQI)', String(n.aqi ?? '—'), n.aqiCategory || ''],
-    ['Commute', `${n.commuteMin} min`, 'to city hub'],
-    ['Median Rent', n.rentDisplay || `$${n.rent}`, 'per month'],
-  ]
+  const ins = n.insights || { peers: [] }
   return (
     <div>
       <SubHeader
@@ -308,25 +352,13 @@ export function SafetyTab({ n }) {
         sub={`Safety and well-being in ${n.name}.`}
         score={s}
         band={s >= 75 ? 'Excellent' : s >= 55 ? 'Good' : 'Moderate'}
-        why={`${n.name} has a safety index of ${s}/100 for this city, combining locality profile with live environmental health.`}
+        why={`${n.name} is ${rankLabel(ins.safety, 'safest')} in the city, combining locality profile with live environmental health.`}
       />
-      <div className="mb-5 grid gap-4 rounded-2xl border border-line bg-white p-5 sm:grid-cols-2 lg:grid-cols-4">
-        {metrics.map(([k, v, note]) => (
-          <div key={k}>
-            <p className="text-xs text-muted">{k}</p>
-            <p className="mt-1 text-xl font-semibold text-ink">{v}</p>
-            <p className="mt-0.5 text-xs text-aff">{note}</p>
-          </div>
-        ))}
-      </div>
-      <Panel title="How we assess safety">
-        <p className="text-sm leading-relaxed text-ink-soft">
-          Granular, locality-level crime data isn't openly published for Indian cities, so NestIQ's
-          safety index blends the locality profile with live environmental health. Air quality here is{' '}
-          <b>{n.aqi} ({n.aqiCategory})</b> — {aqiAdvice(n.aqi ?? 0)}
-        </p>
-        <p className="mt-3 flex items-center gap-2 text-xs text-muted">
-          <Info size={13} /> Air quality is live from Google Maps Platform; open locality-level crime data isn't available for Indian cities.
+      <Panel title="Safety compared with other localities">
+        <p className="mb-4 text-xs text-muted">Higher bars are safer · {n.short || n.name} is highlighted.</p>
+        <PeerBars peers={ins.peers} metricKey="safety" currentId={n.id} color="#7C5CF6" unit="/100" />
+        <p className="mt-4 flex items-center gap-2 text-xs text-muted">
+          <Info size={13} /> Granular crime data isn't openly published for Indian cities, so this index blends the locality profile with live air quality. Here it's <b className="mx-1">AQI {n.aqi} ({n.aqiCategory})</b>. {aqiAdvice(n.aqi ?? 0)}
         </p>
       </Panel>
     </div>
@@ -336,12 +368,7 @@ export function SafetyTab({ n }) {
 /* -------------------------------- Commute --------------------------------- */
 export function CommuteTab({ n }) {
   const c = n.subscores.commute
-  const metrics = [
-    ['Avg Commute', `${n.commuteMin} min`, 'to city hub (driving)', Clock],
-    ['Commute Sub-score', `${c}/100`, 'vs. this city', Train],
-    ['Amenities ≤1.5km', String(n.amenity_count ?? '—'), 'shops, food, gyms', Bike],
-    ['Median Rent', n.rentDisplay || `$${n.rent}`, 'per month', Car],
-  ]
+  const ins = n.insights || { peers: [] }
   return (
     <div>
       <SubHeader
@@ -349,29 +376,17 @@ export function CommuteTab({ n }) {
         sub={`Getting around from ${n.name}.`}
         score={c}
         band={c >= 75 ? 'Excellent' : c >= 55 ? 'Good' : 'Moderate'}
-        why={`Driving time to the city's main hub is about ${n.commuteMin} minutes, a commute score of ${c}/100.`}
+        why={`At about ${n.commuteMin} min to the city's main hub, ${n.name} is ${rankLabel(ins.commute, 'fastest')} in the city, a commute score of ${c}/100.`}
       />
-      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {metrics.map(([k, v, note, Icon]) => (
-          <div key={k} className="card p-4">
-            <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand-50 text-brand-600"><Icon size={16} /></span>
-            <p className="mt-3 text-xs text-muted">{k}</p>
-            <p className="text-xl font-semibold text-ink">{v}</p>
-            <p className="text-xs text-aff">{note}</p>
-          </div>
-        ))}
-      </div>
       <div className="grid gap-5 lg:grid-cols-2">
-        <LocalityMap items={[n]} zoom={13} className="min-h-[300px]" />
-        <Panel title="Commute details">
-          <p className="text-sm leading-relaxed text-ink-soft">
-            Estimated <b>{n.commuteMin} min</b> by road to the city's main work hub, based on live Google
-            Maps traffic. Actual times vary with time of day and transport mode.
-          </p>
-          <p className="mt-3 flex items-center gap-2 text-xs text-muted">
-            <Info size={13} /> Live commute from Google Maps Platform Distance Matrix API.
+        <Panel title="Commute compared with other localities">
+          <p className="mb-4 text-xs text-muted">Shorter bars are quicker · {n.short || n.name} is highlighted.</p>
+          <PeerBars peers={ins.peers} metricKey="commute" lowerBetter currentId={n.id} color="#4F86F7" unit=" min" />
+          <p className="mt-4 flex items-center gap-2 text-xs text-muted">
+            <Info size={13} /> Live driving time to the city work hub from Google Maps Distance Matrix (varies with time of day).
           </p>
         </Panel>
+        <LocalityMap items={[n]} zoom={13} className="min-h-[320px]" />
       </div>
     </div>
   )
@@ -380,12 +395,7 @@ export function CommuteTab({ n }) {
 /* -------------------------------- Lifestyle ------------------------------- */
 export function LifestyleTab({ n }) {
   const l = n.subscores.lifestyle
-  const metrics = [
-    ['Amenities ≤1.5km', String(n.amenity_count ?? '—'), 'restaurants, cafes, gyms, parks'],
-    ['Lifestyle Sub-score', `${l}/100`, 'vs. this city'],
-    ['Air Quality (AQI)', String(n.aqi ?? '—'), n.aqiCategory || ''],
-    ['Median Rent', n.rentDisplay || `$${n.rent}`, 'per month'],
-  ]
+  const ins = n.insights || { peers: [] }
   return (
     <div>
       <SubHeader
@@ -393,86 +403,28 @@ export function LifestyleTab({ n }) {
         sub={`Amenities and daily life in ${n.name}.`}
         score={l}
         band={l >= 75 ? 'Excellent' : l >= 55 ? 'Good' : 'Moderate'}
-        why={`${n.name} has around ${n.amenity_count} key amenities within 1.5 km, a lifestyle score of ${l}/100.`}
+        why={`${n.name} has about ${n.amenity_count} key amenities within 1.5 km, ${rankLabel(ins.amenity, 'busiest')} in the city, a lifestyle score of ${l}/100.`}
       />
-      <div className="mb-5 grid gap-4 rounded-2xl border border-line bg-white p-5 sm:grid-cols-2 lg:grid-cols-4">
-        {metrics.map(([k, v, note]) => (
-          <div key={k}>
-            <p className="text-xs text-muted">{k}</p>
-            <p className="mt-1 text-xl font-semibold text-ink">{v}</p>
-            <p className="mt-0.5 text-xs text-aff">{note}</p>
-          </div>
-        ))}
-      </div>
       <div className="grid gap-5 lg:grid-cols-2">
-        <LocalityMap items={[n]} zoom={14} className="min-h-[280px]" />
-        <Panel title="Amenities nearby">
-          <p className="text-sm leading-relaxed text-ink-soft">
-            NestIQ counts restaurants, cafes, supermarkets, gyms, parks and malls within ~1.5 km using
-            live Google Places data — {n.name} has about <b>{n.amenity_count}</b>.
+        <Panel title="Amenities compared with other localities">
+          {n.amenity_breakdown && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              {Object.entries(n.amenity_breakdown)
+                .filter(([, c]) => c > 0)
+                .map(([k, c]) => (
+                  <span key={k} className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700">
+                    {c} {AMENITY_LABELS[k] || k}
+                  </span>
+                ))}
+            </div>
+          )}
+          <p className="mb-4 text-xs text-muted">Total within 1.5 km vs. the rest of the city · {n.short || n.name} is highlighted.</p>
+          <PeerBars peers={ins.peers} metricKey="amenity" currentId={n.id} color="#EC6FA6" />
+          <p className="mt-4 flex items-center gap-2 text-xs text-muted">
+            <Info size={13} /> Amenity counts are live from Google Maps Platform Places API.
           </p>
-          <p className="mt-3 flex items-center gap-2 text-xs text-muted">
-            <Info size={13} /> Amenities are live from Google Maps Platform Places API.
-          </p>
         </Panel>
-      </div>
-    </div>
-  )
-}
-
-/* --------------------------------- Trend ---------------------------------- */
-export function TrendTab({ n }) {
-  const kpis = [
-    ['Median Rent (1 bed)', `$${n.rent.toLocaleString()}`, '-2.3% vs last year', false],
-    ['Median Home Value', '$870,000', '+6.8% vs last year', true],
-    ['Crime Index', '23% Lower', '-4% vs last year', false],
-    ['Avg Commute Time', `${n.commuteMin} min`, '-2 min vs last year', false],
-    ['Lifestyle Score', '82/100', '+3 pts vs last year', true],
-  ]
-  const trendingUp = [
-    ['Waterfront Activities', '+28%'],
-    ['Local Businesses', '+22%'],
-    ['Cycling Commutes', '+18%'],
-    ['Park Visits', '+16%'],
-    ['Public Transit Usage', '+12%'],
-  ]
-  return (
-    <div>
-      <SubHeader
-        title="Trend Overview"
-        sub={`See how key factors in ${n.name} have changed over time.`}
-        score={n.subscores.trend}
-        band="Improving"
-        why="Rents are stabilizing while home values, lifestyle and safety scores are all trending upward."
-      />
-      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {kpis.map(([k, v, note, up]) => (
-          <div key={k} className="card p-4">
-            <p className="text-xs text-muted">{k}</p>
-            <p className="mt-1 text-lg font-semibold text-ink">{v}</p>
-            <p className={`mt-0.5 flex items-center gap-1 text-xs ${up ? 'text-aff' : 'text-[#E5484D]'}`}>
-              {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-              {note}
-            </p>
-          </div>
-        ))}
-      </div>
-      <div className="grid gap-5 lg:grid-cols-3">
-        <Panel title="Median Rent Trend (1 Bed)" className="lg:col-span-2">
-          <RentTrendArea height={220} />
-          <p className="mt-2 text-xs text-muted">Source: StreetEasy, Zillow</p>
-        </Panel>
-        <Panel title="What's Trending Up">
-          <ol className="space-y-2.5">
-            {trendingUp.map(([label, pct], i) => (
-              <li key={label} className="flex items-center gap-3 text-sm">
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700">{i + 1}</span>
-                <span className="flex-1 text-ink-soft">{label}</span>
-                <span className="font-semibold text-aff">{pct}</span>
-              </li>
-            ))}
-          </ol>
-        </Panel>
+        <LocalityMap items={[n]} zoom={14} className="min-h-[320px]" />
       </div>
     </div>
   )
@@ -489,10 +441,10 @@ function aqiBand(aqi) {
 }
 
 function aqiAdvice(aqi) {
-  if (aqi <= 100) return 'Air quality is acceptable. Outdoor activity is fine for most people.'
+  if (aqi <= 100) return 'Air quality is acceptable and outdoor activity is fine for most people.'
   if (aqi <= 200) return 'Sensitive groups (children, elderly, asthma) should limit prolonged outdoor exertion.'
   if (aqi <= 300) return 'Everyone may feel effects; sensitive groups should avoid outdoor exertion. Consider an N95 mask.'
-  return 'Health alert — avoid outdoor activity, keep windows shut, and use an air purifier and N95 mask.'
+  return 'Health alert: avoid outdoor activity, keep windows shut, and use an air purifier and N95 mask.'
 }
 
 export function AirQualityTab({ n }) {
@@ -510,6 +462,7 @@ export function AirQualityTab({ n }) {
   ]
   const aqi = n.aqi ?? 0
   const [band, color] = aqiBand(aqi)
+  const spike = aqiSpike(n)
   const forecastVals = (bqml.length ? bqml : series.forecast || []).map((f) => f.aqi)
   const peak = forecastVals.length ? Math.max(...forecastVals) : aqi
   const tiles = [
@@ -527,6 +480,14 @@ export function AirQualityTab({ n }) {
         band={band}
         why={`${n.name} currently reports a CPCB AQI of ${aqi} (${band}). ${aqiAdvice(aqi)}`}
       />
+      {spike && (
+        <div className="mb-5 flex items-start gap-2 rounded-xl bg-[#FDECEC] px-4 py-3 text-sm text-red-700">
+          <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+          <p>
+            <b className="font-semibold">Anomaly detected:</b> the current reading (AQI {aqi}) is {spike.dir} its last-24h average of {spike.mean}, {spike.z.toFixed(1)}σ out of the normal range.
+          </p>
+        </div>
+      )}
       <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {tiles.map(([k, v, note]) => (
           <div key={k} className="card p-4">
@@ -537,7 +498,7 @@ export function AirQualityTab({ n }) {
         ))}
       </div>
       <div className="grid gap-5 lg:grid-cols-3">
-        <Panel title="AQI — last 24h and next 24h forecast" className="lg:col-span-2">
+        <Panel title="AQI · last 24h and next 24h forecast" className="lg:col-span-2">
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F6" vertical={false} />
@@ -570,49 +531,123 @@ export function AirQualityTab({ n }) {
   )
 }
 
-/* --------------------------- Community / AI Insights ---------------------- */
+/* --------------------------- Community: reviews + ranks ------------------- */
+function ReviewsPanel({ n }) {
+  const [reviews, setReviews] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    setReviews(null)
+    apiReviews(n.id, n.cityId).then((d) => {
+      if (!alive) return
+      setReviews(d)
+      setLoading(false)
+    })
+    return () => {
+      alive = false
+    }
+  }, [n.id, n.cityId])
+
+  return (
+    <Panel
+      title={
+        <span className="flex items-center gap-1.5">
+          <MessageSquareQuote size={15} className="text-brand-600" /> What residents say online
+        </span>
+      }
+      className="lg:col-span-2"
+    >
+      {loading ? (
+        <div className="space-y-2">
+          <div className="h-3 w-full animate-pulse rounded bg-gray-100" />
+          <div className="h-3 w-11/12 animate-pulse rounded bg-gray-100" />
+          <div className="h-3 w-4/5 animate-pulse rounded bg-gray-100" />
+          <p className="pt-1 text-xs text-muted">Searching the web with Gemini…</p>
+        </div>
+      ) : reviews?.summary ? (
+        <>
+          <blockquote className="rounded-xl bg-brand-50/60 p-4 text-sm leading-relaxed text-ink-soft">
+            {reviews.summary}
+          </blockquote>
+          {reviews.citations?.length > 0 && (
+            <>
+              <p className="mt-3 text-xs font-medium text-ink">Sources found on the web</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {reviews.citations.map((c) => (
+                  <a
+                    key={c.uri}
+                    href={c.uri}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex max-w-[220px] items-center gap-1 truncate rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-ink-soft transition hover:bg-brand-50 hover:text-brand-700"
+                  >
+                    <ExternalLink size={12} className="shrink-0" />
+                    <span className="truncate">{c.title}</span>
+                  </a>
+                ))}
+              </div>
+            </>
+          )}
+          <p className="mt-3 flex items-center gap-2 text-xs text-muted">
+            <Info size={13} /> AI summary of live web results (Gemini + Google Search grounding). Sentiment reflects public posts, not NestIQ.
+          </p>
+        </>
+      ) : (
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <Lightbulb size={15} className="shrink-0 text-trend" />
+          Not much public discussion found for this locality yet. The hard live signals on the other tabs tell the fuller story.
+        </p>
+      )}
+    </Panel>
+  )
+}
+
 export function CommunityTab({ n }) {
-  const glance = [
-    ['Air Quality', `AQI ${n.aqi} · ${n.aqiCategory || ''}`],
-    ['Median Rent', `${n.rentDisplay}/mo`],
-    ['Commute', `${n.commuteMin} min to hub`],
-    ['Amenities ≤1.5km', String(n.amenity_count ?? '—')],
-    ['FitScore', `${n.fitScore}/100`],
+  const ins = n.insights || { peers: [] }
+  const compare = [
+    ['Affordability', rankLabel(ins.rent, 'cheapest'), '#3FB984', ins.rent],
+    ['Air Quality', rankLabel(ins.aqi, 'cleanest'), '#F5A63B', ins.aqi],
+    ['Commute', rankLabel(ins.commute, 'fastest'), '#4F86F7', ins.commute],
+    ['Safety', rankLabel(ins.safety, 'safest'), '#7C5CF6', ins.safety],
+    ['Lifestyle', rankLabel(ins.amenity, 'busiest'), '#EC6FA6', ins.amenity],
   ]
   return (
     <div>
       <SubHeader
-        title="AI Insights"
-        sub={`What the live data says about ${n.name}.`}
+        title="Community Insights"
+        sub={`What residents say about ${n.name}, and where it ranks in the city.`}
         score={n.fitScore ?? 0}
         band={n.match || ''}
-        why="An AI-generated summary grounded in live air-quality, rent, commute and amenity data."
+        scoreLabel="FitScore"
+        why="Live web sentiment plus a live ranking of this locality against every other one in the city."
       />
       <div className="grid gap-5 lg:grid-cols-3">
-        <Panel title="NestIQ AI Summary (Gemini)" className="lg:col-span-2">
-          <blockquote className="rounded-xl bg-brand-50/60 p-4 text-sm leading-relaxed text-ink-soft">
-            {n.why || 'Generating an AI summary for this locality…'}
-          </blockquote>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-            {['Google Air Quality', 'Google Places', 'Google Maps', 'Gemini'].map((s) => (
-              <span key={s} className="chip">{s}</span>
-            ))}
+        <ReviewsPanel n={n} />
+
+        <Panel title={`How ${n.short || n.name} ranks`}>
+          <div className="space-y-4">
+            {compare.map(([label, text, color, insight]) => {
+              const pct = insight ? ((insight.total - insight.rank + 1) / insight.total) * 100 : 0
+              return (
+                <div key={label} className="text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-ink-soft">{label}</span>
+                    <span className="text-xs font-medium text-ink">{text}</span>
+                  </div>
+                  <div className="mt-1.5 h-2 w-full rounded-full bg-line">
+                    <div className="h-2 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        </Panel>
-        <Panel title="At a Glance">
-          <dl className="space-y-3 text-sm">
-            {glance.map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between border-b border-line/70 pb-2 last:border-0">
-                <dt className="text-muted">{k}</dt>
-                <dd className="font-semibold text-ink">{v}</dd>
-              </div>
-            ))}
-          </dl>
+          <p className="mt-4 flex items-center gap-2 text-xs text-muted">
+            <Info size={13} /> Fuller bar = better rank within the city.
+          </p>
         </Panel>
       </div>
-      <p className="mt-4 flex items-center gap-2 text-xs text-muted">
-        <Lightbulb size={13} /> Locality-level resident reviews aren't openly available for Indian cities, so NestIQ focuses on hard live signals summarised by AI.
-      </p>
     </div>
   )
 }

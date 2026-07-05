@@ -25,9 +25,31 @@ describe('adaptNeighborhood', () => {
     expect(n.tags).toContain('Clean Air')
   })
 
+  it('never repeats a word between the vibe line and the feature chips', () => {
+    const n = adaptNeighborhood(locality())
+    for (const chip of n.amenityTags) {
+      expect(n.descriptors).not.toContain(chip)
+    }
+  })
+
+  it('reports an honest +N more count from real leftover tags', () => {
+    // 4 feature tags qualify (Clean Air, Safe, Affordable, Quick Commute)
+    // -> 3 shown as chips, extraTags must be exactly 1.
+    const n = adaptNeighborhood(locality())
+    expect(n.amenityTags).toHaveLength(3)
+    expect(n.extraTags).toBe(1)
+  })
+
+  it('hides the +N chip when every tag fits on the card', () => {
+    const weak = { affordability: 45, safety: 45, commute: 45, lifestyle: 45, air_quality: 45 }
+    expect(adaptNeighborhood(locality({ subscores: weak })).extraTags).toBe(0)
+  })
+
   it('falls back to neutral tags when nothing stands out', () => {
     const weak = { affordability: 45, safety: 45, commute: 45, lifestyle: 45, air_quality: 45 }
-    expect(adaptNeighborhood(locality({ subscores: weak })).tags).toEqual(['Balanced', 'Diverse'])
+    const n = adaptNeighborhood(locality({ subscores: weak }))
+    expect(n.amenityTags).toEqual(['All-rounder'])
+    expect(n.descriptors).toBe('Balanced')
   })
 
   it('exposes AQI and commute for the card badges', () => {
@@ -41,6 +63,27 @@ describe('adaptList', () => {
   it('returns empty for empty input', () => {
     expect(adaptList([])).toEqual([])
     expect(adaptList(null)).toEqual([])
+  })
+
+  it('suppresses tags from a pillar that cannot differentiate localities', () => {
+    // lifestyle is identical everywhere (saturated amenities signal), so no
+    // card should claim Quiet or Lively from it.
+    const flatLifestyle = (id, lat) =>
+      locality({ id, lat, subscores: { ...locality().subscores, lifestyle: 40 } })
+    const list = adaptList([flatLifestyle('a', 28.5), flatLifestyle('b', 28.7)])
+    for (const n of list) {
+      expect(n.descriptors).not.toContain('Quiet')
+      expect(n.descriptors).not.toContain('Lively')
+    }
+  })
+
+  it('keeps tags from pillars that do vary across the list', () => {
+    const list = adaptList([
+      locality({ id: 'a', lat: 28.5, subscores: { ...locality().subscores, air_quality: 90 } }),
+      locality({ id: 'b', lat: 28.7, subscores: { ...locality().subscores, air_quality: 40 } }),
+    ])
+    expect(list[0].tags).toContain('Clean Air')
+    expect(list[1].tags).not.toContain('Clean Air')
   })
 
   it('computes map pins inside the visible frame for every locality', () => {

@@ -1,18 +1,17 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useLocation, Link } from 'react-router-dom'
-import { LayoutList, Map as MapIcon, SlidersHorizontal, ChevronDown, ChevronUp, CircleCheck } from 'lucide-react'
+import { LayoutList, Map as MapIcon, SlidersHorizontal, ChevronDown, ChevronUp, CircleCheck, TriangleAlert } from 'lucide-react'
 import AppTopbar from '../components/layout/AppTopbar.jsx'
 import NeighborhoodCard from '../components/results/NeighborhoodCard.jsx'
 import ResultsMap from '../components/results/ResultsMap.jsx'
 import FiltersPanel from '../components/results/FiltersPanel.jsx'
 import AgentProgress from '../components/results/AgentProgress.jsx'
-import { preferences as defaultPrefs } from '../data/neighborhoods.js'
+import { preferences as defaultPrefs, WEIGHTS as INDIA_DEFAULT, SUBSCORES } from '../data/neighborhoods.js'
 import { streamSearch, apiNeighborhoods } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
 import { useCity } from '../lib/cityStore.jsx'
 
-const INDIA_DEFAULT = { affordability: 20, safety: 20, commute: 20, lifestyle: 15, air_quality: 25 }
-const PILLARS = ['affordability', 'safety', 'commute', 'lifestyle', 'air_quality']
+const PILLARS = SUBSCORES.map((s) => s.key)
 
 const SOURCES_INDIA = [
   { name: 'Google Air Quality API (CPCB AQI)', color: '#3FB984' },
@@ -26,17 +25,65 @@ const SOURCES_NYC = [
   { name: 'Google Maps & Places', color: '#EA4335' },
   { name: 'Reddit Community Insights', color: '#FF4500' },
 ]
-const WHY = [
-  'Strong balance of air quality, affordability, and commute',
-  'Backed by live Google data on AQI, amenities, and drive times',
-  'Ranked by how well it fits the priorities you set',
-]
+
+const ordinal = (n) => {
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return n + (s[(v - 20) % 10] || s[v] || s[0])
+}
+
+// Rank of `val` among the set for `key` (1 = best). Lower is better for
+// rent/aqi/commute; higher is better for amenities/safety.
+function rankOf(set, key, val, lowerBetter) {
+  const vals = set.map((x) => x[key]).filter(Number.isFinite)
+  if (!vals.length || !Number.isFinite(val)) return null
+  const ahead = lowerBetter ? vals.filter((v) => v < val).length : vals.filter((v) => v > val).length
+  return { rank: ahead + 1, total: vals.length }
+}
+
+// Real, data-derived reasons the top match ranks first — never generic filler.
+function whyBullets(top, set, budget) {
+  if (!top) return []
+  const n = set.length
+  const out = []
+  if (Number.isFinite(top.aqi)) {
+    const r = rankOf(set, 'aqi', top.aqi, true)
+    out.push(
+      r?.rank === 1
+        ? `Cleanest air of your ${n} matches, AQI ${top.aqi}${top.aqiCategory ? ` (${top.aqiCategory})` : ''}`
+        : `${ordinal(r.rank)}-cleanest air of ${n}, AQI ${top.aqi}`,
+    )
+  }
+  if (Number.isFinite(top.rent)) {
+    const r = rankOf(set, 'rent', top.rent, true)
+    const rent = `₹${top.rent.toLocaleString('en-IN')}/mo`
+    out.push(
+      budget && top.rent <= budget
+        ? `${rent}, ₹${(budget - top.rent).toLocaleString('en-IN')} under your budget`
+        : `${rent}, ${ordinal(r.rank)}-lowest rent of ${n}`,
+    )
+  }
+  if (Number.isFinite(top.commuteMin)) {
+    const r = rankOf(set, 'commuteMin', top.commuteMin, true)
+    out.push(`${top.commuteMin} min to the city hub, ${ordinal(r.rank)}-fastest of ${n}`)
+  }
+  if (Number.isFinite(top.amenity_count)) {
+    out.push(`${top.amenity_count} amenities within 1.5 km of the centre`)
+  }
+  return out.slice(0, 3)
+}
+
+const PILLAR_LABEL = Object.fromEntries(SUBSCORES.map((s) => [s.key, s.label]))
 
 function prioritiesText(weights) {
   if (!weights) return defaultPrefs.priorities
-  const label = (v) => (v >= 70 ? 'high' : v >= 40 ? 'medium' : 'low')
+  // Rank importance relative to the strongest weight so the default profile
+  // (which never sums to 100) doesn't read as "everything is low".
+  const max = Math.max(...Object.values(weights), 1)
+  const label = (v) => (v / max >= 0.85 ? 'high' : v / max >= 0.55 ? 'medium' : 'low')
   return Object.entries(weights)
-    .map(([k, v]) => `${k[0].toUpperCase() + k.slice(1)} (${label(v)})`)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${PILLAR_LABEL[k] || k} (${label(v)})`)
     .join(', ')
 }
 
@@ -172,6 +219,12 @@ export default function Results() {
   }, [state, city])
 
   const bounds = useMemo(() => computeBounds(items), [items])
+  // Localities the backend flagged as statistical outliers (>=1.5σ from the
+  // city average on a metric). Directly answers the PS "identify anomalies" ask.
+  const anomalyItems = useMemo(
+    () => items.filter((n) => (n.anomalies || []).length).map((n) => ({ id: n.id, name: n.name, flags: n.anomalies })),
+    [items],
+  )
   const weightsDirty = useMemo(
     () => PILLARS.some((k) => (weights[k] || 0) !== (baseWeights[k] || 0)),
     [weights, baseWeights],
@@ -198,6 +251,7 @@ export default function Results() {
 
   const visible = showAll ? filtered : filtered.slice(0, 5)
   const top = filtered[0] || items[0]
+  const why = whyBullets(top, filtered.length ? filtered : items, Number(prefs.budget))
   const sources = isNYC ? SOURCES_NYC : SOURCES_INDIA
   const filtersOn = weightsDirty || (limits && (limits.maxRent < bounds.maxRent || limits.maxAqi < bounds.maxAqi || limits.maxCommute < bounds.maxCommute || limits.minFit > 0))
 
@@ -328,6 +382,34 @@ export default function Results() {
           />
         )}
 
+        {!loading && anomalyItems.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-line bg-white p-5">
+            <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
+              <TriangleAlert size={16} className="text-trend" /> Anomalies detected
+              <span className="text-xs font-normal text-muted">localities that break the city pattern</span>
+            </h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {anomalyItems.map(({ id, name, flags }) => (
+                <Link key={id} to={`/neighborhood/${id}`} className="rounded-xl border border-line p-3 transition hover:border-brand-200">
+                  <p className="text-sm font-semibold text-ink">{name}</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {flags.map((a) => (
+                      <span
+                        key={a.label}
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${a.kind === 'good' ? 'bg-[#EAF7F0] text-aff' : 'bg-[#FDECEC] text-red-600'}`}
+                      >
+                        {a.label}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-muted">{flags[0].detail}</p>
+                </Link>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-muted">Flagged automatically when a metric sits 1.5σ or more from the city average.</p>
+          </div>
+        )}
+
         {view === 'map' ? (
           <div className="mt-4">
             <ResultsMap items={visible} loading={loading} />
@@ -345,7 +427,7 @@ export default function Results() {
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-brand-700">Why {top?.name || 'your top match'}?</h3>
             <ul className="mt-3 space-y-2">
-              {WHY.map((w) => (
+              {why.map((w) => (
                 <li key={w} className="flex items-start gap-2 text-sm text-ink-soft">
                   <CircleCheck size={16} className="mt-0.5 shrink-0 text-aff" />
                   {w}

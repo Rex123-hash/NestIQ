@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useParams, NavLink } from 'react-router-dom'
-import { Bookmark, LayoutGrid, PiggyBank, ShieldCheck, TrainFront, Heart, Wind, Users, Dot } from 'lucide-react'
+import { Bookmark, LayoutGrid, PiggyBank, ShieldCheck, TrainFront, Heart, Wind, Users, Dot, TriangleAlert } from 'lucide-react'
 import AppTopbar from '../../components/layout/AppTopbar.jsx'
 import ScoreGauge from '../../components/ui/ScoreGauge.jsx'
-import { byId } from '../../data/neighborhoods.js'
-import { apiNeighborhood } from '../../lib/api.js'
-import { adaptNeighborhood } from '../../lib/adapt.js'
+import { apiNeighborhood, apiNeighborhoods } from '../../lib/api.js'
+import { adaptNeighborhood, cityInsights } from '../../lib/adapt.js'
 import { useCity } from '../../lib/cityStore.jsx'
 import { useSaved, toggleSaved } from '../../lib/saved.js'
 import { cn } from '../../lib/cn.js'
@@ -41,15 +40,25 @@ const TAB_CONTENT = {
 export default function NeighborhoodDetail() {
   const { id, tab } = useParams()
   const { city } = useCity()
-  const [n, setN] = useState(() => byId(id) || null)
+  const [n, setN] = useState(null)
+  const [showWhy, setShowWhy] = useState(false)
   const saved = useSaved().some((x) => x.id === id)
 
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const d = await apiNeighborhood(id, city)
+      // The locality itself (with AI summary + AQI series) plus its city peers,
+      // so the tabs can rank it against the rest of the city.
+      const [d, peers] = await Promise.all([apiNeighborhood(id, city), apiNeighborhoods(city)])
       if (!alive) return
-      setN(d ? adaptNeighborhood(d) : byId(id) || null)
+      if (!d) {
+        setN(null)
+        return
+      }
+      const adapted = adaptNeighborhood(d)
+      adapted.insights = cityInsights(peers || [], id)
+      adapted.cityId = city
+      setN(adapted)
     })()
     return () => {
       alive = false
@@ -91,6 +100,19 @@ export default function NeighborhoodDetail() {
                 </span>
               ))}
             </div>
+            {n.anomalies?.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {n.anomalies.map((a) => (
+                  <span
+                    key={a.label}
+                    title={a.detail}
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${a.kind === 'good' ? 'bg-[#EAF7F0] text-aff' : 'bg-[#FDECEC] text-red-600'}`}
+                  >
+                    <TriangleAlert size={12} /> {a.label}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row lg:w-[52%]">
@@ -105,10 +127,30 @@ export default function NeighborhoodDetail() {
             </div>
             <div className="card flex-1 bg-brand-50/50 p-4">
               <p className="text-sm font-semibold text-ink">Why this match?</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted">{n.why}</p>
-              <button className="mt-2 text-xs font-medium text-brand-700">See full explanation →</button>
+              <p
+                className="mt-1 text-xs leading-relaxed text-muted"
+                style={
+                  showWhy
+                    ? undefined
+                    : { display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }
+                }
+              >
+                {n.why}
+              </p>
+              <button onClick={() => setShowWhy((v) => !v)} className="mt-2 text-xs font-medium text-brand-700">
+                {showWhy ? 'Show less' : 'See full explanation →'}
+              </button>
             </div>
           </div>
+        </div>
+
+        {/* provenance trust line: every metric traces to a live source */}
+        <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-line bg-[#F0F9F4] px-4 py-2.5 text-xs text-ink-soft">
+          <ShieldCheck size={14} className="shrink-0 text-aff" />
+          <span className="font-semibold text-ink">Every metric here traces to a live source.</span>
+          <span className="text-muted">
+            Air quality, amenities and commute are live from Google Maps Platform; Gemini only explains the numbers, it never invents them.
+          </span>
         </div>
 
         {/* tab bar */}

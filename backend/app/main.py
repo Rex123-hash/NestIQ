@@ -26,12 +26,48 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 NYC = "new-york"
 DEFAULT_CITY = "delhi-ncr"
 
+# Log a BigQuery snapshot only once per fresh city build, not on every request.
+_last_logged: dict[str, float] = {}
+_last_logged_lock = threading.Lock()
+
+# Cache the assembled detail payload (Gemini explanation + AQI history/forecast
+# + BQML) per locality so repeat views don't re-pay those calls. Matches the
+# 30-min city-data TTL; AQI only changes hourly.
+_detail_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+_DETAIL_TTL = 1800
+
+# Web-review summaries are grounded Google-Search calls; cache 24h per locality
+# so we make at most one such (billable) call per locality per day.
+_reviews_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+_REVIEWS_TTL = 86400
+
+
+def maybe_log_snapshot(city: str, results: list[dict]) -> None:
+    """Snapshot to BigQuery only when this city's data was freshly rebuilt."""
+    if city == NYC or not results:
+        return
+    ts = maps.built_at(city)
+    if ts is None:
+        return
+    with _last_logged_lock:
+        if _last_logged.get(city) == ts:
+            return
+        _last_logged[city] = ts
+    bq_india.log_snapshot_safe(city, results)
+
 
 @app.on_event("startup")
 def warm_default_city_cache():
-    # Pre-fetch the default city's Google signals so the first user request
-    # after a (re)start doesn't pay the full fan-out.
-    threading.Thread(target=lambda: maps.build_city_features(DEFAULT_CITY), daemon=True).start()
+    # Pre-fetch the default city's Google signals and spin up the Vertex client
+    # so the first user request after a (re)start doesn't pay cold-start costs.
+    def warm():
+        maps.build_city_features(DEFAULT_CITY)
+        try:
+            gemini.parse_query("warmup: flat with clean air")
+        except Exception as e:  # noqa: BLE001
+            print(f"[warmup] gemini skipped: {e}")
+
+    threading.Thread(target=warm, daemon=True).start()
 
 
 def all_cities():
@@ -56,7 +92,7 @@ def rank(city: str, weights: dict, budget: float | None) -> list[dict]:
 def note_for(city: str, r: dict) -> str:
     if city == NYC:
         return f"a {r.get('forecast_pct', 0)}% predicted 12-month rent trend"
-    return f"an air quality index (AQI) of {r.get('aqi')} — {r.get('aqi_category', '')}"
+    return f"an air quality index (AQI) of {r.get('aqi')}, {r.get('aqi_category', '')}"
 
 
 @app.get("/api/health")
@@ -79,8 +115,7 @@ def search(req: SearchRequest):
     city = req.city or DEFAULT_CITY
     parsed = gemini.parse_query(req.query, req.budget)
     results = rank(city, parsed["weights"], parsed["budget"])
-    if city != NYC:
-        bq_india.log_snapshot_safe(city, results)
+    maybe_log_snapshot(city, results)
     return {"preferences": parsed, "results": results, "city": city}
 
 
@@ -132,8 +167,7 @@ def search_stream(q: str = "", city: str = DEFAULT_CITY):
         yield sse("agent", {"id": "orch", "name": "Orchestrator", "status": "done",
                             "msg": f"Top match: {top['name']} (FitScore {top['fitScore']})" if top else "no results"})
 
-        if city != NYC:
-            bq_india.log_snapshot_safe(city, results)
+        maybe_log_snapshot(city, results)
         yield sse("final", {"preferences": parsed, "results": results, "city": city})
 
     return StreamingResponse(gen(), media_type="text/event-stream",
@@ -143,8 +177,7 @@ def search_stream(q: str = "", city: str = DEFAULT_CITY):
 @app.get("/api/neighborhoods")
 def neighborhoods(city: str = DEFAULT_CITY):
     results = rank(city, default_weights(city), None)
-    if city != NYC:
-        bq_india.log_snapshot_safe(city, results)
+    maybe_log_snapshot(city, results)
     return {"results": results, "city": city}
 
 
@@ -154,22 +187,78 @@ def neighborhood(nid: str, city: str = DEFAULT_CITY):
     match = next((r for r in ranked if r["id"] == nid), None)
     if not match:
         raise HTTPException(404, "neighborhood not found")
-    match["why"] = gemini.explain(match["name"], match["subscores"], match["median_rent"], note_for(city, match))
+
+    # Serve the cached detail (Gemini + AQI series) if it's still fresh; the
+    # base metrics above are already city-cached, so this only skips the
+    # expensive per-locality calls on repeat views.
+    key = (city, nid)
+    cached = _detail_cache.get(key)
+    if cached and time.time() - cached[0] < _DETAIL_TTL:
+        return {**match, **cached[1]}
+
+    extra: dict = {"why": gemini.explain(match["name"], match["subscores"], match["median_rent"], note_for(city, match))}
     if city == NYC:
-        match["rentSeries"] = bq.get_rent_series(nid)
+        extra["rentSeries"] = bq.get_rent_series(nid)
     else:
-        match["aqiSeries"] = {
+        extra["aqiSeries"] = {
             "history": maps.air_quality_history(match["lat"], match["lng"]),
             "forecast": maps.air_quality_forecast(match["lat"], match["lng"]),
             "bqmlForecast": bq_india.aqi_forecast_bqml(nid),
         }
-    return match
+    _detail_cache[key] = (time.time(), extra)
+    return {**match, **extra}
+
+
+@app.get("/api/neighborhood/{nid}/reviews")
+def neighborhood_reviews(nid: str, city: str = DEFAULT_CITY):
+    """What residents say online (Gemini + Google Search grounding, cited)."""
+    ranked = rank(city, default_weights(city), None)
+    match = next((r for r in ranked if r["id"] == nid), None)
+    if not match:
+        raise HTTPException(404, "neighborhood not found")
+
+    key = (city, nid)
+    cached = _reviews_cache.get(key)
+    if cached and time.time() - cached[0] < _REVIEWS_TTL:
+        return cached[1]
+
+    city_obj = get_city(city)
+    data = gemini.web_reviews(match["name"], city_obj["name"] if city_obj else city)
+    _reviews_cache[key] = (time.time(), data)
+    return data
+
+
+# Only the fields useful to the assistant — keeps the Gemini prompt small and
+# free of noise (lat/lng, photo resource names, accent colours, breakdowns).
+_ASK_FIELDS = ("name", "median_rent", "aqi", "aqi_category", "amenity_count",
+               "commute_min", "safety_est", "subscores", "fitScore")
+
+
+def _slim(f: dict) -> dict:
+    return {k: f.get(k) for k in _ASK_FIELDS if f.get(k) is not None}
+
+
+# Short-TTL cache so an identical question (e.g. a judge re-asking) is instant
+# and doesn't re-bill Gemini + BigQuery.
+_ask_cache: dict[tuple[str, str, str], tuple[float, dict]] = {}
+_ASK_TTL = 600
 
 
 @app.post("/api/ask")
 def ask(req: AskRequest):
     city = req.city or DEFAULT_CITY
+    key = (city, req.neighborhoodId or "", (req.question or "").strip().lower())
+    cached = _ask_cache.get(key)
+    if cached and time.time() - cached[0] < _ASK_TTL:
+        return cached[1]
 
+    resp = _ask(city, req)
+    if resp.get("answer"):
+        _ask_cache[key] = (time.time(), resp)
+    return resp
+
+
+def _ask(city: str, req: AskRequest) -> dict:
     # India + a cross-locality question -> real NL->SQL over BigQuery, with the SQL shown.
     if city != NYC and not req.neighborhoodId:
         try:
@@ -185,8 +274,8 @@ def ask(req: AskRequest):
 
     feats = {f["id"]: f for f in rank(city, default_weights(city), None)}
     if req.neighborhoodId and req.neighborhoodId in feats:
-        ctx = f"Locality {feats[req.neighborhoodId]['name']}: {feats[req.neighborhoodId]}"
+        ctx = f"Locality {feats[req.neighborhoodId]['name']}: {_slim(feats[req.neighborhoodId])}"
     else:
-        ctx = f"All localities in {city}: {list(feats.values())}"
+        ctx = f"All localities in {city}: {[_slim(f) for f in feats.values()]}"
     sources = ["Google Air Quality API", "Google Places", "Google Maps", "Gemini"] if city != NYC else ["NYC 311", "NYPD collisions", "Zillow ZORI", "BigQuery ML"]
     return {"answer": gemini.ask(req.question, ctx), "sources": sources}

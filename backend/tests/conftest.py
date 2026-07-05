@@ -43,6 +43,8 @@ def client(monkeypatch):
         "budget": 30000, "weights": dict(gemini.INDIA_DEFAULT), "anchor": ""})
     monkeypatch.setattr(gemini, "explain", lambda name, subscores, rent, note: f"{name} fits well.")
     monkeypatch.setattr(gemini, "ask", lambda q, ctx: "Grounded answer.")
+    monkeypatch.setattr(gemini, "web_reviews", lambda name, city: {
+        "summary": f"Residents like {name}.", "citations": [{"title": "Reddit thread", "uri": "https://reddit.com/x"}]})
     monkeypatch.setattr(gemini, "nl_to_sql", lambda q, city, table: (
         f"SELECT name, aqi FROM {table} WHERE city = '{city}' ORDER BY aqi ASC LIMIT 3"))
     monkeypatch.setattr(bq_india, "log_snapshot_safe", lambda city, ranked: None)

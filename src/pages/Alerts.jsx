@@ -1,13 +1,60 @@
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Bell, Wind, Home as HomeIcon, Car, ChevronRight, Info } from 'lucide-react'
 import { useSaved } from '../lib/saved.js'
+import { apiNeighborhoods } from '../lib/api.js'
+import { adaptList } from '../lib/adapt.js'
+
+// Re-fetch current live data for every city the user has saved from, and merge
+// the fresh air-quality/rent/commute onto the saved snapshots — so "Live" is
+// actually live, not the value frozen at save time.
+function useLiveSaved() {
+  const savedRaw = useSaved()
+  const [saved, setSaved] = useState(savedRaw)
+  const [isLive, setIsLive] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    setSaved(savedRaw)
+    if (!savedRaw.length) {
+      setIsLive(false)
+      return
+    }
+    const cities = [...new Set(savedRaw.map((n) => n.city).filter(Boolean))]
+    Promise.all(cities.map((c) => apiNeighborhoods(c)))
+      .then((lists) => {
+        if (!alive) return
+        const fresh = {}
+        for (const list of lists) for (const a of adaptList(list || [])) fresh[a.id] = a
+        if (!Object.keys(fresh).length) {
+          setIsLive(false)
+          return
+        }
+        setSaved(
+          savedRaw.map((n) => {
+            const f = fresh[n.id]
+            return f
+              ? { ...n, aqi: f.aqi, aqiCategory: f.aqiCategory, rent: f.rent, rentDisplay: f.rentDisplay, commuteMin: f.commuteMin, subscores: f.subscores, fitScore: f.fitScore, match: f.match }
+              : n
+          }),
+        )
+        setIsLive(true)
+      })
+      .catch(() => alive && setIsLive(false))
+    return () => {
+      alive = false
+    }
+  }, [savedRaw])
+
+  return [saved, isLive]
+}
 
 function aqiSignal(aqi) {
   if (aqi == null) return ['Air quality data unavailable right now.', 'Info', '#4F86F7']
-  if (aqi > 300) return [`Air quality is Very Poor (AQI ${aqi}) — avoid outdoor activity, use a purifier.`, 'High', '#E5484D']
-  if (aqi > 200) return [`Air quality is Poor (AQI ${aqi}) — sensitive groups should limit outdoor time.`, 'High', '#E5484D']
-  if (aqi > 100) return [`Air quality is Moderate (AQI ${aqi}) — generally acceptable.`, 'Medium', '#F5A63B']
-  return [`Air quality is clean (AQI ${aqi}) — good for outdoor activity.`, 'Low', '#3FB984']
+  if (aqi > 300) return [`Air quality is Very Poor (AQI ${aqi}). Avoid outdoor activity and use a purifier.`, 'High', '#E5484D']
+  if (aqi > 200) return [`Air quality is Poor (AQI ${aqi}). Sensitive groups should limit outdoor time.`, 'High', '#E5484D']
+  if (aqi > 100) return [`Air quality is Moderate (AQI ${aqi}), generally acceptable.`, 'Medium', '#F5A63B']
+  return [`Air quality is clean (AQI ${aqi}), good for outdoor activity.`, 'Low', '#3FB984']
 }
 
 const sevColor = {
@@ -18,7 +65,7 @@ const sevColor = {
 }
 
 export default function Alerts() {
-  const saved = useSaved()
+  const [saved, isLive] = useLiveSaved()
   const aqis = saved.map((n) => n.aqi).filter((v) => v != null)
   const avgAqi = aqis.length ? Math.round(aqis.reduce((a, b) => a + b, 0) / aqis.length) : null
   const highCount = saved.filter((n) => (n.aqi ?? 0) > 200).length
@@ -28,7 +75,9 @@ export default function Alerts() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="font-serif text-3xl text-ink">Watchlist &amp; Alerts</h1>
-          <p className="mt-1 text-sm text-muted">Live signals from the localities you've saved.</p>
+          <p className="mt-1 text-sm text-muted">
+            {isLive ? 'Live signals, refreshed just now, for the localities you’ve saved.' : 'Signals from the localities you’ve saved.'}
+          </p>
         </div>
       </div>
 
@@ -85,7 +134,9 @@ export default function Alerts() {
       )}
 
       <p className="mt-6 flex items-center gap-2 text-xs text-muted">
-        <Info size={13} /> Signals are derived from the latest live data captured when you saved each locality. Open a locality for its live 24-hour air-quality trend.
+        <Info size={13} /> {isLive
+          ? 'Air-quality, rent and commute are refreshed live from Google when this page loads. Open a locality for its 24-hour air-quality trend.'
+          : 'Showing the values saved with each locality. Open a locality for its live 24-hour air-quality trend.'}
       </p>
     </div>
   )

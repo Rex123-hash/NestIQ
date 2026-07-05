@@ -6,6 +6,7 @@ scores them with a FitScore that swaps the NYC 'Trend' pillar for 'Air Quality'
 """
 from __future__ import annotations
 
+import statistics
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -14,9 +15,8 @@ import requests
 
 from .config import settings
 from .fitscore import _minmax, _match
-from .india import get_city
+from .india import get_city, INDIA_DEFAULT_WEIGHTS as INDIA_WEIGHTS
 
-INDIA_WEIGHTS = {"affordability": 20, "safety": 20, "commute": 20, "lifestyle": 15, "air_quality": 25}
 INDIA_KEYS = list(INDIA_WEIGHTS.keys())
 
 _cache: dict[str, tuple[float, list[dict]]] = {}
@@ -93,14 +93,21 @@ def air_quality_forecast(lat: float, lng: float, hours: int = 24) -> list[dict]:
         return []
 
 
-def amenity_count(lat: float, lng: float) -> int:
-    """Count of nearby amenities (Places Nearby, New)."""
+AMENITY_TYPES = ["restaurant", "cafe", "supermarket", "gym", "park", "shopping_mall"]
+AMENITY_LABELS = {
+    "restaurant": "Restaurants", "cafe": "Cafes", "supermarket": "Supermarkets",
+    "gym": "Gyms", "park": "Parks", "shopping_mall": "Malls",
+}
+
+
+def _count_places(lat: float, lng: float, place_type: str) -> int:
+    """Nearby count for a single amenity type within 1.5 km (capped at 20)."""
     try:
         r = requests.post(
             "https://places.googleapis.com/v1/places:searchNearby",
             headers={"X-Goog-Api-Key": settings.maps_api_key, "X-Goog-FieldMask": "places.id"},
             json={
-                "includedTypes": ["restaurant", "cafe", "supermarket", "gym", "park", "shopping_mall"],
+                "includedTypes": [place_type],
                 "maxResultCount": 20,
                 "locationRestriction": {"circle": {"center": {"latitude": lat, "longitude": lng}, "radius": 1500.0}},
             },
@@ -108,8 +115,21 @@ def amenity_count(lat: float, lng: float) -> int:
         )
         return len(r.json().get("places", []))
     except Exception as e:  # noqa: BLE001
-        print(f"[maps] amenity_count fallback: {e}")
-        return 10
+        print(f"[maps] _count_places {place_type} fallback: {e}")
+        return 0
+
+
+def amenity_profile(lat: float, lng: float) -> dict:
+    """Per-category amenity counts within 1.5 km.
+
+    One call per type so the total isn't capped at the Places API's 20-result
+    ceiling — that cap made every urban locality report exactly 20 and flattened
+    the Lifestyle pillar. Separate counts actually differentiate areas.
+    """
+    with ThreadPoolExecutor(max_workers=len(AMENITY_TYPES)) as ex:
+        counts = list(ex.map(lambda t: _count_places(lat, lng, t), AMENITY_TYPES))
+    breakdown = dict(zip(AMENITY_TYPES, counts))
+    return {"total": sum(counts), "breakdown": breakdown}
 
 
 def locality_photo(query: str) -> str:
@@ -151,6 +171,12 @@ def commute_minutes(o_lat: float, o_lng: float, d_lat: float, d_lng: float) -> i
 # ------------------------------ feature builder ---------------------------- #
 _refresh_lock = threading.Lock()
 _refreshing: set[str] = set()
+_build_locks: dict[str, threading.Lock] = {}
+
+
+def _build_lock(city_id: str) -> threading.Lock:
+    with _refresh_lock:
+        return _build_locks.setdefault(city_id, threading.Lock())
 
 
 def _fetch_features(city: dict) -> list[dict]:
@@ -159,19 +185,21 @@ def _fetch_features(city: dict) -> list[dict]:
     locs = city["localities"]
     with ThreadPoolExecutor(max_workers=min(32, len(locs) * 4)) as ex:
         aq = [ex.submit(air_quality, l["lat"], l["lng"]) for l in locs]
-        am = [ex.submit(amenity_count, l["lat"], l["lng"]) for l in locs]
+        am = [ex.submit(amenity_profile, l["lat"], l["lng"]) for l in locs]
         cm = [ex.submit(commute_minutes, l["lat"], l["lng"], anchor["lat"], anchor["lng"]) for l in locs]
         ph = [ex.submit(locality_photo, l["name"]) for l in locs]
         feats = []
         for i, loc in enumerate(locs):
             a = aq[i].result()
+            prof = am[i].result()
             feats.append({
                 "id": loc["id"], "name": loc["name"], "short": loc["short"], "accent": loc.get("accent", "#7C5CF6"),
                 "lat": loc["lat"], "lng": loc["lng"],
                 "median_rent": loc["rent"],
                 "safety_est": loc["safety"],
                 "aqi": a["aqi"], "aqi_category": a["category"], "aqi_pollutant": a["dominant"],
-                "amenity_count": am[i].result(),
+                "amenity_count": prof["total"],
+                "amenity_breakdown": prof["breakdown"],
                 "commute_min": cm[i].result(),
                 "photo": ph[i].result(),
             })
@@ -213,10 +241,76 @@ def build_city_features(city_id: str) -> list[dict]:
             _refresh_in_background(city_id, city)
         return cached[1]
 
-    feats = _fetch_features(city)
-    if feats:
-        _cache[city_id] = (time.time(), feats)
-    return feats
+    # Cold build: concurrent requests for the same city wait on one fan-out
+    # instead of each hammering Google.
+    with _build_lock(city_id):
+        cached = _cache.get(city_id)
+        if cached:
+            return cached[1]
+        feats = _fetch_features(city)
+        if feats:
+            _cache[city_id] = (time.time(), feats)
+        return feats
+
+
+def built_at(city_id: str) -> float | None:
+    """Timestamp of the current cached build for a city (None if never built).
+
+    Lets callers log a BigQuery snapshot only when the underlying data actually
+    changed, instead of re-logging identical rows on every request.
+    """
+    cached = _cache.get(city_id)
+    return cached[0] if cached else None
+
+
+# Cross-sectional anomaly flags: a locality is flagged when one of its raw
+# metrics is a statistical outlier (>= 1.5 sigma) versus the rest of the city.
+# Serves the PS requirement to "identify patterns, trends, and anomalies", and
+# is free — it reuses metrics already fetched, with no extra API calls.
+_ANOMALY_Z = 1.5
+# metric -> (pillar, high_label, high_kind, low_label, low_kind, formatter)
+_ANOMALY_METRICS = {
+    "aqi": ("air_quality", "Unusually polluted", "bad", "Unusually clean air", "good", lambda v: f"AQI {round(v)}"),
+    "median_rent": ("affordability", "Premium priced", "bad", "Unusually affordable", "good", lambda v: f"₹{int(v):,}/mo"),
+    "commute_min": ("commute", "Unusually far", "bad", "Unusually central", "good", lambda v: f"{round(v)} min to hub"),
+    "amenity_count": ("lifestyle", "Amenity hotspot", "good", "Sparse amenities", "bad", lambda v: f"{int(v)} amenities"),
+    "safety_est": ("safety", "Standout safety", "good", "Below-average safety", "bad", lambda v: f"safety {int(v)}"),
+}
+
+
+def _anomaly_flags(features: list[dict]) -> list[list[dict]]:
+    """One list of anomaly flags per locality, aligned with `features`."""
+    n = len(features)
+    out: list[list[dict]] = [[] for _ in range(n)]
+    if n < 4:  # too few localities for a meaningful distribution
+        return out
+    for metric, (pillar, hi_label, hi_kind, lo_label, lo_kind, fmt) in _ANOMALY_METRICS.items():
+        vals = [f.get(metric) for f in features]
+        if any(v is None for v in vals):
+            continue
+        mean = statistics.fmean(vals)
+        sd = statistics.pstdev(vals)
+        if sd <= 0:
+            continue
+        for i, v in enumerate(vals):
+            z = (v - mean) / sd
+            if z >= _ANOMALY_Z:
+                label, kind, direction = hi_label, hi_kind, "above"
+            elif z <= -_ANOMALY_Z:
+                label, kind, direction = lo_label, lo_kind, "below"
+            else:
+                continue
+            out[i].append({
+                "pillar": pillar,
+                "label": label,
+                "kind": kind,
+                "detail": f"{fmt(v)}, {abs(z):.1f}σ {direction} the city average",
+                "z": round(abs(z), 2),
+            })
+    for i in range(n):  # keep the two strongest flags per locality
+        out[i].sort(key=lambda a: a["z"], reverse=True)
+        out[i] = out[i][:2]
+    return out
 
 
 def score_india(features: list[dict], weights: dict | None = None, budget: float = 30000) -> list[dict]:
@@ -232,10 +326,11 @@ def score_india(features: list[dict], weights: dict | None = None, budget: float
         "lifestyle": _minmax([f["amenity_count"] for f in features]),
         "air_quality": _minmax([f["aqi"] for f in features], invert=True),  # lower AQI = better
     }
+    anoms = _anomaly_flags(features)
     out = []
     for i, f in enumerate(features):
         subscores = {k: sub[k][i] for k in INDIA_KEYS}
         fit = round(sum(subscores[k] * w[k] for k in INDIA_KEYS) / wsum)
-        out.append({**f, "subscores": subscores, "fitScore": fit, "match": _match(fit)})
+        out.append({**f, "subscores": subscores, "fitScore": fit, "match": _match(fit), "anomalies": anoms[i]})
     out.sort(key=lambda x: x["fitScore"], reverse=True)
     return out

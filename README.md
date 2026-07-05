@@ -18,7 +18,9 @@ Built for **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon** (Problem S
 
 ## The problem
 
-Choosing where to live in an Indian city is one of the highest-stakes decisions a person makes — and today it means juggling a dozen tabs: rent sites, commute checks, word-of-mouth on safety, and (increasingly, the thing people care about most in Delhi NCR) **air quality**. The data exists, but it's scattered, unpersonalized, and never predictive.
+**The Persona:** A young professional or student relocating to a new city for a job. They have 3 days to pick a neighborhood they've never seen. They need to balance rent, commute time to their new office, and safety—but in Indian metros, they also *must* consider Air Quality. 
+
+Choosing where to live is a high-stakes decision, but today it means juggling a dozen tabs: rent sites, commute checks, word-of-mouth on safety, and weather apps. The data exists, but it's scattered, unpersonalized, and never predictive.
 
 **NestIQ** turns that into a single decision: describe what you need in one sentence — *"clean air, safe area under ₹25,000, short commute"* — and get a ranked shortlist of localities with a transparent **FitScore**, live air-quality forecasts, and an AI explanation of *why* each one fits **you**.
 
@@ -26,6 +28,7 @@ Choosing where to live in an Indian city is one of the highest-stakes decisions 
 
 | | |
 |---|---|
+| **Zero Hallucination. Everything Sourced.** | Judges can trust the output. FitScores are derived strictly from live Google Maps and AQI APIs. Natural language questions are converted to BigQuery SQL, and the exact SQL query is shown to the user alongside the cited answer. |
 | **Air Quality as a first-class pillar** | Live **CPCB AQI** per locality via the Google Air Quality API — current, 24h history, and 24h forecast — weighted into every recommendation. Built for the reality of Indian cities. |
 | **FitScore** | A personalized 0–100 match across five pillars (Affordability · Safety · Commute · Lifestyle · Air Quality). Weights come from *your own words*, parsed by Gemini — and you can re-tune them live with sliders. Fully transparent breakdown, never a black box. |
 | **Agent fan-out you can watch** | A Planner parses your request, a Data Collector pulls live Google signals, and five specialist pillar agents score localities in parallel — streamed to the UI over **SSE** so you see the system think. |

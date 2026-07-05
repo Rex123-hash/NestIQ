@@ -88,6 +88,15 @@ export async function apiNeighborhood(id, city) {
   }
 }
 
+export async function apiReviews(id, city) {
+  try {
+    return await jget(`/api/neighborhood/${id}/reviews?city=${city}`)
+  } catch (e) {
+    console.warn('[api] reviews fallback:', e.message)
+    return null
+  }
+}
+
 export async function apiAsk(question, neighborhoodId, city) {
   try {
     return await jpost('/api/ask', { question, neighborhoodId, city })

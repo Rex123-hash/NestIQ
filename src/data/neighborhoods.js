@@ -1,6 +1,6 @@
-// Mock data modeled to match the approved NestIQ mockups.
-// This is the single source of truth for the UI until the BigQuery/Gemini
-// backend is wired in. Numbers intentionally mirror the design screenshots.
+// Frontend single source of truth for the FitScore pillars and their
+// default weights. Mirrors backend/app/india.py INDIA_DEFAULT_WEIGHTS.
+// All locality data is live from the API; only UI fallbacks live here.
 
 export const SUBSCORES = [
   { key: 'affordability', label: 'Affordability', color: 'aff' },
@@ -18,107 +18,55 @@ export const WEIGHTS = {
   air_quality: 25,
 }
 
-export const neighborhoods = [
+// The published FitScore rubric: for each pillar, its default weight, why it
+// carries that weight, and the live signal it is derived from. Rendered in the
+// "How it works" methodology panel so the score is explainable, not a black box.
+export const RUBRIC = [
   {
-    id: 'astoria',
-    name: 'Astoria, Queens',
-    short: 'Astoria',
-    accent: '#7C5CF6',
-    fitScore: 86,
-    match: 'Excellent Match',
-    tags: ['Vibrant', 'Diverse', 'Great Food', 'Waterfront Nearby'],
-    descriptors: 'Vibrant • Diverse • Great Food',
-    commuteMin: 24,
-    crimeLabel: 'Very Safe',
-    rent: 1850,
-    amenityTags: ['Great Restaurants', 'Parks', 'Subway Access'],
-    extraTags: 2,
-    subscores: { affordability: 78, safety: 92, commute: 85, lifestyle: 82, trend: 75 },
-    pin: { top: '18%', left: '82%' },
-    blurb:
-      'I want a safe neighborhood with a short commute to Midtown. Love good food and a vibrant community.',
-    why: 'Astoria offers an excellent balance of safety, reasonable rent, and a short commute to Midtown. It has abundant amenities and a lively community vibe.',
+    key: 'air_quality',
+    label: 'Air Quality',
+    why: 'Weighted highest: across Indian cities AQI is the most health-critical signal and the one that varies most between localities, so it separates them the most.',
+    source: 'Google Air Quality API (live CPCB AQI)',
   },
   {
-    id: 'lic',
-    name: 'Long Island City, Queens',
-    short: 'Long Island City',
-    accent: '#4F86F7',
-    fitScore: 82,
-    match: 'Excellent Match',
-    tags: ['Modern', 'Convenient', 'Growing'],
-    descriptors: 'Modern • Convenient • Growing',
-    commuteMin: 18,
-    crimeLabel: 'Safe',
-    rent: 1950,
-    amenityTags: ['Waterfront', 'Parks', 'Subway Access'],
-    extraTags: 3,
-    subscores: { affordability: 72, safety: 85, commute: 95, lifestyle: 78, trend: 80 },
-    pin: { top: '40%', left: '70%' },
-    blurb: 'Close to Manhattan, good amenities and waterfront access.',
-    why: 'Long Island City offers the shortest commute of the shortlist with a fast-growing, modern feel and strong waterfront amenities.',
+    key: 'affordability',
+    label: 'Affordability',
+    why: 'Rent is the largest recurring cost and the hardest constraint when relocating, so it anchors the score.',
+    source: 'Market rent estimate (labelled; no open locality-level dataset exists for India)',
   },
   {
-    id: 'park-slope',
-    name: 'Park Slope, Brooklyn',
-    short: 'Park Slope',
-    accent: '#3FB984',
-    fitScore: 78,
-    match: 'Good Match',
-    tags: ['Family-friendly', 'Charming', 'Green'],
-    descriptors: 'Family-friendly • Charming • Green',
-    commuteMin: 28,
-    crimeLabel: 'Safe',
-    rent: 2000,
-    amenityTags: ['Tree-lined Streets', 'Parks', 'Great Schools'],
-    extraTags: 2,
-    subscores: { affordability: 61, safety: 76, commute: 68, lifestyle: 92, trend: 65 },
-    pin: { top: '62%', left: '64%' },
-    blurb: 'Family-friendly vibe with parks and good schools. Happy to extend commute a bit.',
-    why: 'Park Slope leads on lifestyle with tree-lined streets, top schools and green space, at a slightly higher rent and commute.',
+    key: 'safety',
+    label: 'Safety',
+    why: 'A baseline most people will not trade away, weighted on par with cost and commute.',
+    source: 'Locality profile blended with live environmental health',
   },
   {
-    id: 'jersey-city',
-    name: 'Jersey City, NJ',
-    short: 'Jersey City',
-    accent: '#F5A63B',
-    fitScore: 74,
-    match: 'Good Match',
-    tags: ['Affordable', 'Diverse', 'Easy Commute'],
-    descriptors: 'Affordable • Diverse • Easy Commute',
-    commuteMin: 22,
-    crimeLabel: 'Very Safe',
-    rent: 1750,
-    amenityTags: ['Affordable', 'Parks', 'PATH Access'],
-    extraTags: 3,
-    subscores: { affordability: 58, safety: 70, commute: 75, lifestyle: 72, trend: 70 },
-    pin: { top: '52%', left: '40%' },
-    blurb: 'Considering NJ for more affordability and easy PATH access.',
-    why: 'Jersey City is the most affordable option with easy PATH access into Manhattan and a diverse, growing community.',
+    key: 'commute',
+    label: 'Commute',
+    why: 'A daily time cost that compounds and strongly drives real-world satisfaction.',
+    source: 'Google Distance Matrix (live driving time to the city hub)',
+  },
+  {
+    key: 'lifestyle',
+    label: 'Lifestyle',
+    why: 'Amenity density is a comfort rather than a dealbreaker, so it is weighted slightly lower.',
+    source: 'Google Places (live count of amenities within 1.5 km)',
   },
 ]
 
-export const byId = (id) => neighborhoods.find((n) => n.id === id)
+// How the pillars combine into one number. Kept next to the rubric so the
+// methodology copy never drifts from the actual scoring code in maps.py.
+export const METHOD_NOTE =
+  'Each pillar is min-max normalized across every locality in the city (0 to 100), then combined using these weights. The weights automatically re-balance to match the priorities in your search, so the FitScore reflects what you asked for.'
 
+// The live data sources behind every India locality. One definition, imported
+// wherever the "Sources" chips render, so they can never drift out of sync.
+export const SOURCE_CHIPS = ['Google Air Quality', 'Google Places', 'Google Maps', 'Gemini']
+
+// Neutral fallback shown only until live preferences arrive from the API.
 export const preferences = {
-  statement: "I'm moving to New York City for a job in Midtown Manhattan.",
-  budget: 2000,
+  statement: 'Top neighborhood matches for you',
+  budget: 30000,
   bed: '1 bed preferred',
-  priorities: 'Safety (high), Commute (high), Affordability (medium), Lifestyle (medium), Trend (low)',
+  priorities: 'Air Quality (medium), Affordability (medium), Safety (medium), Commute (medium), Lifestyle (medium)',
 }
-
-// Rent-trend series used across Overview / Affordability / Trend charts.
-export const rentTrend = [
-  { m: 'Jul', astoria: 1810, nyc: 2010 },
-  { m: 'Aug', astoria: 1835, nyc: 2035 },
-  { m: 'Sep', astoria: 1840, nyc: 2040 },
-  { m: 'Oct', astoria: 1825, nyc: 2075 },
-  { m: 'Nov', astoria: 1830, nyc: 2090 },
-  { m: 'Dec', astoria: 1855, nyc: 2060 },
-  { m: 'Jan', astoria: 1900, nyc: 2040 },
-  { m: 'Feb', astoria: 1930, nyc: 2015 },
-  { m: 'Mar', astoria: 1955, nyc: 1990 },
-  { m: 'Apr', astoria: 1990, nyc: 1970 },
-  { m: 'May', astoria: 2040, nyc: 1955 },
-  { m: 'Jun', astoria: 2120, nyc: 1940 },
-]
