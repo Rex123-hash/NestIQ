@@ -6,7 +6,6 @@ import {
   Bell,
   Sparkles,
   MapPin,
-  Sun,
   ChevronDown,
   House,
 } from 'lucide-react'
@@ -89,13 +88,6 @@ export default function Sidebar() {
           </select>
           <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
         </div>
-        <button className="flex items-center justify-between rounded-xl border border-line px-3 py-2.5 text-sm text-ink-soft">
-          <span className="flex items-center gap-2">
-            <Sun size={16} className="text-trend" />
-            Light
-          </span>
-          <ChevronDown size={16} className="text-muted" />
-        </button>
       </div>
     </aside>
   )

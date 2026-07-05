@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCity, detectCity } from '../lib/cityStore.jsx'
 import { useAuth } from '../lib/auth.jsx'
@@ -200,6 +200,7 @@ function Hero() {
   const { setCity, cities } = useCity()
   const { user, signInAsGuest } = useAuth()
   const [q, setQ] = useState('')
+  const inputRef = useRef(null)
   const [err, setErr] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
 
@@ -248,12 +249,16 @@ function Hero() {
           ))}
         </div>
 
-        <div className="mt-8 rounded-2xl border-2 border-brand-300 bg-white p-3 shadow-card transition focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-100">
+        <div
+          onClick={() => inputRef.current?.focus()}
+          className="mt-8 cursor-text rounded-2xl border-2 border-brand-300 bg-white p-3 shadow-card transition focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-100"
+        >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
               <Sparkles size={18} />
             </span>
             <input
+              ref={inputRef}
               value={q}
               onChange={(e) => {
                 setQ(e.target.value)
