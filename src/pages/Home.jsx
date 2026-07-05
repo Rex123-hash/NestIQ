@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCity, detectCity } from '../lib/cityStore.jsx'
 import { useAuth } from '../lib/auth.jsx'
+import { apiNeighborhoods } from '../lib/api.js'
 import { LogoMark } from '../components/ui/Logo.jsx'
 import {
   House,
@@ -14,7 +15,6 @@ import {
   Coffee,
   Heart,
   User,
-  MapPin,
   Search,
   Wind,
   Database,
@@ -24,6 +24,7 @@ import {
   ListChecks,
   LogIn,
   X,
+  TriangleAlert,
 } from 'lucide-react'
 
 /* ----------------------------- Top navigation ---------------------------- */
@@ -75,6 +76,78 @@ function FitPin({ name, score, className }) {
   )
 }
 
+// Illustrative fallback so the hero preview never renders empty if the API is
+// cold. Replaced by a real top match the moment live data loads.
+const SAMPLE_PREVIEW = {
+  short: 'Cyber City, Gurgaon',
+  fitScore: 82,
+  match: 'Excellent Match',
+  subscores: { air_quality: 71, affordability: 64, commute: 79, safety: 78, lifestyle: 88 },
+  anomalies: [{ label: 'Standout safety', kind: 'good' }],
+}
+
+// A real product snapshot in the hero: the current city's top-scoring locality,
+// its FitScore, three live pillar bars, and any anomaly flag. Uses the same
+// live API the app runs on, so the hero shows the actual intelligence, not a
+// mockup. Falls back to a labelled sample if the backend is unreachable.
+function HeroPreview() {
+  const { city } = useCity()
+  const [top, setTop] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    apiNeighborhoods(city).then((list) => {
+      if (alive && list?.length) setTop([...list].sort((a, b) => b.fitScore - a.fitScore)[0])
+    })
+    return () => {
+      alive = false
+    }
+  }, [city])
+
+  const live = !!top
+  const d = top || SAMPLE_PREVIEW
+  const bars = [
+    ['Air Quality', d.subscores.air_quality, '#F5A63B'],
+    ['Affordability', d.subscores.affordability, '#3FB984'],
+    ['Commute', d.subscores.commute, '#4F86F7'],
+  ]
+  const flag = d.anomalies?.[0]
+  return (
+    <div className="w-[248px] rounded-2xl border border-line bg-white/95 p-4 shadow-float backdrop-blur-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-ink">{d.short || d.name}</p>
+          <p className="text-xs font-medium text-aff">{d.match}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="font-serif text-2xl leading-none text-brand-700">{d.fitScore}</p>
+          <p className="text-[9px] font-medium uppercase tracking-wide text-muted">FitScore</p>
+        </div>
+      </div>
+      <div className="mt-3 space-y-2">
+        {bars.map(([label, val, color]) => (
+          <div key={label} className="flex items-center gap-2 text-[11px]">
+            <span className="w-20 shrink-0 text-ink-soft">{label}</span>
+            <div className="h-1.5 flex-1 rounded-full bg-line">
+              <div className="h-1.5 rounded-full" style={{ width: `${val}%`, backgroundColor: color }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      {flag && (
+        <span
+          className={`mt-3 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+            flag.kind === 'good' ? 'bg-[#EAF7F0] text-aff' : 'bg-[#FDECEC] text-red-600'
+          }`}
+        >
+          <TriangleAlert size={10} /> {flag.label}
+        </span>
+      )}
+      <p className="mt-3 text-[10px] text-muted">{live ? 'Live from Google + BigQuery ML' : 'Sample match preview'}</p>
+    </div>
+  )
+}
+
 function HeroVisual() {
   return (
     <div className="relative w-full">
@@ -86,22 +159,13 @@ function HeroVisual() {
         draggable={false}
       />
 
-      {/* live floating FitScore cards overlaid on the skyline */}
-      <FitPin name="Cyber City" score={82} className="left-[calc(3%+1.6cm)] top-[42%]" />
-      <FitPin name="Koramangala" score={86} className="right-[calc(4%+0.5cm)] top-[36%]" />
-      <FitPin name="HITEC City" score={80} className="right-[calc(7%+0.5cm)] top-[60%]" />
-      <FitPin name="Indirapuram" score={74} className="left-[calc(2%+1.6cm)] top-[64%]" />
+      {/* small ambient FitScore pins */}
+      <FitPin name="Koramangala" score={86} className="right-[calc(4%+0.5cm)] top-[26%]" />
+      <FitPin name="HITEC City" score={80} className="right-[calc(6%+0.5cm)] top-[50%]" />
 
-      <div className="absolute left-[calc(34%+1.2cm)] top-[48%] rounded-xl bg-white/90 backdrop-blur-sm px-4 py-3 shadow-float">
-        <div className="flex items-center gap-1.5">
-          <span className="grid h-6 w-6 place-items-center rounded-md bg-brand-50 text-brand-600">
-            <MapPin size={12} />
-          </span>
-          <div>
-            <p className="text-[11px] font-semibold text-ink">Your perfect place</p>
-            <p className="text-[9px] text-muted">is out there</p>
-          </div>
-        </div>
+      {/* the real product snapshot: current city's top live match */}
+      <div className="absolute bottom-[6%] left-[1%]">
+        <HeroPreview />
       </div>
     </div>
   )
@@ -137,7 +201,7 @@ function Hero() {
   }
   const proceedToSignIn = () => navigate('/signin', { state: { resumeQuery: q.trim() } })
 
-  const checks = ['Personalized for you', 'Cited & explainable', 'Trusted public data']
+  const checks = ['Adapts to your priorities', 'Cited & explainable', 'Trusted public data']
   return (
     <section className="relative overflow-hidden">
       <div className="mx-auto max-w-[1400px] px-6 py-12 md:px-10 lg:py-20">
