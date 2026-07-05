@@ -26,7 +26,7 @@ Choosing where to live is a high-stakes decision, but today it means juggling a 
 
 ## What makes it different
 
-| | |
+
 |---|---|
 | **Zero Hallucination. Everything Sourced.** | Judges can trust the output. FitScores are derived strictly from live Google Maps and AQI APIs. Natural language questions are converted to BigQuery SQL, and the exact SQL query is shown to the user alongside the cited answer. |
 | **Air Quality as a first-class pillar** | Live **CPCB AQI** per locality via the Google Air Quality API — current, 24h history, and 24h forecast — weighted into every recommendation. Built for the reality of Indian cities. |
