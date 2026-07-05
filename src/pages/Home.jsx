@@ -187,6 +187,14 @@ function HeroVisual() {
 }
 
 /* --------------------------------- Hero ---------------------------------- */
+// One-tap example queries. Clicking a chip prefills the search box so a new
+// visitor can try the app without thinking of a query.
+const EXAMPLES = [
+  { label: 'Clean air, under ₹25k', q: 'Clean air, safe area under ₹25,000, short commute' },
+  { label: 'Quick commute + nightlife', q: 'Quick commute to the city hub with good nightlife and cafes' },
+  { label: 'Family-friendly & green', q: 'Family-friendly, green, safe area under ₹30,000' },
+]
+
 function Hero() {
   const navigate = useNavigate()
   const { setCity, cities } = useCity()
@@ -240,32 +248,44 @@ function Hero() {
           ))}
         </div>
 
-        <div className="mt-8 rounded-2xl border border-line bg-white p-3 shadow-card">
+        <div className="mt-8 rounded-2xl border-2 border-brand-300 bg-white p-3 shadow-card transition focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-100">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
               <Sparkles size={18} />
             </span>
-            <div className="min-w-0 flex-1">
-              <input
-                value={q}
-                onChange={(e) => {
-                  setQ(e.target.value)
-                  if (err) setErr('')
-                }}
-                onKeyDown={(e) => e.key === 'Enter' && go()}
-                className="w-full text-sm text-ink outline-none placeholder:text-muted"
-                placeholder="Describe your ideal neighborhood..."
-              />
-              <p className="mt-0.5 text-xs text-muted">
-                Example: "Clean air, under ₹25,000 rent, short commute to Cyber City"
-              </p>
-            </div>
+            <input
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value)
+                if (err) setErr('')
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && go()}
+              className="min-w-0 flex-1 text-sm text-ink outline-none placeholder:text-muted"
+              placeholder="Describe your ideal neighborhood..."
+            />
             <button onClick={go} className="btn-primary shrink-0">
               Get Started
               <ArrowRight size={16} />
             </button>
           </div>
           {err && <p className="mt-2 px-1 text-xs font-medium text-[#E5484D]">{err}</p>}
+        </div>
+
+        {/* one-tap example chips: prefill the search box */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted">Try:</span>
+          {EXAMPLES.map((ex) => (
+            <button
+              key={ex.label}
+              onClick={() => {
+                setQ(ex.q)
+                setErr('')
+              }}
+              className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700 transition hover:border-brand-400 hover:bg-brand-100"
+            >
+              {ex.label}
+            </button>
+          ))}
         </div>
 
         <p className="mt-4 flex items-center gap-2 text-sm text-muted">
