@@ -21,6 +21,10 @@ Problem Statement: *AI for Better Living and Smarter Communities*
 
 **[Live Demo → nestiq-india.web.app](https://nestiq-india.web.app)**
 
+<br />
+
+<img src="assets/preview.png" alt="NestIQ — describe your ideal neighborhood and get ranked, explainable matches" width="100%" />
+
 </div>
 
 ---
