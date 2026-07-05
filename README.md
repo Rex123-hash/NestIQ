@@ -60,38 +60,40 @@ It is not a search filter with sliders. It is a **parallel multi-agent system** 
 ## <img src="assets/readme/architecture.svg" height="22" align="center" alt="" /> &nbsp;How it works
 
 ```text
-        "clean air, safe, under ₹25k"
-                     │
-                     ▼
-        ┌──────────────────────────┐
-        │      Planner Agent       │   Gemini extracts budget, constraints,
-        │   (natural language →    │   and a weight per pillar from your words
-        │     weights + budget)    │
-        └────────────┬─────────────┘
-                     ▼
-        ┌──────────────────────────┐
-        │   Data Collector Agent   │   Live fan-out to Google Maps Platform
-        │   (live Google signals)  │   (30-min stale-while-revalidate cache)
-        └────────────┬─────────────┘
-                     ▼
-   ┌──────────┬──────────┬──────────┬──────────┬──────────────┐
-   │ Air      │ Commute  │ Safety   │ Lifestyle│ Affordability │
-   │ Quality  │ Agent    │ Agent    │ Agent    │ Agent         │
-   │ • CPCB   │ • Traffic│ • Profile│ • Places │ • Rent vs      │
-   │   AQI    │   Matrix │ • Env.   │   1.5 km │   budget       │
-   │ • 24h    │ • To hub │   health │ • Amenity│ • Min-max      │
-   │   + BQML │          │          │   density│   normalized   │
-   └────┬─────┴────┬─────┴────┬─────┴────┬─────┴──────┬────────┘
-        └──────────┴──────────┼──────────┴────────────┘
-                              ▼
-                    ┌──────────────────┐
-                    │ Orchestrator     │   Combines pillar sub-scores with
-                    │ (weighted score) │   your Gemini-extracted weights
-                    └────────┬─────────┘
-                             ▼
-              Ranked FitScores + anomaly flags
-              streamed to the UI over SSE, then
-              explained by Gemini on the detail page
+                        "clean air, safe, under ₹25,000"
+                                        │
+                                        ▼
+                           ┌─────────────────────────┐
+                           │      Planner Agent      │   Gemini extracts a budget and a
+                           │    natural language →   │   weight per pillar from your words
+                           │     weights + budget    │
+                           └────────────┬────────────┘
+                                        │
+                                        ▼
+                           ┌─────────────────────────┐
+                           │   Data Collector Agent  │   Live fan-out to Google Maps
+                           │   live Google signals   │   Platform · 30-min SWR cache
+                           └────────────┬────────────┘
+                                        │
+                                        ▼
+   ┌──────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
+   │ Air Quality  │ Commute      │ Safety       │ Lifestyle    │ Affordability│
+   │ Agent        │ Agent        │ Agent        │ Agent        │ Agent        │
+   │ • CPCB AQI   │ • Traffic    │ • Locality   │ • Places     │ • Rent vs    │
+   │ • 24h trend  │   Matrix     │   profile    │   ≤ 1.5 km   │   budget     │
+   │ • BQML fcast │ • Drive to   │ • Env.       │ • Amenity    │ • Min-max    │
+   │              │   work hub   │   health     │   density    │   normalized │
+   └──────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
+                                        │
+                                        ▼
+                           ┌─────────────────────────┐
+                           │       Orchestrator      │   Combines pillar sub-scores
+                           │    weighted FitScore    │   with your extracted weights
+                           └────────────┬────────────┘
+                                        │
+                                        ▼
+                Ranked FitScores + anomaly flags, streamed to the
+                 UI over SSE, then explained by Gemini on the detail page
 ```
 
 **The flow.** Your sentence goes to Gemini, which extracts a budget and a weight for each pillar. Live AQI, amenity, and commute data is fetched per locality (cached 30 minutes). Each pillar agent normalizes its metric across the city, the orchestrator combines them with your weights into FitScores, and results stream back with anomaly flags and explanations. Every search also snapshots the features into BigQuery, so the warehouse — and the ARIMA_PLUS forecast trained on it — grows with use.
