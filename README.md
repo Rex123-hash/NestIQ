@@ -1,5 +1,18 @@
-> **Multi-Agent AI Decision Intelligence Engine for Urban Living**
-> *NestIQ* — Hackathon submission for Cohort 2 (AI for Better Living and Smarter Communities). Built around Google-native AI: Gemini, BigQuery ML, and Google Maps APIs.
+<div align="center">
+
+# NestIQ — AI-Powered Decision Intelligence Platform
+
+**Find the right neighborhood. For your life.**
+
+*Ask in plain language → specialist AI agents score every locality on live data → get a ranked, explainable answer in seconds.*
+
+Built for **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon** (Problem Statement: *AI for Better Living and Smarter Communities*)
+
+**[Live demo → nestiq-india.web.app](https://nestiq-india.web.app)**
+
+`Gemini on Vertex AI` · `BigQuery + BigQuery ML` · `Google Maps Platform` · `FastAPI` · `React` · `69 automated tests`
+
+</div>
 
 ---
 
