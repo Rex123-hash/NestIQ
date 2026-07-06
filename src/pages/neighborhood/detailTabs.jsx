@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   LineChart,
   Line,
@@ -38,9 +39,9 @@ const SUB_COLOR = {
 }
 
 /* ------------------------------ shared bits ------------------------------- */
-function Panel({ title, action, children, className = '' }) {
+function Panel({ title, action, children, className = '', id }) {
   return (
-    <div className={`card p-5 ${className}`}>
+    <div id={id} className={`card p-5 ${className}`}>
       {(title || action) && (
         <div className="mb-4 flex items-center justify-between">
           {title && <h3 className="flex items-center gap-1.5 text-sm font-semibold text-ink">{title}</h3>}
@@ -166,7 +167,20 @@ function aqiSpike(n) {
 export function OverviewTab({ n }) {
   const ins = n.insights || { peers: [] }
   const [showMethod, setShowMethod] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
   const fc = forecastTrend(n)
+
+  // "See full explanation" from the header links here: open the methodology
+  // and scroll the FitScore Breakdown into view, then clean the URL.
+  useEffect(() => {
+    if (!searchParams.get('explain')) return
+    setShowMethod(true)
+    const el = document.getElementById('fitscore-breakdown')
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const next = new URLSearchParams(searchParams)
+    next.delete('explain')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
   const glance = [
     [Building2, 'Median Rent', n.rentDisplay || `$${n.rent.toLocaleString()}`, 'per month'],
     [Wind, 'Air Quality (AQI)', String(n.aqi ?? '—'), n.aqiCategory || ''],
@@ -187,6 +201,7 @@ export function OverviewTab({ n }) {
       {/* row 1 */}
       <div className="grid gap-5 lg:grid-cols-[1.05fr_1fr_1.35fr]">
         <Panel
+          id="fitscore-breakdown"
           title="FitScore Breakdown"
           action={
             <button

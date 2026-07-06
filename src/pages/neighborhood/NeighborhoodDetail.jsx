@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, NavLink } from 'react-router-dom'
+import { useParams, NavLink, useNavigate } from 'react-router-dom'
 import { Bookmark, LayoutGrid, PiggyBank, ShieldCheck, TrainFront, Heart, Wind, Users, Dot, TriangleAlert } from 'lucide-react'
 import AppTopbar from '../../components/layout/AppTopbar.jsx'
 import ScoreGauge from '../../components/ui/ScoreGauge.jsx'
@@ -40,8 +40,8 @@ const TAB_CONTENT = {
 export default function NeighborhoodDetail() {
   const { id, tab } = useParams()
   const { city } = useCity()
+  const navigate = useNavigate()
   const [n, setN] = useState(null)
-  const [showWhy, setShowWhy] = useState(false)
   const saved = useSaved().some((x) => x.id === id)
 
   useEffect(() => {
@@ -127,18 +127,12 @@ export default function NeighborhoodDetail() {
             </div>
             <div className="card flex-1 bg-brand-50/50 p-4">
               <p className="text-sm font-semibold text-ink">Why this match?</p>
-              <p
-                className="mt-1 text-xs leading-relaxed text-muted"
-                style={
-                  showWhy
-                    ? undefined
-                    : { display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }
-                }
+              <p className="mt-1 text-xs leading-relaxed text-muted">{n.why}</p>
+              <button
+                onClick={() => navigate(`/neighborhood/${id}?explain=${Date.now()}`)}
+                className="mt-2 text-xs font-medium text-brand-700 hover:underline"
               >
-                {n.why}
-              </p>
-              <button onClick={() => setShowWhy((v) => !v)} className="mt-2 text-xs font-medium text-brand-700">
-                {showWhy ? 'Show less' : 'See full explanation →'}
+                See full explanation →
               </button>
             </div>
           </div>
