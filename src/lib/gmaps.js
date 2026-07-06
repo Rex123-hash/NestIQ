@@ -39,13 +39,15 @@ export function loadGoogleMaps() {
     const key = cfg?.mapsKey
     if (!key) throw new Error('no maps key')
     return new Promise((resolve, reject) => {
-      const s = document.createElement('script')
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&loading=async`
-      s.async = true
-      s.defer = true
-      s.onload = () => resolve(window.google.maps)
-      s.onerror = () => reject(new Error('maps script failed'))
-      document.head.appendChild(s)
+      window.__gmapsCallback = () => {
+        resolve(window.google.maps)
+      }
+      const script = document.createElement('script')
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places&callback=__gmapsCallback`
+      script.async = true
+      script.defer = true
+      script.onerror = () => reject(new Error('failed to load gmaps SDK'))
+      document.head.appendChild(script)
     })
   })()
   return loaderPromise
