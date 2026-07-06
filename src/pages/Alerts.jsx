@@ -4,6 +4,7 @@ import { Bell, Wind, Home as HomeIcon, Car, ChevronRight, Info } from 'lucide-re
 import { useSaved } from '../lib/saved.js'
 import { apiNeighborhoods } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
+import CityPicker from '../components/layout/CityPicker.jsx'
 
 // Re-fetch current live data for every city the user has saved from, and merge
 // the fresh air-quality/rent/commute onto the saved snapshots — so "Live" is
@@ -79,6 +80,7 @@ export default function Alerts() {
             {isLive ? 'Live signals, refreshed just now, for the localities you’ve saved.' : 'Signals from the localities you’ve saved.'}
           </p>
         </div>
+        <CityPicker className="shrink-0" />
       </div>
 
       {!saved.length ? (

@@ -3,6 +3,7 @@ import { Sparkles, Send, ShieldCheck, Home, Train, TreePine, ShoppingCart, Dolla
 import { apiAsk, apiNeighborhoods } from '../lib/api.js'
 import { useCity } from '../lib/cityStore.jsx'
 import { useRecent, pushRecent, removeRecent, clearRecent, relativeTime } from '../lib/recent.js'
+import CityPicker from '../components/layout/CityPicker.jsx'
 
 const POPULAR = [
   ['Which locality has the best air quality?', 'Find the lowest-AQI areas with cleaner air to breathe.', TreePine, '#3FB984'],
@@ -70,8 +71,13 @@ export default function AskNestIQ() {
 
   return (
     <div className="px-6 py-6 lg:px-8">
-      <h1 className="font-serif text-3xl text-ink">Ask NestIQ</h1>
-      <p className="mt-1 text-sm text-muted">Your AI neighborhood assistant. Ask anything about {cityName}.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-serif text-3xl text-ink">Ask NestIQ</h1>
+          <p className="mt-1 text-sm text-muted">Your AI neighborhood assistant. Ask anything about {cityName}.</p>
+        </div>
+        <CityPicker className="shrink-0" />
+      </div>
 
       {/* ask box */}
       <div className="mt-5 rounded-2xl border-2 border-brand-200 bg-white p-3 shadow-card">

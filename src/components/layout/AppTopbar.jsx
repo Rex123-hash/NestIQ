@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Sparkles, Bookmark, ArrowLeft, LogOut, LogIn } from 'lucide-react'
 import { useAuth } from '../../lib/auth.jsx'
+import CityPicker from './CityPicker.jsx'
 
 // Shared top bar for app screens. `left` renders a title or a back link;
 // the right cluster (Ask NestIQ / bookmark / avatar) is consistent everywhere.
@@ -21,6 +22,7 @@ export default function AppTopbar({ left = null, back = null }) {
         )}
       </div>
       <div className="flex items-center gap-3">
+        <CityPicker className="shrink-0" />
         <Link
           to="/ask"
           className="flex items-center gap-2 rounded-xl border border-brand-200 px-3.5 py-2 text-sm font-medium text-brand-700 transition hover:bg-brand-50"

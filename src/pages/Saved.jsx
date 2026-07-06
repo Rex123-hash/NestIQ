@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Heart, ArrowLeftRight, Trash2, Search } from 'lucide-react'
 import ScoreGauge from '../components/ui/ScoreGauge.jsx'
+import CityPicker from '../components/layout/CityPicker.jsx'
 import { useSaved, removeSaved } from '../lib/saved.js'
 
 const PILLARS = [
@@ -21,9 +22,12 @@ export default function Saved() {
           <h1 className="font-serif text-3xl text-ink">Saved Localities</h1>
           <p className="text-sm text-muted">Localities you've bookmarked. Tap the heart on any match to save it.</p>
         </div>
-        <Link to="/results" className="flex items-center gap-2 rounded-xl border border-brand-200 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50">
-          <Search size={16} /> Find more
-        </Link>
+        <div className="flex items-center gap-3">
+          <CityPicker className="shrink-0" />
+          <Link to="/results" className="flex items-center gap-2 rounded-xl border border-brand-200 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50">
+            <Search size={16} /> Find more
+          </Link>
+        </div>
       </div>
 
       <div className="px-6 py-6 lg:px-8">

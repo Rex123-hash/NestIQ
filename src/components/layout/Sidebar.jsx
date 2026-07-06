@@ -5,12 +5,9 @@ import {
   Bookmark,
   Bell,
   Sparkles,
-  MapPin,
-  ChevronDown,
   House,
 } from 'lucide-react'
 import { cn } from '../../lib/cn.js'
-import { useCity } from '../../lib/cityStore.jsx'
 import { LogoMark } from '../ui/Logo.jsx'
 
 const NAV = [
@@ -31,7 +28,6 @@ function Logo() {
 }
 
 export default function Sidebar() {
-  const { city, setCity, cities } = useCity()
   const navigate = useNavigate()
   return (
     <aside className="hidden w-64 shrink-0 flex-col border-r border-line bg-white px-4 py-6 lg:flex">
@@ -72,22 +68,6 @@ export default function Sidebar() {
         >
           Check Now
         </button>
-      </div>
-
-      <div className="mt-auto flex flex-col gap-2 pt-6">
-        <div className="relative">
-          <MapPin size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-brand-600" />
-          <select
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            className="w-full cursor-pointer appearance-none rounded-xl border border-line bg-white py-2.5 pl-9 pr-8 text-sm text-ink-soft outline-none focus:border-brand-300"
-          >
-            {cities.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
-        </div>
       </div>
     </aside>
   )
