@@ -227,7 +227,7 @@ function Hero() {
 
   const checks = ['Adapts to your priorities', 'Cited & explainable', 'Trusted public data']
   return (
-    <section className="relative overflow-hidden">
+    <section className="relative">
       <div className="mx-auto max-w-[1400px] px-6 py-12 md:px-10 lg:py-20">
       <div className="relative z-10 ml-[0.5cm] lg:max-w-[480px] 2xl:max-w-[620px]">
         <h1 className="font-serif text-4xl leading-[1.05] tracking-tight text-ink md:text-5xl lg:max-w-[440px]">
