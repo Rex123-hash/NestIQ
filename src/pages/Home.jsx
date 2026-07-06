@@ -285,6 +285,7 @@ function Hero() {
               onClick={() => {
                 setQ(ex.q)
                 setErr('')
+                inputRef.current?.focus()
               }}
               className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700 transition hover:border-brand-400 hover:bg-brand-100"
             >
