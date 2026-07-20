@@ -22,3 +22,11 @@ __pycache__/
 .vite/
 
 .firebase/
+
+# Internal working notes — kept locally, not part of the published repo
+PHASE*_HANDOFF.md
+PHASE*_NOTES.md
+NESTIQ_*_HANDOFF.md
+PRE_COMMIT_PLAN.md
+docs/SECURITY_RUNBOOK.md
+docs/superpowers/

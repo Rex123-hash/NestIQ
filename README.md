@@ -227,7 +227,7 @@ Alongside it, **Essential Services** proximity (hospitals, doctors, pharmacies, 
 | **Bounded model calls** | The Vertex client is built with an explicit timeout so a hung generation cannot hold a request open |
 | **Secret Manager ready** | Optional, flag-gated backing that fails safe to environment values and never logs secret material |
 
-Scope is stated honestly: the limiter is **per instance**, so a genuinely global cap needs edge enforcement (Cloud Armor or API Gateway). `docs/SECURITY_RUNBOOK.md` carries the operator steps with a verification command for each.
+Scope is stated honestly: the limiter is **per instance**, so a genuinely global cap needs edge enforcement (Cloud Armor or API Gateway). Key restriction and rotation are deployment-time operations, handled outside the codebase.
 
 ---
 
@@ -305,10 +305,9 @@ NestIQ/
 │   │   ├── rate_limit.py        Per-instance request limiting
 │   │   ├── secrets.py           Optional Secret Manager backing (default off)
 │   │   ├── bq_india.py          BigQuery snapshots, AQI history, ARIMA_PLUS, cost caps
-│   │   ├── india.py             9 cities · 63 localities · default weights
+│   │   ├── india.py             9 cities · 53 localities · default weights
 │   │   └── fitscore.py          Normalization + weighted scoring engine
 │   └── tests/                   253 backend tests across 25 modules (fully offline)
-├── docs/SECURITY_RUNBOOK.md     Key rotation, referrer restriction, deploy verification
 ├── assets/readme/               themed section icons
 └── README.md
 ```
@@ -429,7 +428,7 @@ npm run build                         # production build
 ## <img src="assets/readme/roadmap.svg" height="22" align="center" alt="" /> &nbsp;Roadmap
 
 - Rotate to a referrer-restricted browser Maps key and move secrets into Secret Manager
-  (code support is already in place, see `docs/SECURITY_RUNBOOK.md`)
+  (code support is already in place)
 - Global rate limiting at the edge (Cloud Armor or API Gateway) rather than per instance
 - Real rent ingestion (city rent indices) into BigQuery to replace the curated estimate
 - Scheduled watchlist alerts on AQI threshold crossings via Cloud Scheduler
