@@ -52,18 +52,37 @@ def metric_evidence(feature: dict) -> dict[str, dict]:
     if failed:
         amenity_limitation += f" Incomplete categories: {', '.join(failed)}."
 
+    # Safety may be absent entirely for a newly onboarded city. Absent data must
+    # not wear the curated label, so source/status/confidence all switch.
+    safety_value = feature.get("safety_est")
+    has_safety = safety_value is not None
+    # Cities onboarded under Phase 11 take rent from grounded search with
+    # citations rather than a hand-typed integer. Absent marker = curated, so
+    # the existing catalog is unaffected.
+    rent_grounded = feature.get("rentSource") == "grounded_market_evidence"
     evidence = {
         "affordability": _envelope(
             "affordability", feature.get("median_rent"), "INR/month",
-            "NestIQ curated locality market dataset", "curated_market_estimate",
+            "Grounded market evidence (Google Search grounding; median calculated by NestIQ)"
+            if rent_grounded else "NestIQ curated locality market dataset",
+            "grounded_market_evidence" if rent_grounded else "curated_market_estimate",
             "estimated", None, "locality", "medium",
+            "A locality-level market estimate, not a guaranteed quote or an individual "
+            "property recommendation."
+            if rent_grounded else
             "Indicative median rent, not a live property listing or quoted offer.",
         ),
         "safety": _envelope(
-            "safety", feature.get("safety_est"), "index/100",
-            "NestIQ curated locality safety profile", "curated_proxy", "curated",
-            None, "locality", "medium",
-            "Proxy index because consistent open locality-level crime data is unavailable.",
+            "safety", safety_value, "index/100",
+            "NestIQ curated locality safety profile" if has_safety
+            else "No locality-level safety source available",
+            "curated_proxy" if has_safety else "unavailable",
+            "curated" if has_safety else "temporarily_unavailable",
+            None, "locality", "medium" if has_safety else "unavailable",
+            "Proxy index because consistent open locality-level crime data is unavailable."
+            if has_safety else
+            "No curated safety profile exists for this locality, so safety is "
+            "excluded from the FitScore rather than estimated.",
         ),
         "commute": _envelope(
             "commute", commute, "minutes",
@@ -90,7 +109,9 @@ def metric_evidence(feature: dict) -> dict[str, dict]:
         ),
     }
     safety_profile = feature.get("safety_profile")
-    evidence["safety"]["confidenceLabel"] = "Curated score confidence"
+    evidence["safety"]["confidenceLabel"] = (
+        "Curated score confidence" if has_safety else "No safety source"
+    )
     if safety_profile:
         # The live profile supports interpretation of the curated index. It is
         # kept separate so emergency-service density is never mislabeled as a

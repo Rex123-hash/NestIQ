@@ -394,6 +394,21 @@ export function AffordabilityTab({ n }) {
   const [backgroundPending, setBackgroundPending] = useState(false)
   const [verificationNotice, setVerificationNotice] = useState('')
 
+  // The verified figure is specifically 1-bedroom; the listed estimate carries no
+  // unit size at all. When the two diverge sharply that is a difference in what is
+  // being measured, not a contradiction -- so say so, rather than leaving a reader
+  // to conclude the page disagrees with itself.
+  const rentComparisonNote = (() => {
+    const verified = verification?.medianRent
+    const listed = verification?.curatedMedianRent
+    if (verification?.status !== 'available' || !verified || !listed) return ''
+    const delta = (verified - listed) / listed
+    if (Math.abs(delta) < 0.2) return ''
+    const pct = Math.abs(Math.round(delta * 100))
+    const direction = delta < 0 ? 'lower' : 'higher'
+    return `This verified figure covers 1-bedroom homes specifically, while the listed ${inr(listed)} estimate is not tied to a unit size. That is why it reads ${pct}% ${direction}. The two measure different things, so read them side by side rather than as a correction.`
+  })()
+
   useEffect(() => {
     setVerification(getCachedRentVerification(n.id, n.cityId))
     setRentRevealed(false)
@@ -502,7 +517,7 @@ export function AffordabilityTab({ n }) {
           <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Grounded market verification</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Grounded market verification · 1-bedroom homes</p>
                 <p className="mt-1 text-xl font-semibold text-ink">
                   {inr(verification.medianRent)} median
                   <span className="ml-2 text-sm font-normal text-muted">
@@ -517,6 +532,14 @@ export function AffordabilityTab({ n }) {
             <p className="mt-2 text-xs leading-relaxed text-muted">
               {verification.sampleSize} validated observations across {verification.sourceCount} grounded sources. This verification is evidence only and does not silently change FitScore.
             </p>
+            {/* The two figures measure different things: this one is specifically
+                1-bedroom, while the listed estimate is not size-specific. Without
+                saying so, a large gap reads as the page contradicting itself. */}
+            {rentComparisonNote && (
+              <p className="mt-2 rounded-lg bg-white/70 px-3 py-2 text-xs leading-relaxed text-ink-soft">
+                {rentComparisonNote}
+              </p>
+            )}
             {verification.citations?.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {verification.citations.slice(0, 5).map((c) => (
@@ -531,7 +554,7 @@ export function AffordabilityTab({ n }) {
         )}
         {rentRevealed && verification?.status === 'pending' && !verificationNotice && (
           <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs text-brand-700">
-            Grounded verification is running in the background. You can continue browsing while NestIQ checks sources.
+            Grounded verification is running in the background and usually takes up to a minute, since sources are searched and each observation is validated. You can continue browsing while NestIQ checks sources.
           </div>
         )}
         {rentRevealed && verification && verification.status !== 'available' && verification.status !== 'pending' && (

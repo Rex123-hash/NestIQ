@@ -418,6 +418,7 @@ def analyze_rent_observations(raw: dict, citations: list[dict], today: date | No
             "fresh": fresh,
             "sourceTitle": title,
             "evidenceType": str(item.get("evidenceType") or "listing_or_market_page")[:80],
+            "bedrooms": _bedroom_count(item.get("bedrooms")),
         })
 
     # Tukey fences prevent one luxury/incorrect listing from defining the range.
@@ -459,11 +460,26 @@ def analyze_rent_observations(raw: dict, citations: list[dict], today: date | No
         confidence = "medium"
     else:
         confidence = "low"
+    # Group by unit size so a reader compares like with like. A median blended
+    # across 1 BHK and 4 BHK describes no real home, and the catalog's listed
+    # rent states no size, so the breakdown is what makes the two comparable.
+    by_size: dict[str, dict] = {}
+    for obs in observations:
+        beds = obs.get("bedrooms")
+        if beds is None:
+            continue  # unknown size stays unknown rather than joining a bucket
+        by_size.setdefault(str(beds), []).append(obs["monthlyRent"])
+    by_size = {
+        size: {"median": round(statistics.median(values)), "count": len(values)}
+        for size, values in sorted(by_size.items())
+    }
+
     return {
         "status": "available",
         "confidence": confidence,
         "confidenceScore": score,
         "medianRent": median,
+        "bySize": by_size,
         "rangeLow": round(q1),
         "rangeHigh": round(q3),
         "sampleSize": len(rents),
@@ -475,6 +491,30 @@ def analyze_rent_observations(raw: dict, citations: list[dict], today: date | No
         "method": "Gemini Google Search grounding; numeric validation, outlier filtering and median calculated by NestIQ.",
         "limitation": "A locality-level market estimate, not a guaranteed quote or an individual property recommendation.",
     }
+
+
+_WORD_BEDROOMS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+
+
+def _bedroom_count(value) -> int | None:
+    """Read a bedroom count from '2', '2 BHK', '3BHK', 'two-bedroom'.
+
+    Returns None when absent or implausible: an unknown size must stay unknown
+    rather than be guessed into a bucket it may not belong to.
+    """
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    match = re.search(r"(\d+)\s*(?:bhk|bedroom|bed|br)?\b", text)
+    if match:
+        count = int(match.group(1))
+        return count if 1 <= count <= 6 else None
+    for word, count in _WORD_BEDROOMS.items():
+        if word in text:
+            return count
+    return None
 
 
 def _parse_rent_ledger(text: str) -> dict:
@@ -495,6 +535,8 @@ def _parse_rent_ledger(text: str) -> dict:
             "monthlyRent": rent,
             "observedOn": observed_on,
             "sourceTitle": title,
+            # Optional 4th field. Older three-field ledgers stay valid.
+            "bedrooms": _bedroom_count(parts[3]) if len(parts) > 3 else None,
         })
     return {"observations": observations[:12]}
 
@@ -513,11 +555,14 @@ def verify_rent(name: str, city: str) -> dict:
         for focus in search_passes:
             search_prompt = (
                 f"Use Google Search to find current Indian rental evidence for {name}, {city}. {focus} Find explicit "
-                "monthly rents for unfurnished or semi-furnished 1 BHK/one-bedroom homes. Produce an evidence ledger "
-                "with one observation per line in this form: INR monthly rent | visible YYYY-MM-DD date or unknown | "
-                "source page title. Include up to 6 distinct observations and cite the web sources. Exclude sale "
+                "monthly rents for unfurnished or semi-furnished residential homes across the common sizes "
+                "(1 BHK, 2 BHK and 3 BHK), not one size only. Produce an evidence ledger with one observation per "
+                "line in this form: INR monthly rent | visible YYYY-MM-DD date or unknown | source page title | "
+                "bedroom count as shown (for example 2 BHK), or unknown. Include up to 8 distinct observations "
+                "spanning more than one size where the sources support it, and cite the web sources. Exclude sale "
                 "prices, deposits, daily rates, PG beds, hostels, shared rooms and any value not explicitly shown by "
-                "a source. Do not calculate a median and do not guess missing prices or dates."
+                "a source. Never infer a bedroom count that a source does not state. Do not calculate a median and "
+                "do not guess missing prices or dates."
             )
             try:
                 grounded = _generate(

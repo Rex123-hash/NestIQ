@@ -466,7 +466,14 @@ def _fetch_features(city: dict) -> list[dict]:
                 "id": loc["id"], "name": loc["name"], "short": loc["short"], "accent": loc.get("accent", "#7C5CF6"),
                 "lat": loc["lat"], "lng": loc["lng"],
                 "median_rent": loc["rent"],
-                "safety_est": loc["safety"],
+                # Phase 11 cities carry rent from grounded search with citations.
+                # Absent = curated, so the existing catalog is unchanged.
+                "rentSource": loc.get("rentSource", "curated_market_estimate"),
+                # A newly onboarded city may have no safety source at all: no
+                # consistent open locality-level crime data exists for India.
+                # Omission flows through as a provisional score, never as a
+                # fabricated index.
+                "safety_est": loc.get("safety"),
                 "safety_profile": sf[i].result(),
                 "aqi": a.get("aqi"), "aqi_category": a.get("category", "Unknown"), "aqi_pollutant": a.get("dominant", ""),
                 # Air provenance flows through to score_india's additive fields.
@@ -642,7 +649,11 @@ def score_india(features: list[dict], weights: dict | None = None, budget: float
     ]
     rel = {
         "affordability": _minmax([budget - f["median_rent"] for f in features]),
-        "safety": _minmax([f["safety_est"] for f in features]),
+        # sparse_minmax, not _minmax: a city without a safety source must yield
+        # None (-> provisional + reduced coverage) rather than raise. With every
+        # value present this delegates to _minmax on an identical list, so the
+        # existing cities are unchanged by construction.
+        "safety": sparse_minmax([f.get("safety_est") for f in features]),
         "commute": sparse_minmax(commute_values, invert=True),
         "lifestyle": sparse_minmax(amenity_values),
     }

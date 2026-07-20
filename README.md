@@ -14,7 +14,7 @@ Ask in plain language. Real Google ADK agents gather live evidence, a determinis
 ![Gemini](https://img.shields.io/badge/Gemini_on_Vertex_AI-7C5CF6?style=flat-square&logo=googlegemini&logoColor=white)
 ![BigQuery](https://img.shields.io/badge/BigQuery_+_BQML-7C5CF6?style=flat-square&logo=googlebigquery&logoColor=white)
 ![Maps](https://img.shields.io/badge/Google_Maps_Platform-7C5CF6?style=flat-square&logo=googlemaps&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-305_passing-3FB984?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-346_passing-3FB984?style=flat-square)
 ![ADK](https://img.shields.io/badge/Google_ADK_agents-7C5CF6?style=flat-square&logo=google&logoColor=white)
 
 Built for the **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon**
@@ -57,6 +57,7 @@ It is not a search filter with sliders. It is a **parallel multi-agent system** 
 | **Air quality as a first-class pillar** | Live **CPCB AQI** per locality via the Google Air Quality API — current reading, 24-hour history, and 24-hour forecast — weighted into every recommendation. Built for the reality of Indian cities. |
 | **Cited resident sentiment** | Grounded retrieval: Gemini + Google Search surfaces what residents say online, summarized with clickable source citations, cached for 24 hours. |
 | **9 cities, Tier-1 to Tier-3** | Delhi NCR, Mumbai, Bengaluru, Kolkata, Hyderabad, Chennai, Pune, **Patna**, and **Ranchi** — decision intelligence is not just for the metros. |
+| **Scales by validation, not by copy-paste** | Air, commute, amenities, scoring and BigQuery history extend to a new city for the cost of its coordinates. A candidate city is staged outside the served catalog and must pass a validation gate — centroids inside India, no duplicate ids, all three Google signals resolving, and scoring invariants intact — before it can be published. Four candidate metros are staged and geographically verified today; they stay unpublished until their rent evidence is sourced rather than guessed. |
 
 ---
 
@@ -382,7 +383,7 @@ client can never quietly get a different ranking than the one it asked for.
 
 ## <img src="assets/readme/testing.svg" height="22" align="center" alt="" /> &nbsp;Testing & quality
 
-**305 automated tests** (253 backend across 25 modules + 52 frontend) run fully offline. Every external
+**346 automated tests** (294 backend across 28 modules + 52 frontend) run fully offline. Every external
 service is stubbed, so the suite is deterministic and CI-safe.
 
 | Suite | Focus |
@@ -434,11 +435,13 @@ npm run build                         # production build
 - Scheduled watchlist alerts on AQI threshold crossings via Cloud Scheduler
 - Route-level code splitting to bring the initial bundle under the 500 KB budget
 - Hindi and regional-language interface
-- Validated onboarding workflow for additional cities
+- Publish the four validated candidate metros once their rent evidence is sourced
 
 ---
 
 <div align="center">
+
+**Built by Amaan Khan** · Team WebHackers
 
 Built for better living and smarter communities · Powered by Google Cloud & Gemini
 

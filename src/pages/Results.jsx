@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
-import { useLocation, Link } from 'react-router-dom'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { LayoutList, Map as MapIcon, SlidersHorizontal, ChevronDown, ChevronUp, CircleCheck, TriangleAlert } from 'lucide-react'
 import AppTopbar from '../components/layout/AppTopbar.jsx'
 import NeighborhoodCard from '../components/results/NeighborhoodCard.jsx'
@@ -160,19 +160,35 @@ export default function Results() {
   const [limits, setLimits] = useState(null)
 
   const location = useLocation()
+  const navigate = useNavigate()
   const { city, setCity, cities } = useCity()
   const urlParams = useMemo(() => new URLSearchParams(location.search), [location.search])
   const query = urlParams.get('q') || location.state?.query || ''
   const requestedPreset = urlParams.get('preset') || location.state?.preset || null
   const preset = isPreset(requestedPreset) ? requestedPreset : null
   const requestedCity = urlParams.get('city')
-  const searchCity = cities.some((candidate) => candidate.id === requestedCity) ? requestedCity : city
-  const isNYC = searchCity === 'new-york'
-  const currency = isNYC ? '$' : '₹'
+  
+  const lastContextCity = useRef(city)
 
   useEffect(() => {
-    if (searchCity !== city) setCity(searchCity)
-  }, [searchCity, city, setCity])
+    if (requestedCity && requestedCity !== city && cities.some(c => c.id === requestedCity)) {
+      lastContextCity.current = requestedCity
+      setCity(requestedCity)
+    }
+  }, [requestedCity, city, cities, setCity])
+
+  useEffect(() => {
+    if (city !== lastContextCity.current) {
+      lastContextCity.current = city
+      const p = new URLSearchParams(location.search)
+      p.set('city', city)
+      navigate(`${location.pathname}?${p.toString()}`, { replace: true, state: location.state })
+    }
+  }, [city, location.search, location.pathname, location.state, navigate])
+
+  const searchCity = city
+  const isNYC = searchCity === 'new-york'
+  const currency = isNYC ? '$' : '₹'
 
   useEffect(() => {
     let alive = true
