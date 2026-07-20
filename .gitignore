@@ -30,3 +30,6 @@ NESTIQ_*_HANDOFF.md
 PRE_COMMIT_PLAN.md
 docs/SECURITY_RUNBOOK.md
 docs/superpowers/
+
+# In-progress TDD from a parallel session; tracked once its implementation lands
+backend/tests/test_safety_omission.py
