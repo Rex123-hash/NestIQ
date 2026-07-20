@@ -1,0 +1,68 @@
+[
+  {
+    "id": "delhi-env-notifications-2026",
+    "title": "Notifications and Directions 2022 Onwards",
+    "authority": "Department of Environment, Government of NCT of Delhi",
+    "url": "https://environment.delhi.gov.in/doit-content/notifications-and-directions-2022-onwards",
+    "publishedOn": "2026-04-29",
+    "cityIds": ["delhi-ncr"],
+    "localityIds": [],
+    "topics": ["environment", "air quality", "vehicles", "public health", "GRAP"],
+    "text": "The official Delhi Environment Department index lists 2026 notifications including No PUCC No Fuel, DPCC analyst appointments, parking-fee measures under severe GRAP stages, and GRAP invocation or revocation directions. Residents should open the source for the currently applicable order."
+  },
+  {
+    "id": "dda-public-notices-2026",
+    "title": "DDA Public Notices",
+    "authority": "Delhi Development Authority",
+    "url": "https://dda.gov.in/index.php/public_notice",
+    "publishedOn": "2026-07-17",
+    "cityIds": ["delhi-ncr"],
+    "localityIds": [],
+    "topics": ["development", "land", "housing", "public consultation", "civic"],
+    "text": "The official DDA notice index publishes dated development, land, housing, consultation, encroachment, and transit-oriented-development notices. The July 2026 index includes stakeholder consultations for Sector 34 Rohini and Mayur Vihar projects."
+  },
+  {
+    "id": "dda-rohini-sector-34-consultation",
+    "title": "Stakeholder consultation for Amusement Park Project in Sector 34 Rohini",
+    "authority": "Delhi Development Authority",
+    "url": "https://dda.gov.in/index.php/public_notice",
+    "publishedOn": "2026-07-08",
+    "cityIds": ["delhi-ncr"],
+    "localityIds": ["rohini"],
+    "topics": ["development", "public consultation", "recreation", "land use"],
+    "text": "DDA's July 2026 public-notice index lists a stakeholder consultation for an amusement park project in Sector 34, Rohini. The notice may be relevant to future recreation access, traffic, construction, and land-use conditions in the wider Rohini area."
+  },
+  {
+    "id": "dda-mayur-vihar-consultation",
+    "title": "Stakeholder consultation for Delhi Eye Project in Mayur Vihar",
+    "authority": "Delhi Development Authority",
+    "url": "https://dda.gov.in/index.php/public_notice",
+    "publishedOn": "2026-07-08",
+    "cityIds": ["delhi-ncr"],
+    "localityIds": ["mayur-vihar"],
+    "topics": ["development", "public consultation", "recreation", "traffic"],
+    "text": "DDA's July 2026 public-notice index lists a stakeholder consultation for the Delhi Eye project in the Mayur Vihar District Centre. The official notice is the controlling source for proposal details and consultation instructions."
+  },
+  {
+    "id": "dda-dwarka-bharat-vandana-park",
+    "title": "Development of Bharat Vandana Park at Sector 20 Dwarka",
+    "authority": "Delhi Development Authority",
+    "url": "https://dda.gov.in/index.php/public-notice-development-bharat-vandana-park-bvp-sec-20-dwarka-new-delhi",
+    "publishedOn": "2026-01-02",
+    "cityIds": ["delhi-ncr"],
+    "localityIds": ["dwarka"],
+    "topics": ["development", "park", "recreation", "construction"],
+    "text": "DDA published a public notice concerning development of Bharat Vandana Park at Sector 20, Dwarka. The official page links the notice document and identifies the project location and issue date."
+  },
+  {
+    "id": "dda-private-land-development-2026",
+    "title": "Public Notice for Development of Privately Owned Lands",
+    "authority": "Delhi Development Authority",
+    "url": "https://dda.gov.in/sites/default/files/notice/public_notice_for_plp_04.05.2026.pdf",
+    "publishedOn": "2026-05-04",
+    "cityIds": ["delhi-ncr"],
+    "localityIds": [],
+    "topics": ["development", "planning", "land use", "regulation"],
+    "text": "DDA states that plans for eligible privately owned land in Delhi continue to be sanctioned under the notified regulations and applicable land use, Master Plan, and Zonal Plan requirements. Applicants must use the relevant plan-sanctioning authority."
+  }
+]
