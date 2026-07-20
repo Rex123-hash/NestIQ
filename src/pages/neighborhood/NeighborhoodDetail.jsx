@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import { useParams, NavLink, useNavigate } from 'react-router-dom'
+import { useParams, NavLink } from 'react-router-dom'
 import { Bookmark, LayoutGrid, PiggyBank, ShieldCheck, TrainFront, Heart, Wind, Users, Dot, TriangleAlert } from 'lucide-react'
 import AppTopbar from '../../components/layout/AppTopbar.jsx'
 import ScoreGauge from '../../components/ui/ScoreGauge.jsx'
-import { apiNeighborhood, apiNeighborhoods } from '../../lib/api.js'
+import { apiNeighborhood, apiNeighborhoods, apiReviews, apiRentVerification, apiLocalityPulse, apiEssentials } from '../../lib/api.js'
 import { adaptNeighborhood, cityInsights } from '../../lib/adapt.js'
 import { useCity } from '../../lib/cityStore.jsx'
 import { useSaved, toggleSaved } from '../../lib/saved.js'
@@ -23,7 +23,7 @@ const TABS = [
   { slug: 'affordability', label: 'Affordability', icon: PiggyBank },
   { slug: 'safety', label: 'Safety', icon: ShieldCheck },
   { slug: 'commute', label: 'Commute', icon: TrainFront },
-  { slug: 'lifestyle', label: 'Lifestyle', icon: Heart },
+  { slug: 'lifestyle', label: 'Essentials & Lifestyle', icon: Heart },
   { slug: 'air-quality', label: 'Air Quality', icon: Wind },
   { slug: 'community', label: 'Community Insights', icon: Users },
 ]
@@ -40,9 +40,30 @@ const TAB_CONTENT = {
 export default function NeighborhoodDetail() {
   const { id, tab } = useParams()
   const { city } = useCity()
-  const navigate = useNavigate()
   const [n, setN] = useState(null)
+  const [essentials, setEssentials] = useState(null)
+  const [showFullExplanation, setShowFullExplanation] = useState(false)
   const saved = useSaved().some((x) => x.id === id)
+
+  useEffect(() => {
+    // Warm slow, evidence-only sources as soon as a locality opens. Rent stays
+    // hidden because prefetch results are not persisted or rendered until the
+    // user explicitly selects Verify current rent.
+    apiReviews(id, city)
+    apiRentVerification(id, city, false, false)
+    apiLocalityPulse(id, city)
+  }, [id, city])
+
+  useEffect(() => {
+    let alive = true
+    setEssentials(null)
+    apiEssentials(id, city).then((profile) => {
+      if (alive) setEssentials(profile)
+    })
+    return () => {
+      alive = false
+    }
+  }, [id, city])
 
   useEffect(() => {
     let alive = true
@@ -65,10 +86,19 @@ export default function NeighborhoodDetail() {
     }
   }, [id, city])
 
+  useEffect(() => {
+    setShowFullExplanation(false)
+  }, [id, city])
+
   if (!n) return <div className="p-8 text-muted">Loading neighborhood…</div>
 
   const active = tab || 'overview'
   const ActiveTab = TAB_CONTENT[active] || OverviewTab
+  const evidence = Object.values(n.evidence || {})
+  const googleSignals = evidence
+    .filter((e) => e.sourceType === 'live_google' || e.sourceType === 'cached_google')
+    .map((e) => `${e.metric.replace('_', ' ')}: ${e.status === 'temporarily_unavailable' ? 'unavailable' : e.status}`)
+    .join(' · ')
 
   return (
     <div>
@@ -115,7 +145,7 @@ export default function NeighborhoodDetail() {
             )}
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row lg:w-[52%]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start lg:w-[52%]">
             <div className="card flex items-center gap-4 p-4">
               <div className="flex flex-col items-center">
                 <p className="text-xs text-muted">FitScore</p>
@@ -123,27 +153,67 @@ export default function NeighborhoodDetail() {
                 <p className="text-[11px] text-muted">/100</p>
               </div>
               <ScoreGauge score={n.fitScore} size={90} />
-              <span className="text-sm font-semibold text-aff">{n.match}</span>
+              <div className="flex flex-col items-start gap-1">
+                <span className={`text-sm font-semibold ${n.isProvisional ? 'text-amber-700' : 'text-aff'}`}>
+                  {n.matchDisplay || n.match}
+                </span>
+                {n.isProvisional && (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                    Provisional FitScore · {n.missingPillars?.includes('air_quality') ? 'Air-quality data unavailable' : 'Incomplete data'} ({n.coveragePercent}% coverage)
+                  </span>
+                )}
+                {n.criticalRisk && (
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                      n.criticalRisk.severity === 'critical'
+                        ? 'bg-red-50 text-red-700'
+                        : n.criticalRisk.severity === 'high'
+                          ? 'bg-orange-50 text-orange-700'
+                          : 'bg-amber-50 text-amber-700',
+                    )}
+                    title={n.criticalRisk.detail}
+                  >
+                    {n.healthQualifier}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="card flex-1 bg-brand-50/50 p-4">
               <p className="text-sm font-semibold text-ink">Why this match?</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted">{n.why}</p>
+              {n.criticalRisk && (
+                <p className="mt-1 text-xs font-medium text-red-700">
+                  Trade-off: strong overall fit, but {n.criticalRisk.detail}. FitScore weighs your full set of priorities, not air alone.
+                </p>
+              )}
+              <p
+                className={cn(
+                  'mt-1 text-xs leading-relaxed text-muted',
+                  !showFullExplanation && 'line-clamp-2',
+                )}
+              >
+                {n.why}
+              </p>
               <button
-                onClick={() => navigate(`/neighborhood/${id}?explain=${Date.now()}`)}
+                type="button"
+                aria-expanded={showFullExplanation}
+                onClick={() => setShowFullExplanation((shown) => !shown)}
                 className="mt-2 text-xs font-medium text-brand-700 hover:underline"
               >
-                See full explanation →
+                {showFullExplanation ? 'Show less' : 'Show more'}
               </button>
             </div>
           </div>
         </div>
 
-        {/* provenance trust line: every metric traces to a live source */}
+        {/* provenance trust line: each metric is sourced and honestly labelled */}
         <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-line bg-[#F0F9F4] px-4 py-2.5 text-xs text-ink-soft">
           <ShieldCheck size={14} className="shrink-0 text-aff" />
-          <span className="font-semibold text-ink">Every metric here traces to a live source.</span>
+          <span className="font-semibold text-ink">Every metric here is sourced and labelled.</span>
           <span className="text-muted">
-            Air quality, amenities and commute are live from Google Maps Platform; Gemini only explains the numbers, it never invents them.
+            {evidence.length
+              ? `${googleSignals || 'Google signal status is shown inside each pillar'} · rent is an estimated market value · safety is a curated proxy. Missing signals are excluded, never replaced with typical values; Gemini only explains the evidence.`
+              : 'Source status and methodology are shown inside each pillar; Gemini explains the supplied evidence rather than inventing measurements.'}
           </span>
         </div>
 
@@ -167,7 +237,7 @@ export default function NeighborhoodDetail() {
         </div>
 
         {/* content */}
-        <div className="mt-6"><ActiveTab n={n} /></div>
+        <div className="mt-6"><ActiveTab n={n} essentials={essentials} /></div>
       </div>
     </div>
   )

@@ -1,12 +1,12 @@
 // Frontend single source of truth for the FitScore pillars and their
 // default weights. Mirrors backend/app/india.py INDIA_DEFAULT_WEIGHTS.
-// All locality data is live from the API; only UI fallbacks live here.
+// Locality metrics arrive from the API with per-pillar evidence metadata.
 
 export const SUBSCORES = [
   { key: 'affordability', label: 'Affordability', color: 'aff' },
   { key: 'safety', label: 'Safety', color: 'safe' },
   { key: 'commute', label: 'Commute', color: 'commute' },
-  { key: 'lifestyle', label: 'Lifestyle', color: 'life' },
+  { key: 'lifestyle', label: 'Essentials & Lifestyle', color: 'life' },
   { key: 'air_quality', label: 'Air Quality', color: 'trend' },
 ]
 
@@ -19,7 +19,7 @@ export const WEIGHTS = {
 }
 
 // The published FitScore rubric: for each pillar, its default weight, why it
-// carries that weight, and the live signal it is derived from. Rendered in the
+// carries that weight, and the evidence signal it is derived from. Rendered in the
 // "How it works" methodology panel so the score is explainable, not a black box.
 export const RUBRIC = [
   {
@@ -38,7 +38,7 @@ export const RUBRIC = [
     key: 'safety',
     label: 'Safety',
     why: 'A baseline most people will not trade away, weighted on par with cost and commute.',
-    source: 'Locality profile blended with live environmental health',
+    source: 'NestIQ curated locality safety proxy (does not include air quality)',
   },
   {
     key: 'commute',
@@ -48,7 +48,7 @@ export const RUBRIC = [
   },
   {
     key: 'lifestyle',
-    label: 'Lifestyle',
+    label: 'Essentials & Lifestyle',
     why: 'Amenity density is a comfort rather than a dealbreaker, so it is weighted slightly lower.',
     source: 'Google Places (live count of amenities within 1.5 km)',
   },
@@ -57,7 +57,7 @@ export const RUBRIC = [
 // How the pillars combine into one number. Kept next to the rubric so the
 // methodology copy never drifts from the actual scoring code in maps.py.
 export const METHOD_NOTE =
-  'Each pillar is min-max normalized across every locality in the city (0 to 100), then combined using these weights. The weights automatically re-balance to match the priorities in your search, so the FitScore reflects what you asked for.'
+  'Air quality uses absolute CPCB health bands. Affordability, safety, commute and lifestyle are normalized across available localities, then combined using your weights. Missing or partial signals are excluded and the score is labelled provisional with its coverage percentage.'
 
 // The live data sources behind every India locality. One definition, imported
 // wherever the "Sources" chips render, so they can never drift out of sync.
@@ -68,5 +68,5 @@ export const preferences = {
   statement: 'Top neighborhood matches for you',
   budget: 30000,
   bed: '1 bed preferred',
-  priorities: 'Air Quality (medium), Affordability (medium), Safety (medium), Commute (medium), Lifestyle (medium)',
+  priorities: 'Air Quality (medium), Affordability (medium), Safety (medium), Commute (medium), Essentials & Lifestyle (medium)',
 }

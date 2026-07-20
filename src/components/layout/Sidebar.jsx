@@ -30,7 +30,7 @@ function Logo() {
 export default function Sidebar() {
   const navigate = useNavigate()
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-line bg-white px-4 py-6 lg:flex">
+    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 self-start flex-col overflow-y-auto border-r border-line bg-white px-4 py-6 lg:flex">
       <Logo />
 
       <nav className="mt-8 flex flex-col gap-1">

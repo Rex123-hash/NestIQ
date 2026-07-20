@@ -9,12 +9,15 @@ from __future__ import annotations
 import statistics
 import threading
 import time
+from math import asin, cos, radians, sin, sqrt
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
 from .config import settings
 from .fitscore import _minmax, _match
+from .air_quality import air_health_score, cpcb_band, critical_risks, air_relative_ranks, valid_aqi
+from .evidence import metric_evidence, _envelope
 from .india import get_city, INDIA_DEFAULT_WEIGHTS as INDIA_WEIGHTS
 
 INDIA_KEYS = list(INDIA_WEIGHTS.keys())
@@ -24,8 +27,46 @@ _TTL = 1800  # 30 min
 
 
 # --------------------------- individual Maps calls ------------------------- #
+CPCB_SOURCE = "Google Air Quality API (CPCB AQI)"
+UAQI_SOURCE = "Google Air Quality API (Universal AQI)"
+AIR_SOURCE = CPCB_SOURCE  # back-compat alias
+
+# Last successful reading per rounded location, so a failed refresh can be served
+# as an explicitly-stale value (with its ORIGINAL timestamp) instead of nothing.
+_last_good_aqi: dict[tuple[float, float], dict] = {}
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _aqi_key(lat: float, lng: float) -> tuple[float, float]:
+    return (round(lat, 4), round(lng, 4))
+
+
+def _unavailable_or_stale(key: tuple[float, float]) -> dict:
+    """Serve the last good reading as stale, else an honest unavailable state."""
+    prev = _last_good_aqi.get(key)
+    if prev:
+        return {**prev, "status": "stale", "stale": True, "fallbackUsed": True}
+    return {"aqi": None, "category": "Unknown", "dominant": "", "indexCode": None,
+            "status": "temporarily_unavailable", "source": CPCB_SOURCE,
+            "scoringMethod": "none", "stale": False, "fallbackUsed": False,
+            "fetchedAt": _now_iso()}
+
+
 def air_quality(lat: float, lng: float) -> dict:
-    """India CPCB AQI (falls back to Universal AQI). Lower is better."""
+    """India CPCB AQI with Universal-AQI fallback, and explicit provenance.
+
+    Returns which index was actually used (`indexCode`), an accurate source
+    label, and the scoring method. A Universal-AQI reading is returned with its
+    own label and scoringMethod 'none' so it is never scored through CPCB bands.
+    A failed call serves the last good reading as stale (original timestamp), or
+    an honest temporarily_unavailable state, never a fabricated number.
+    """
+    key = _aqi_key(lat, lng)
+    fetched = _now_iso()
     try:
         r = requests.post(
             f"https://airquality.googleapis.com/v1/currentConditions:lookup?key={settings.maps_api_key}",
@@ -33,18 +74,38 @@ def air_quality(lat: float, lng: float) -> dict:
             timeout=15,
         )
         idx = {i["code"]: i for i in r.json().get("indexes", [])}
-        chosen = idx.get("ind_cpcb") or idx.get("uaqi") or {}
-        return {"aqi": chosen.get("aqi", 150), "category": chosen.get("category", "Unknown"),
-                "dominant": chosen.get("dominantPollutant", "")}
+        cpcb = idx.get("ind_cpcb") or {}
+        uaqi = idx.get("uaqi") or {}
+        # Validate the raw value at ingestion: a string / NaN / infinity / boolean
+        # / negative must never be cached or labelled live.
+        if valid_aqi(cpcb.get("aqi")) is not None:
+            chosen, code, source, method = cpcb, "ind_cpcb", CPCB_SOURCE, "cpcb"
+        elif valid_aqi(uaqi.get("aqi")) is not None:
+            # Universal AQI: different scale/direction — displayed, not CPCB-scored.
+            chosen, code, source, method = uaqi, "uaqi", UAQI_SOURCE, "none"
+        else:
+            return _unavailable_or_stale(key)
+        result = {"aqi": chosen.get("aqi"), "category": chosen.get("category", "Unknown"),
+                  "dominant": chosen.get("dominantPollutant", ""), "indexCode": code,
+                  "status": "live", "source": source, "scoringMethod": method,
+                  "stale": False, "fallbackUsed": False, "fetchedAt": fetched}
+        _last_good_aqi[key] = dict(result)
+        return result
     except Exception as e:  # noqa: BLE001
-        print(f"[maps] air_quality fallback: {e}")
-        return {"aqi": 150, "category": "Unknown", "dominant": ""}
+        print(f"[maps] air_quality unavailable: {e}")
+        return _unavailable_or_stale(key)
 
 
 def _extract_aqi(indexes: list) -> int | None:
+    """CPCB (ind_cpcb) AQI for a single history/forecast point, validated.
+
+    History and forecast feed a chart labelled as CPCB, so only ind_cpcb points
+    are used — a Universal-AQI point is on a different scale and is omitted rather
+    than plotted as if it were CPCB. Malformed values are dropped too.
+    """
     idx = {i["code"]: i for i in indexes}
-    ch = idx.get("ind_cpcb") or idx.get("uaqi") or {}
-    return ch.get("aqi")
+    v = idx.get("ind_cpcb", {}).get("aqi")
+    return v if valid_aqi(v) is not None else None
 
 
 def air_quality_history(lat: float, lng: float, hours: int = 24) -> list[dict]:
@@ -100,7 +161,7 @@ AMENITY_LABELS = {
 }
 
 
-def _count_places(lat: float, lng: float, place_type: str) -> int:
+def _count_places(lat: float, lng: float, place_type: str) -> int | None:
     """Nearby count for a single amenity type within 1.5 km (capped at 20)."""
     try:
         r = requests.post(
@@ -113,10 +174,13 @@ def _count_places(lat: float, lng: float, place_type: str) -> int:
             },
             timeout=15,
         )
-        return len(r.json().get("places", []))
+        payload = r.json()
+        if payload.get("error"):
+            raise RuntimeError(payload["error"].get("message", "Places request failed"))
+        return len(payload.get("places", []))
     except Exception as e:  # noqa: BLE001
         print(f"[maps] _count_places {place_type} fallback: {e}")
-        return 0
+        return None
 
 
 def amenity_profile(lat: float, lng: float) -> dict:
@@ -129,7 +193,205 @@ def amenity_profile(lat: float, lng: float) -> dict:
     with ThreadPoolExecutor(max_workers=len(AMENITY_TYPES)) as ex:
         counts = list(ex.map(lambda t: _count_places(lat, lng, t), AMENITY_TYPES))
     breakdown = dict(zip(AMENITY_TYPES, counts))
-    return {"total": sum(counts), "breakdown": breakdown}
+    failed = [kind for kind, count in breakdown.items() if count is None]
+    available = [count for count in counts if count is not None]
+    status = "live" if not failed else "partial" if available else "temporarily_unavailable"
+    return {
+        "total": sum(available) if available else None,
+        "breakdown": breakdown,
+        "status": status,
+        "failedCategories": failed,
+        "source": "Google Places API",
+        "fetchedAt": _now_iso() if available else None,
+    }
+
+
+# --------------------------- essential services ---------------------------- #
+# ADDITIVE, non-scored proximity signals for health-sensitive households. These
+# are a SEPARATE list from AMENITY_TYPES on purpose: they must never feed
+# amenity_count or the lifestyle subscore. Only supported Google Places types are
+# used; any finer split (e.g. primary vs secondary school) is a display concern.
+ESSENTIAL_TYPES = ["hospital", "doctor", "pharmacy", "school", "university"]
+ESSENTIAL_LABELS = {
+    "hospital": "Hospitals", "doctor": "Doctors", "pharmacy": "Pharmacies",
+    "school": "Schools", "university": "Universities",
+}
+ESSENTIAL_SOURCE = "Google Places API"
+_ESSENTIAL_RADIUS = 1500.0
+_ESSENTIAL_TTL = 1800  # 30 min — Places density barely moves; avoid re-billing.
+_essential_cache: dict[tuple, tuple[float, dict]] = {}
+_ESSENTIAL_LIMITATION = (
+    "Counts are capped at 20 per category within 1.5 km. "
+    "Shown for context; not part of the FitScore."
+)
+
+
+def _essential_cache_key(lat: float, lng: float, radius: float, types: list[str]) -> tuple:
+    """Cache identity: coordinates + radius + exact type set (order-independent).
+    Freshness is enforced separately by comparing the stored timestamp to the TTL."""
+    return (round(lat, 4), round(lng, 4), radius, tuple(sorted(types)))
+
+
+def essential_profile(lat: float, lng: float) -> dict:
+    """Per-category essential-services counts within 1.5 km, each wrapped in the
+    full Phase 2 evidence envelope. Never touches AMENITY_TYPES/amenity_count.
+
+    A single call fans out to up to five Places category calls on a cold cache;
+    results are cached (coords + radius + type set + freshness) so repeat detail
+    views do not re-bill. A total failure is never cached, so it can be retried.
+    """
+    key = _essential_cache_key(lat, lng, _ESSENTIAL_RADIUS, ESSENTIAL_TYPES)
+    hit = _essential_cache.get(key)
+    if hit and time.time() - hit[0] < _ESSENTIAL_TTL:
+        return hit[1]
+
+    with ThreadPoolExecutor(max_workers=len(ESSENTIAL_TYPES)) as ex:
+        counts = list(ex.map(lambda t: _count_places(lat, lng, t), ESSENTIAL_TYPES))
+
+    fetched = _now_iso()
+    categories: dict[str, dict] = {}
+    failed: list[str] = []
+    for kind, count in zip(ESSENTIAL_TYPES, counts):
+        ok = count is not None
+        if not ok:
+            failed.append(kind)
+        categories[kind] = _envelope(
+            f"essential_{kind}", count, "places_within_1.5km", ESSENTIAL_SOURCE,
+            "live_google", "live" if ok else "temporarily_unavailable",
+            fetched if ok else None, "1.5km_radius",
+            "high" if ok else "unavailable", _ESSENTIAL_LIMITATION,
+        )
+
+    available = [c for c in counts if c is not None]
+    status = "live" if not failed else "partial" if available else "temporarily_unavailable"
+    result = {
+        "categories": categories,
+        "labels": ESSENTIAL_LABELS,
+        "total": sum(available) if available else None,
+        "status": status,
+        "failedCategories": failed,
+        "source": ESSENTIAL_SOURCE,
+        "fetchedAt": fetched if available else None,
+    }
+    # Never cache a total failure — it must be retriable on the next view.
+    if available:
+        _essential_cache[key] = (time.time(), result)
+    return result
+
+
+SAFETY_PLACE_TYPES = {
+    "police": {"label": "Police stations", "radius": 3000.0},
+    "hospital": {"label": "Hospitals", "radius": 3000.0},
+    "fire_station": {"label": "Fire stations", "radius": 5000.0},
+}
+
+
+def _distance_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance used only to report proximity, never route time."""
+    dlat = radians(lat2 - lat1)
+    dlng = radians(lng2 - lng1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+    return 6371.0 * 2 * asin(sqrt(a))
+
+
+def _nearby_safety_places(lat: float, lng: float, place_type: str, radius: float) -> dict | None:
+    """Count and nearest straight-line distance for one emergency-service type."""
+    try:
+        r = requests.post(
+            "https://places.googleapis.com/v1/places:searchNearby",
+            headers={
+                "X-Goog-Api-Key": settings.maps_api_key,
+                "X-Goog-FieldMask": "places.id,places.location",
+            },
+            json={
+                "includedTypes": [place_type],
+                "maxResultCount": 20,
+                "locationRestriction": {
+                    "circle": {
+                        "center": {"latitude": lat, "longitude": lng},
+                        "radius": radius,
+                    }
+                },
+            },
+            timeout=15,
+        )
+        payload = r.json()
+        if payload.get("error"):
+            raise RuntimeError(payload["error"].get("message", "Places request failed"))
+        places = payload.get("places", [])
+        distances = []
+        for place in places:
+            location = place.get("location") or {}
+            plat, plng = location.get("latitude"), location.get("longitude")
+            if isinstance(plat, (int, float)) and isinstance(plng, (int, float)):
+                distances.append(_distance_km(lat, lng, plat, plng))
+        return {
+            "count": len(places),
+            "nearestDistanceKm": round(min(distances), 1) if distances else None,
+            "radiusKm": round(radius / 1000),
+        }
+    except Exception as e:  # noqa: BLE001
+        print(f"[maps] safety places {place_type} unavailable: {e}")
+        return None
+
+
+def _emergency_access_score(signals: dict) -> int | None:
+    """A transparent access score, deliberately separate from Safety/FitScore."""
+    weights = {"police": 40, "hospital": 35, "fire_station": 25}
+    target_counts = {"police": 3, "hospital": 4, "fire_station": 2}
+    available = {k: v for k, v in signals.items() if v is not None}
+    if not available:
+        return None
+    earned = 0.0
+    possible = 0.0
+    for kind, signal in available.items():
+        weight = weights[kind]
+        possible += weight
+        count_part = min(signal["count"] / target_counts[kind], 1.0) * 0.7
+        distance = signal.get("nearestDistanceKm")
+        # Full proximity credit at <=1 km, tapering to zero at the search radius.
+        if distance is None:
+            proximity_part = 0.0
+        else:
+            radius = max(float(signal["radiusKm"]), 1.0)
+            proximity_part = max(0.0, min(1.0, (radius - distance) / max(radius - 1.0, 1.0))) * 0.3
+        earned += weight * (count_part + proximity_part)
+    return round(100 * earned / possible) if possible else None
+
+
+def safety_profile(lat: float, lng: float) -> dict:
+    """Live emergency-access evidence supporting, but not replacing, safety."""
+    kinds = list(SAFETY_PLACE_TYPES)
+    with ThreadPoolExecutor(max_workers=len(kinds)) as ex:
+        values = list(ex.map(
+            lambda kind: _nearby_safety_places(
+                lat, lng, kind, SAFETY_PLACE_TYPES[kind]["radius"],
+            ),
+            kinds,
+        ))
+    signals = dict(zip(kinds, values))
+    available = sum(v is not None for v in values)
+    status = "live" if available == len(kinds) else "partial" if available else "temporarily_unavailable"
+    confidence = "high" if available == len(kinds) else "medium" if available == 2 else "low" if available else "unavailable"
+    return {
+        "status": status,
+        "confidence": confidence,
+        "emergencyAccessScore": _emergency_access_score(signals),
+        "signals": signals,
+        "source": "Google Places API",
+        "fetchedAt": _now_iso() if available else None,
+        "limitation": (
+            "Measures access to emergency services, not crime incidence. Place counts are capped at 20 per category; "
+            "nearest distance is straight-line, not travel time."
+        ),
+        "officialCrimeContext": {
+            "source": "NCRB Crime in India 2022 via data.gov.in",
+            "url": "https://www.data.gov.in/catalog/crime-india-2022",
+            "scope": "city/state context only",
+            "scored": False,
+            "limitation": "No consistent open locality-level crime series is available, so NestIQ does not invent one.",
+        },
+    }
 
 
 def locality_photo(query: str) -> str:
@@ -151,7 +413,7 @@ def locality_photo(query: str) -> str:
         return ""
 
 
-def commute_minutes(o_lat: float, o_lng: float, d_lat: float, d_lng: float) -> int:
+def commute_minutes(o_lat: float, o_lng: float, d_lat: float, d_lng: float) -> int | None:
     """Driving time (with traffic) to the city work anchor."""
     try:
         r = requests.get(
@@ -160,12 +422,17 @@ def commute_minutes(o_lat: float, o_lng: float, d_lat: float, d_lng: float) -> i
                     "mode": "driving", "departure_time": "now", "key": settings.maps_api_key},
             timeout=15,
         )
-        el = r.json()["rows"][0]["elements"][0]
+        payload = r.json()
+        if payload.get("status") not in (None, "OK"):
+            raise RuntimeError(payload.get("error_message") or payload["status"])
+        el = payload["rows"][0]["elements"][0]
+        if el.get("status") not in (None, "OK"):
+            raise RuntimeError(el.get("status", "Distance Matrix element failed"))
         secs = el.get("duration_in_traffic", el.get("duration"))["value"]
         return round(secs / 60)
     except Exception as e:  # noqa: BLE001
         print(f"[maps] commute fallback: {e}")
-        return 40
+        return None
 
 
 # ------------------------------ feature builder ---------------------------- #
@@ -180,27 +447,46 @@ def _build_lock(city_id: str) -> threading.Lock:
 
 
 def _fetch_features(city: dict) -> list[dict]:
-    """All Google calls for a city fanned out in parallel (4 per locality)."""
+    """All Google calls for a city fanned out in parallel (5 per locality)."""
     anchor = city["anchor"]
     locs = city["localities"]
-    with ThreadPoolExecutor(max_workers=min(32, len(locs) * 4)) as ex:
+    with ThreadPoolExecutor(max_workers=min(40, len(locs) * 5)) as ex:
         aq = [ex.submit(air_quality, l["lat"], l["lng"]) for l in locs]
         am = [ex.submit(amenity_profile, l["lat"], l["lng"]) for l in locs]
         cm = [ex.submit(commute_minutes, l["lat"], l["lng"], anchor["lat"], anchor["lng"]) for l in locs]
         ph = [ex.submit(locality_photo, l["name"]) for l in locs]
+        sf = [ex.submit(safety_profile, l["lat"], l["lng"]) for l in locs]
         feats = []
         for i, loc in enumerate(locs):
             a = aq[i].result()
             prof = am[i].result()
+            commute = cm[i].result()
+            evidence_time = _now_iso()
             feats.append({
                 "id": loc["id"], "name": loc["name"], "short": loc["short"], "accent": loc.get("accent", "#7C5CF6"),
                 "lat": loc["lat"], "lng": loc["lng"],
                 "median_rent": loc["rent"],
                 "safety_est": loc["safety"],
-                "aqi": a["aqi"], "aqi_category": a["category"], "aqi_pollutant": a["dominant"],
+                "safety_profile": sf[i].result(),
+                "aqi": a.get("aqi"), "aqi_category": a.get("category", "Unknown"), "aqi_pollutant": a.get("dominant", ""),
+                # Air provenance flows through to score_india's additive fields.
+                "airIndexCode": a.get("indexCode"),
+                "airDataStatus": a.get("status", "live" if a.get("aqi") is not None else "temporarily_unavailable"),
+                "airSource": a.get("source", AIR_SOURCE),
+                "airScoringMethod": a.get("scoringMethod", "cpcb"),
+                "airStale": a.get("stale", False),
+                "airFallbackUsed": a.get("fallbackUsed", False),
+                "airFetchedAt": a.get("fetchedAt"),
                 "amenity_count": prof["total"],
                 "amenity_breakdown": prof["breakdown"],
-                "commute_min": cm[i].result(),
+                "amenityDataStatus": prof.get("status", "live" if prof.get("total") is not None else "temporarily_unavailable"),
+                "amenityFailedCategories": prof.get("failedCategories", []),
+                "amenitySource": prof.get("source", "Google Places API"),
+                "amenityFetchedAt": prof.get("fetchedAt"),
+                "commute_min": commute,
+                "commuteDataStatus": "live" if commute is not None else "temporarily_unavailable",
+                "commuteSource": "Google Maps Distance Matrix",
+                "commuteFetchedAt": evidence_time if commute is not None else None,
                 "photo": ph[i].result(),
             })
     return feats
@@ -317,20 +603,98 @@ def score_india(features: list[dict], weights: dict | None = None, budget: float
     if not features:
         return []
     w = {**INDIA_WEIGHTS, **(weights or {})}
-    wsum = sum(w[k] for k in INDIA_KEYS) or 1.0
 
-    sub = {
+    # Air quality is scored ABSOLUTELY against CPCB health bands (see
+    # air_quality.py), so a Severe locality can never be lifted to the top of the
+    # band by relative comparison. Cross-locality position is exposed separately
+    # as airRelativeRank and never folded back into the health score. The other
+    # four pillars remain relative min-max across the candidate set.
+    # CPCB health scoring only applies to the CPCB index. A Universal-AQI (uaqi)
+    # reading is on a different scale/direction and must NOT be scored as CPCB;
+    # its health score is left unavailable and the air pillar is treated as
+    # missing. A None index_code (legacy/test features carrying 0-500 values) is
+    # assumed CPCB. Only CPCB AQIs feed the cross-city relative rank.
+    def cpcb_ok(f):
+        return f.get("airIndexCode") in (None, "ind_cpcb")
+
+    cpcb_aqis = [f.get("aqi") if cpcb_ok(f) else None for f in features]
+    air_scores = [air_health_score(a) for a in cpcb_aqis]
+    ranks = air_relative_ranks(cpcb_aqis)
+    def sparse_minmax(values, invert=False):
+        """Min-max available values while preserving None at its original index."""
+        valid = [v for v in values if v is not None]
+        if not valid:
+            return [None for _ in values]
+        scored = iter(_minmax(valid, invert=invert))
+        return [next(scored) if v is not None else None for v in values]
+
+    commute_values = [
+        f.get("commute_min")
+        if f.get("commuteDataStatus", "live" if f.get("commute_min") is not None else "temporarily_unavailable") == "live"
+        else None
+        for f in features
+    ]
+    amenity_values = [
+        f.get("amenity_count")
+        if f.get("amenityDataStatus", "live" if f.get("amenity_count") is not None else "temporarily_unavailable") == "live"
+        else None
+        for f in features
+    ]
+    rel = {
         "affordability": _minmax([budget - f["median_rent"] for f in features]),
         "safety": _minmax([f["safety_est"] for f in features]),
-        "commute": _minmax([f["commute_min"] for f in features], invert=True),
-        "lifestyle": _minmax([f["amenity_count"] for f in features]),
-        "air_quality": _minmax([f["aqi"] for f in features], invert=True),  # lower AQI = better
+        "commute": sparse_minmax(commute_values, invert=True),
+        "lifestyle": sparse_minmax(amenity_values),
     }
     anoms = _anomaly_flags(features)
     out = []
     for i, f in enumerate(features):
-        subscores = {k: sub[k][i] for k in INDIA_KEYS}
-        fit = round(sum(subscores[k] * w[k] for k in INDIA_KEYS) / wsum)
-        out.append({**f, "subscores": subscores, "fitScore": fit, "match": _match(fit), "anomalies": anoms[i]})
+        subscores = {
+            "affordability": rel["affordability"][i],
+            "safety": rel["safety"][i],
+            "commute": rel["commute"][i],
+            "lifestyle": rel["lifestyle"][i],
+            "air_quality": air_scores[i],  # absolute CPCB; None when AQI missing/UAQI
+        }
+        # Weighted FitScore over pillars that actually have a value, so a missing
+        # air signal never fabricates a number and never silently zeroes a pillar.
+        avail = {k: v for k, v in subscores.items() if v is not None}
+        wsum = sum(w[k] for k in avail) or 1.0
+        fit = round(sum(avail[k] * w[k] for k in avail) / wsum)
+        # Incomplete-score semantics: a missing high-priority pillar must never
+        # silently read as a normal match. Keep the numeric score (compatibility)
+        # but flag it provisional and report coverage.
+        missing = [k for k in INDIA_KEYS if subscores[k] is None]
+        total_w = sum(w[k] for k in INDIA_KEYS) or 1.0
+        coverage = round(100 * sum(w[k] for k in avail) / total_w)
+        status = "provisional" if missing else "complete"
+        match = _match(fit)
+        aqi = f.get("aqi")
+        scored_cpcb = cpcb_ok(f)
+        out.append({
+            **f,
+            "subscores": subscores,
+            "fitScore": fit,
+            "match": match,
+            "matchDisplay": f"Provisional {match}" if missing else match,
+            "fitScoreDataStatus": status,
+            "missingPillars": missing,
+            "coveragePercent": coverage,
+            "evidence": metric_evidence(f),
+            "anomalies": anoms[i],
+            # Additive air-provenance fields. Existing consumers keep reading
+            # subscores.air_quality / fitScore / match unchanged.
+            "airHealthScore": air_scores[i],
+            "airHealthBand": cpcb_band(aqi) if scored_cpcb else None,
+            "airRelativeRank": ranks[i],
+            "criticalRisks": critical_risks(aqi) if scored_cpcb else [],
+            "airIndexCode": f.get("airIndexCode"),
+            "airScoringMethod": "cpcb" if (scored_cpcb and air_scores[i] is not None) else "none",
+            "airDataStatus": f.get("airDataStatus") or ("live" if aqi is not None else "temporarily_unavailable"),
+            "airStale": bool(f.get("airStale")),
+            "airFallbackUsed": bool(f.get("airFallbackUsed")),
+            "airSource": f.get("airSource") or "Google Air Quality API (CPCB AQI)",
+            "airFetchedAt": f.get("airFetchedAt"),
+        })
     out.sort(key=lambda x: x["fitScore"], reverse=True)
     return out

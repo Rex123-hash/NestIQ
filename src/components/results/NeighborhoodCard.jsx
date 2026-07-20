@@ -5,8 +5,18 @@ import ScoreGauge from '../ui/ScoreGauge.jsx'
 import { useMapsKey, placesPhotoUrl } from '../../lib/gmaps.js'
 import { useCity } from '../../lib/cityStore.jsx'
 import { useSaved, toggleSaved } from '../../lib/saved.js'
+import { prefetchLocality } from '../../lib/api.js'
 
 const scoreColor = (s) => (s >= 85 ? 'text-brand-700' : s >= 75 ? 'text-aff' : 'text-trend')
+
+// Colour a critical air-quality qualifier by severity so a friendly overall
+// match is never shown without the health caveat beside it.
+const riskChip = (severity) =>
+  severity === 'critical'
+    ? 'bg-red-50 text-red-700'
+    : severity === 'high'
+      ? 'bg-orange-50 text-orange-700'
+      : 'bg-amber-50 text-amber-700'
 
 export default function NeighborhoodCard({ n, rank }) {
   const key = useMapsKey()
@@ -19,6 +29,12 @@ export default function NeighborhoodCard({ n, rank }) {
   return (
     <Link
       to={`/neighborhood/${n.id}`}
+      // Start the slow evidence fetches on intent (hover/focus/tap), so the detail
+      // page opens with data already loading rather than from cold.
+      onMouseEnter={() => prefetchLocality(n.id, city)}
+      onFocus={() => prefetchLocality(n.id, city)}
+      onTouchStart={() => prefetchLocality(n.id, city)}
+      onClick={() => prefetchLocality(n.id, city)}
       className="block rounded-2xl border border-line bg-white p-4 shadow-card transition hover:border-brand-200"
     >
       <div className="flex gap-4">
@@ -68,8 +84,8 @@ export default function NeighborhoodCard({ n, rank }) {
           <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
             <span className="flex items-center gap-1.5 text-ink-soft">
               <TrainFront size={15} className="text-muted" />
-              <b className="font-semibold">{n.commuteMin} min</b>
-              <span className="text-muted">to work</span>
+              <b className="font-semibold">{Number.isFinite(n.commuteMin) ? `${n.commuteMin} min` : 'Unavailable'}</b>
+              <span className="text-muted">{Number.isFinite(n.commuteMin) ? 'to work' : 'not estimated'}</span>
             </span>
             <span className="flex items-center gap-1.5 text-ink-soft">
               <Wind size={15} className="text-aff" />
@@ -98,7 +114,22 @@ export default function NeighborhoodCard({ n, rank }) {
             </div>
             <div className="flex shrink-0 flex-col items-center">
               <ScoreGauge score={n.fitScore} size={64} />
-              <span className="-mt-1 text-xs font-medium text-aff">{n.match}</span>
+              <span className={`-mt-1 text-xs font-medium ${n.isProvisional ? 'text-amber-700' : 'text-aff'}`}>
+                {n.matchDisplay || n.match}
+              </span>
+              {n.isProvisional && (
+                <span className="mt-0.5 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                  {n.missingPillars?.length ? `${n.missingPillars.length} signal${n.missingPillars.length > 1 ? 's' : ''} unavailable` : 'Incomplete data'}
+                </span>
+              )}
+              {n.criticalRisk && (
+                <span
+                  className={`mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${riskChip(n.criticalRisk.severity)}`}
+                  title={n.criticalRisk.detail}
+                >
+                  {n.healthQualifier}
+                </span>
+              )}
             </div>
           </div>
         </div>

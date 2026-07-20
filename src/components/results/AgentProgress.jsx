@@ -7,7 +7,7 @@ export default function AgentProgress({ agents }) {
       <p className="flex items-center gap-2 text-sm font-semibold text-ink">
         <Sparkles size={16} className="text-brand-500" /> NestIQ agents at work
       </p>
-      <p className="mt-1 text-xs text-muted">A Planner routes your request to specialist agents that each score one factor.</p>
+      <p className="mt-1 text-xs text-muted">A live view of NestIQ's ADK agents: a Planner reads your priorities and routes to the Live Signals, Analytics and Civic Intelligence agents, then a Validator checks for contradictions before results are ranked.</p>
       <ul className="mt-4 space-y-3">
         {agents.map((a) => (
           <li key={a.id} className="flex items-start gap-3">

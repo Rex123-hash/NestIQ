@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Download, PiggyBank, ShieldCheck, TrainFront, Heart, Wind, Home, Trophy, Info } from 'lucide-react'
+import { X, Plus, Download, PiggyBank, ShieldCheck, TrainFront, Heart, Wind, Home, Trophy, Info, TriangleAlert } from 'lucide-react'
 import AppTopbar from '../components/layout/AppTopbar.jsx'
 import ScoreGauge from '../components/ui/ScoreGauge.jsx'
 import { apiNeighborhoods } from '../lib/api.js'
@@ -10,7 +10,7 @@ const ROWS = [
   { key: 'affordability', label: 'Affordability', icon: PiggyBank },
   { key: 'safety', label: 'Safety', icon: ShieldCheck },
   { key: 'commute', label: 'Commute', icon: TrainFront },
-  { key: 'lifestyle', label: 'Lifestyle', icon: Heart },
+  { key: 'lifestyle', label: 'Essentials & Lifestyle', icon: Heart },
   { key: 'air_quality', label: 'Air Quality', icon: Wind },
 ]
 
@@ -22,7 +22,7 @@ function exportCsv(items, currency) {
   lines.push(['FitScore', ...items.map((n) => n.fitScore)])
   ROWS.forEach((r) => lines.push([r.label, ...items.map((n) => n.subscores[r.key] ?? '')]))
   lines.push(['Est. Rent', ...items.map((n) => `${currency}${n.rent}`)])
-  lines.push(['Commute (min)', ...items.map((n) => n.commuteMin)])
+  lines.push(['Commute (min)', ...items.map((n) => n.commuteMin ?? '')])
   lines.push(['Live AQI', ...items.map((n) => n.aqi ?? '')])
   const csv = lines.map((row) => row.map((c) => `"${c}"`).join(',')).join('\n')
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
@@ -40,10 +40,12 @@ export default function Compare() {
   const [all, setAll] = useState([])
   const [selectedIds, setSelectedIds] = useState([])
   const [loading, setLoading] = useState(true)
+  const [airAlertDismissed, setAirAlertDismissed] = useState(false)
 
   useEffect(() => {
     let alive = true
     setLoading(true)
+    setAirAlertDismissed(false)
     apiNeighborhoods(city).then((list) => {
       if (!alive) return
       const adapted = adaptList(list || [])
@@ -61,7 +63,14 @@ export default function Compare() {
   const maxCommute = Math.max(1, ...items.map((n) => n.commuteMin || 0))
   const maxAqi = Math.max(1, ...items.map((n) => n.aqi || 0))
   const best = items.slice().sort((a, b) => b.fitScore - a.fitScore)[0]
-  const bestPillar = best ? PILLAR_LABEL[Object.entries(best.subscores).sort((a, b) => b[1] - a[1])[0]?.[0]] : ''
+  const bestPillar = best ? PILLAR_LABEL[Object.entries(best.subscores).filter(([, v]) => Number.isFinite(v)).sort((a, b) => b[1] - a[1])[0]?.[0]] : ''
+  const criticalAirItems = items.filter((n) => n.criticalRisk?.type === 'air_quality')
+  const sharedAqiCategory = items.length > 0 && items.every((n) => n.aqiCategory === items[0].aqiCategory)
+    ? items[0].aqiCategory
+    : ''
+  const sharedAqi = items.length > 0 && items.every((n) => n.aqi === items[0].aqi)
+    ? items[0].aqi
+    : null
 
   const addNext = () => available.length && selectedIds.length < 4 && setSelectedIds([...selectedIds, available[0].id])
   const remove = (id) => selectedIds.length > 1 && setSelectedIds(selectedIds.filter((x) => x !== id))
@@ -114,6 +123,28 @@ export default function Compare() {
               </button>
             </div>
 
+            {criticalAirItems.length > 0 && !airAlertDismissed && (
+              <div className="mt-5 flex items-start gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800">
+                <TriangleAlert size={17} className="mt-0.5 shrink-0" />
+                <p className="flex-1">
+                  <b className="font-semibold">Air-quality health alert:</b>{' '}
+                  {criticalAirItems.length === items.length && sharedAqi !== null && sharedAqiCategory
+                    ? `All ${items.length} compared localities currently report CPCB AQI ${sharedAqi} (${sharedAqiCategory.replace(' air quality', '')}).`
+                    : `${criticalAirItems.length} of ${items.length} compared localities currently have a high or critical air-quality risk.`}
+                  {' '}FitScore still balances the other priorities you selected.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setAirAlertDismissed(true)}
+                  className="-mr-1 -mt-1 rounded-md p-1 text-red-600 transition hover:bg-red-100 hover:text-red-800"
+                  aria-label="Dismiss air-quality alert"
+                  title="Dismiss alert"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+
             {/* comparison table */}
             <div className="mt-5 overflow-x-auto rounded-2xl border border-line bg-white">
               <table className="w-full min-w-[720px] border-collapse">
@@ -128,7 +159,12 @@ export default function Compare() {
                         <p className="text-sm font-medium text-ink">{n.name}</p>
                         <p className="font-serif text-3xl text-brand-700">{n.fitScore}</p>
                         <ScoreGauge score={n.fitScore} size={70} className="mx-auto" />
-                        <p className="text-xs font-medium text-aff">{n.match}</p>
+                        <p className={`text-xs font-medium ${n.isProvisional ? 'text-amber-700' : 'text-aff'}`}>{n.matchDisplay || n.match}</p>
+                        {n.isProvisional && (
+                          <p className="mx-auto mt-1 inline-block rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                            {n.missingPillars?.length ? `${n.missingPillars.length} signal${n.missingPillars.length > 1 ? 's' : ''} unavailable` : 'Incomplete data'}
+                          </p>
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -142,8 +178,14 @@ export default function Compare() {
                       </td>
                       {items.map((n) => (
                         <td key={n.id} className="p-4 text-center text-sm">
-                          <b className="text-base font-semibold text-ink">{n.subscores[r.key]}</b>
-                          <span className="text-muted"> /100</span>
+                          {Number.isFinite(n.subscores[r.key]) ? (
+                            <>
+                              <b className="text-base font-semibold text-ink">{n.subscores[r.key]}</b>
+                              <span className="text-muted"> /100</span>
+                            </>
+                          ) : (
+                            <span className="text-xs font-medium text-amber-700">Unavailable</span>
+                          )}
                         </td>
                       ))}
                     </tr>
@@ -171,7 +213,9 @@ export default function Compare() {
                     {items.map((n) => (
                       <td key={n.id} className="p-4 text-center text-sm">
                         <b className="text-base font-semibold text-ink">{n.aqi ?? '—'}</b>
-                        <span className="text-muted"> {n.aqiCategory || ''}</span>
+                        {!sharedAqiCategory && n.aqiCategory && (
+                          <span className="text-muted"> · {n.aqiCategory.replace(' air quality', '')}</span>
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -191,6 +235,11 @@ export default function Compare() {
                       <span className="font-serif text-2xl text-brand-700">{best.fitScore}</span>
                     </div>
                     <p className="text-xs text-muted">Strongest on {bestPillar}, at {best.rentDisplay}/month.</p>
+                    {best.isProvisional && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Provisional FitScore</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -203,9 +252,9 @@ export default function Compare() {
                     <div key={n.id} className="flex items-center gap-3 text-sm">
                       <span className="w-28 shrink-0 truncate text-ink-soft">{n.short}</span>
                       <div className="h-2 flex-1 rounded-full bg-line">
-                        <div className="h-2 rounded-full" style={{ width: `${(n.commuteMin / maxCommute) * 100}%`, backgroundColor: n.accent }} />
+                        <div className="h-2 rounded-full" style={{ width: `${Number.isFinite(n.commuteMin) ? (n.commuteMin / maxCommute) * 100 : 0}%`, backgroundColor: n.accent }} />
                       </div>
-                      <span className="w-14 text-right font-semibold text-ink">{n.commuteMin} min</span>
+                      <span className="w-20 text-right font-semibold text-ink">{Number.isFinite(n.commuteMin) ? `${n.commuteMin} min` : 'Unavailable'}</span>
                     </div>
                   ))}
                 </div>
@@ -229,7 +278,7 @@ export default function Compare() {
             </div>
 
             <p className="mt-4 flex items-center gap-2 text-xs text-muted">
-              <Info size={13} /> Scores are normalized across localities in {isNYC ? 'New York City' : 'this city'}, from live Google Maps + Air Quality data.
+              <Info size={13} /> Air quality uses absolute CPCB health bands; affordability, safety, commute and lifestyle are normalized across localities in {isNYC ? 'New York City' : 'this city'}. Rent and safety are curated estimates; air, amenities and commute are from Google Maps Platform.
             </p>
           </>
         )}

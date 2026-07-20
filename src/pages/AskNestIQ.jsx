@@ -43,10 +43,17 @@ export default function AskNestIQ() {
     setLiveSug([])
     apiNeighborhoods(city).then((list) => {
       if (!alive || !list?.length) return
-      const clean = [...list].sort((a, b) => (a.aqi ?? 1e9) - (b.aqi ?? 1e9))[0]
+      const clean = [...list].filter((x) => Number.isFinite(x.aqi)).sort((a, b) => a.aqi - b.aqi)[0]
       const cheap = [...list].sort((a, b) => (a.median_rent ?? 1e9) - (b.median_rent ?? 1e9))[0]
       const sug = []
-      if (clean) sug.push([`Why is ${clean.name} the cleanest-air area right now?`, `Live AQI ${clean.aqi}, the lowest in ${cityName} today.`, TreePine])
+      if (clean) {
+        const risky = (clean.criticalRisks || []).length > 0
+        sug.push(
+          risky
+            ? [`Is the air in ${clean.name} safe right now?`, `Even the least-polluted area in ${cityName} is AQI ${clean.aqi} (${clean.airHealthBand || 'poor'}).`, TreePine]
+            : [`Why is ${clean.name} the cleanest-air area right now?`, `AQI ${clean.aqi}, the lowest in ${cityName} today.`, TreePine],
+        )
+      }
       if (cheap) sug.push([`Is ${cheap.name} a good budget pick?`, `Lowest median rent in ${cityName} at ₹${Number(cheap.median_rent).toLocaleString('en-IN')}.`, DollarSign])
       setLiveSug(sug)
     })

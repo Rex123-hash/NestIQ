@@ -106,6 +106,10 @@ export function adaptNeighborhood(n, bbox, flat = NO_FLAT) {
   const vibe = deriveVibe(sub, flat)
   const features = deriveTags(sub, flat)
   const b = bbox || bboxOf([n])
+  // Health-risk qualifier: the top critical air-quality risk (Poor/Very Poor/
+  // Severe). Surfacing it lets the UI pair the overall FitScore match with an
+  // honest health caveat, so a "Good Match" never stands alone next to unsafe air.
+  const criticalRisk = (n.criticalRisks || [])[0] || null
   return {
     ...n,
     rent: n.median_rent,
@@ -113,6 +117,22 @@ export function adaptNeighborhood(n, bbox, flat = NO_FLAT) {
     commuteMin: n.commute_min,
     aqi: n.aqi,
     aqiCategory: n.aqi_category,
+    airHealthBand: n.airHealthBand || null,
+    airHealthScore: n.airHealthScore ?? null,
+    airDataStatus: n.airDataStatus || null,
+    airIndexCode: n.airIndexCode || null,
+    airScoringMethod: n.airScoringMethod || null,
+    airStale: n.airStale ?? false,
+    criticalRisk,
+    healthQualifier: criticalRisk ? criticalRisk.label : null,
+    // Incomplete-score semantics — a missing high-priority pillar must never
+    // read as a normal match anywhere FitScore is shown.
+    fitScoreDataStatus: n.fitScoreDataStatus || 'complete',
+    isProvisional: n.fitScoreDataStatus === 'provisional',
+    missingPillars: n.missingPillars || [],
+    coveragePercent: n.coveragePercent ?? 100,
+    matchDisplay: n.matchDisplay || n.match,
+    evidence: n.evidence || {},
     descriptors: vibe.join(' • '),
     tags: [...features, ...vibe],
     amenityTags: features.slice(0, 3),

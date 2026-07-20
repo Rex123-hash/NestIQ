@@ -28,6 +28,71 @@ class TestCoreEndpoints:
         assert len(body["results"]) == 3
 
 
+class TestProvisionalAndProvenanceApi:
+    """End-to-end: provisional + provenance fields survive the API layer."""
+
+    def _feats_with(self, over):
+        from tests.conftest import fake_features
+        feats = fake_features()
+        feats[0].update(over)
+        return feats
+
+    def test_unavailable_air_yields_provisional_via_api(self, client, monkeypatch):
+        from app import maps
+        monkeypatch.setattr(maps, "build_city_features",
+                            lambda city: self._feats_with({"aqi": None}))
+        body = client.get("/api/neighborhoods?city=delhi-ncr").json()
+        target = next(r for r in body["results"] if r["id"] == "clean-cheap")
+        assert target["fitScoreDataStatus"] == "provisional"
+        assert target["missingPillars"] == ["air_quality"]
+        assert target["matchDisplay"].startswith("Provisional ")
+        assert target["subscores"]["air_quality"] is None
+
+    def test_uaqi_not_cpcb_scored_via_api(self, client, monkeypatch):
+        from app import maps
+        monkeypatch.setattr(maps, "build_city_features",
+                            lambda city: self._feats_with({"aqi": 55, "airIndexCode": "uaqi"}))
+        body = client.get("/api/neighborhoods?city=delhi-ncr").json()
+        target = next(r for r in body["results"] if r["id"] == "clean-cheap")
+        assert target["airHealthScore"] is None
+        assert target["airIndexCode"] == "uaqi"
+        assert target["fitScoreDataStatus"] == "provisional"
+
+    def test_phase2_evidence_envelope_survives_api(self, client):
+        body = client.get("/api/neighborhoods?city=delhi-ncr").json()
+        target = body["results"][0]
+        assert set(target["evidence"]) == {
+            "affordability", "safety", "commute", "lifestyle", "air_quality",
+        }
+        assert target["evidence"]["affordability"]["status"] == "estimated"
+        assert target["evidence"]["safety"]["status"] == "curated"
+
+
+class TestExplainHandlesMissingSubscore:
+    def test_explain_fallback_survives_none_subscore(self, monkeypatch):
+        from app import gemini
+        # Force the Gemini call to fail so the deterministic fallback runs.
+        def boom(**kwargs):
+            raise RuntimeError("vertex down")
+        monkeypatch.setattr(gemini, "_generate", boom)
+        subs = {"affordability": 80, "safety": 70, "commute": 60, "lifestyle": 50, "air_quality": None}
+        out = gemini.explain("Testville", subs, 20000, "AQI unavailable")
+        assert isinstance(out, str) and out  # no crash, returns a usable string
+
+
+class TestSevereRiskExplanationNote:
+    def test_note_names_the_trade_off_for_critical_air(self):
+        from app.main import note_for
+        note = note_for("delhi-ncr", {"aqi": 500, "aqi_category": "Severe",
+                                      "criticalRisks": [{"severity": "critical"}]})
+        assert "health concern" in note and "critical" in note
+
+    def test_note_is_honest_when_air_unavailable(self):
+        from app.main import note_for
+        note = note_for("delhi-ncr", {"aqi": None})
+        assert "unavailable" in note.lower()
+
+
 class TestDetail:
     def test_detail_includes_ai_explanation_and_all_series(self, client):
         body = client.get("/api/neighborhood/clean-cheap?city=delhi-ncr").json()
@@ -55,6 +120,64 @@ class TestAsk:
 
 
 class TestAgentStream:
+    def test_adk_stream_preserves_sse_contract_when_enabled(self, client, monkeypatch):
+        from app import main
+        monkeypatch.setattr(main.settings, "use_adk_orchestration", True)
+        monkeypatch.setattr(main.gemini, "parse_query", lambda query, budget: {
+            "weights": {"air_quality": 60, "affordability": 40}, "budget": None,
+        })
+        monkeypatch.setattr(main, "rank", lambda city, weights, budget: [{
+            "id": "clean-cheap", "name": "Clean & Cheap", "fitScore": 80,
+            "airHealthBand": "Good", "subscores": {"air_quality": 90},
+        }])
+        try:
+            with client.stream("GET", "/api/search/stream?q=clean+air&city=delhi-ncr") as resp:
+                raw = "".join(chunk for chunk in resp.iter_text())
+        finally:
+            monkeypatch.setattr(main.settings, "use_adk_orchestration", False)
+        assert "NestIQ Planner" in raw
+        assert "Live Signals Agent" in raw
+        assert "Analytics Agent" in raw
+        assert "Civic Intelligence Agent" in raw
+        assert "Validator Agent" in raw
+        assert "event: final" in raw
+
+    def test_adk_agents_report_real_work_not_stub_claims(self, client, monkeypatch):
+        # The specialist agents must report what actually happened, not a canned
+        # "completed" claim. Explainer names the real top result; analytics reports
+        # a real count; civic states honestly when nothing matched.
+        from app import main
+        monkeypatch.setattr(main.settings, "use_adk_orchestration", True)
+        monkeypatch.setattr(main.gemini, "parse_query", lambda query, budget: {
+            "weights": {"air_quality": 60, "affordability": 40}, "budget": None})
+        monkeypatch.setattr(main, "rank", lambda city, weights, budget: [{
+            "id": "clean-cheap", "name": "Clean & Cheap", "fitScore": 82, "matchDisplay": "Good Match",
+            "airHealthBand": "Good", "subscores": {"air_quality": 90}, "anomalies": [],
+            "fitScoreDataStatus": "complete", "aqi": 40,
+        }])
+        with client.stream("GET", "/api/search/stream?q=clean+air&city=delhi-ncr") as resp:
+            raw = "".join(chunk for chunk in resp.iter_text())
+        assert "Analyzed 1 locality snapshots" in raw           # real analytics count
+        assert "Clean & Cheap" in raw and "FitScore 82" in raw  # explainer names the real top
+        assert "Live AQI/Places/commute fetched for 1 localities" in raw  # real live-signal report
+
+    def test_adk_failure_falls_back_to_legacy_stream(self, client, monkeypatch):
+        # If ADK orchestration errors, search must NOT break: it falls back to
+        # the legacy narrated stream and still returns final results.
+        from app import main, adk_orchestration
+        monkeypatch.setattr(main.settings, "use_adk_orchestration", True)
+
+        def boom(*a, **k):
+            raise RuntimeError("adk exploded")
+        monkeypatch.setattr(adk_orchestration, "run_adk_search", boom)
+        with client.stream("GET", "/api/search/stream?q=clean+air&city=delhi-ncr") as resp:
+            assert resp.status_code == 200
+            raw = "".join(chunk for chunk in resp.iter_text())
+        assert "Data Collector" in raw          # legacy path ran
+        assert "event: final" in raw
+        final = json.loads(raw.split("event: final")[1].split("data: ")[1].split("\n\n")[0])
+        assert final["results"][0]["id"] == "clean-cheap"
+
     def test_sse_stream_emits_agents_then_final_results(self, client):
         with client.stream("GET", "/api/search/stream?q=clean+air&city=delhi-ncr") as resp:
             assert resp.status_code == 200

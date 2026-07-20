@@ -18,6 +18,7 @@ from google.cloud import bigquery
 
 from .bq import client
 from .config import settings
+from .sql_guard import validate_analytics_sql, SqlGuardError, MAX_ROWS
 
 LOCALITIES = "india_localities"
 LOCALITIES_LATEST = "india_localities_latest"
@@ -69,16 +70,33 @@ def _latest_cte() -> str:
     )
 
 
+# Hard ceiling on bytes a single NL->SQL question may scan/bill. max_results caps rows
+# RETURNED, not bytes SCANNED, so this (plus the dry run below) is the real cost control.
+MAX_QUERY_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
 def analytics_query(select_sql: str, city: str | None = None) -> list[dict]:
-    """Run a Gemini-generated SELECT against the deduped latest-snapshot CTE."""
-    low = select_sql.strip().lower()
-    if not low.startswith("select") or any(k in low for k in (";", "insert", "update", "delete", "drop", "create", "merge", "alter")):
-        raise ValueError("only a single read-only SELECT is allowed")
+    """Run a validated, cost-capped Gemini-generated SELECT against the latest-snapshot CTE.
+
+    Order matters: validate first (nothing invalid ever reaches BigQuery), then dry-run
+    to measure bytes, then execute with maximum_bytes_billed as a backstop.
+    """
+    safe_sql = validate_analytics_sql(select_sql)
+
     params = []
-    if city and "@city" in select_sql:
+    if city and "@city" in safe_sql:
         params = [bigquery.ScalarQueryParameter("city", "STRING", city)]
-    cfg = bigquery.QueryJobConfig(query_parameters=params) if params else None
-    rows = client().query(_latest_cte() + select_sql, cfg).result(max_results=50)
+    full_sql = _latest_cte() + safe_sql
+
+    # Dry run: reject an oversized scan before it is ever billed.
+    dry_cfg = bigquery.QueryJobConfig(query_parameters=params, dry_run=True, use_query_cache=False)
+    estimated = client().query(full_sql, dry_cfg).total_bytes_processed or 0
+    if estimated > MAX_QUERY_BYTES:
+        raise SqlGuardError(
+            f"query would scan {estimated} bytes, over the {MAX_QUERY_BYTES} byte limit")
+
+    cfg = bigquery.QueryJobConfig(query_parameters=params, maximum_bytes_billed=MAX_QUERY_BYTES)
+    rows = client().query(full_sql, cfg).result(max_results=MAX_ROWS)
     return [dict(r) for r in rows]
 
 

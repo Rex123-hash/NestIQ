@@ -14,7 +14,11 @@ export default function SignIn() {
   // If sign-in was triggered mid-search from the home page, resume straight to
   // results with that query; otherwise land on the home page.
   const afterAuth = () =>
-    state?.resumeQuery ? navigate('/results', { state: { query: state.resumeQuery } }) : navigate('/')
+    state?.resumeTo
+      ? navigate(state.resumeTo)
+      : state?.resumeQuery
+        ? navigate('/results', { state: { query: state.resumeQuery } })
+        : navigate('/')
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return

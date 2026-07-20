@@ -8,9 +8,12 @@ import Alerts from './pages/Alerts.jsx'
 import AskNestIQ from './pages/AskNestIQ.jsx'
 import SignIn from './pages/SignIn.jsx'
 import AppLayout from './components/layout/AppLayout.jsx'
+import CursorHalo from './components/ui/CursorHalo.jsx'
 
 export default function App() {
   return (
+    <>
+      <CursorHalo />
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/signin" element={<SignIn />} />
@@ -24,5 +27,6 @@ export default function App() {
         <Route path="/ask" element={<AskNestIQ />} />
       </Route>
     </Routes>
+    </>
   )
 }

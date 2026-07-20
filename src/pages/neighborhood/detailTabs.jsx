@@ -24,11 +24,21 @@ import {
   MessageSquareQuote,
   ExternalLink,
   TriangleAlert,
+  Radio,
+  MapPin,
+  Clock3,
+  BookOpenText,
+  Hospital,
+  Stethoscope,
+  Pill,
+  School,
+  GraduationCap,
 } from 'lucide-react'
 import { SUBSCORES, WEIGHTS, SOURCE_CHIPS, RUBRIC, METHOD_NOTE } from '../../data/neighborhoods.js'
 import { ordinal } from '../../lib/adapt.js'
-import { apiReviews } from '../../lib/api.js'
+import { apiReviews, apiRentVerification, apiLocalityPulse, apiCivicKnowledge, getCachedRentVerification } from '../../lib/api.js'
 import LocalityMap from '../../components/LocalityMap.jsx'
+import { essentialCards, essentialsSummary } from '../../lib/essentials.js'
 
 const SUB_COLOR = {
   aff: '#3FB984',
@@ -54,6 +64,7 @@ function Panel({ title, action, children, className = '', id }) {
 }
 
 function SubHeader({ title, sub, score, band, why, scoreLabel }) {
+  const hasScore = Number.isFinite(score)
   return (
     <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
       <div>
@@ -64,19 +75,51 @@ function SubHeader({ title, sub, score, band, why, scoreLabel }) {
         <div className="card flex-1 p-4">
           <p className="text-xs text-muted">{scoreLabel || `${title.split(' ')[0]} Sub-score`}</p>
           <p className="font-serif text-3xl text-brand-700">
-            {score}
-            <span className="text-base text-muted">/100</span>
+            {hasScore ? score : 'Unavailable'}
+            {hasScore && <span className="text-base text-muted">/100</span>}
           </p>
-          <div className="mt-2 h-1.5 w-full rounded-full bg-line">
-            <div className="h-1.5 rounded-full bg-aff" style={{ width: `${score}%` }} />
-          </div>
-          <p className="mt-1 text-xs font-medium text-aff">{band}</p>
+          {hasScore && (
+            <div className="mt-2 h-1.5 w-full rounded-full bg-line">
+              <div className="h-1.5 rounded-full bg-aff" style={{ width: `${score}%` }} />
+            </div>
+          )}
+          <p className={`mt-1 text-xs font-medium ${hasScore ? 'text-aff' : 'text-amber-700'}`}>{hasScore ? band : 'Excluded from provisional FitScore'}</p>
         </div>
         <div className="card flex-1 bg-brand-50/50 p-4">
           <p className="text-sm font-semibold text-ink">Why this score?</p>
           <p className="mt-1 text-xs leading-relaxed text-muted">{why}</p>
         </div>
       </div>
+    </div>
+  )
+}
+
+const EVIDENCE_STATUS = {
+  live: 'Live', stale: 'Cached', estimated: 'Estimated', curated: 'Curated proxy',
+  partial: 'Partial data', temporarily_unavailable: 'Temporarily unavailable',
+}
+
+function EvidenceNote({ evidence }) {
+  if (!evidence) return null
+  const unavailable = evidence.status === 'temporarily_unavailable' || evidence.status === 'partial'
+  const curatedSafetyBaseline = evidence.metric === 'safety' && evidence.sourceType === 'curated_proxy'
+  const curatedRentBaseline = evidence.metric === 'affordability' && evidence.sourceType === 'curated_market_estimate'
+  const curatedBaseline = curatedSafetyBaseline || curatedRentBaseline
+  return (
+    <div className={`mt-4 rounded-xl border px-3 py-2.5 text-xs ${unavailable ? 'border-amber-200 bg-amber-50/70' : 'border-line bg-[#F7F8FB]'}`}>
+      <p className={`font-semibold ${unavailable ? 'text-amber-800' : 'text-ink'}`}>
+        {curatedBaseline ? 'Curated baseline' : (EVIDENCE_STATUS[evidence.status] || evidence.status)} · {evidence.source}
+      </p>
+      <p className="mt-1 leading-relaxed text-muted">{evidence.limitation}</p>
+      <p className="mt-1 text-[11px] text-muted">
+        Scope: {String(evidence.geographicScope || 'locality').replaceAll('_', ' ')}
+        {curatedBaseline
+          ? curatedSafetyBaseline
+            ? ' · Baseline only; live evidence confidence is shown above.'
+            : ' · Baseline only; select Verify current rent for grounded confidence.'
+          : ` · ${evidence.confidenceLabel || 'Confidence'}: ${evidence.confidence}`}
+        {evidence.fetchedAt ? ` · ${new Date(evidence.fetchedAt).toLocaleString('en-IN')}` : ''}
+      </p>
     </div>
   )
 }
@@ -184,16 +227,20 @@ export function OverviewTab({ n }) {
   const glance = [
     [Building2, 'Median Rent', n.rentDisplay || `$${n.rent.toLocaleString()}`, 'per month'],
     [Wind, 'Air Quality (AQI)', String(n.aqi ?? '—'), n.aqiCategory || ''],
-    [Train, 'Avg Commute', `${n.commuteMin} min`, 'to city hub'],
+    [Train, 'Avg Commute', Number.isFinite(n.commuteMin) ? `${n.commuteMin} min` : 'Unavailable', Number.isFinite(n.commuteMin) ? 'to city hub' : 'not estimated'],
     [ShieldCheck, 'Safety Score', `${n.subscores.safety}/100`, ''],
-    [Sparkles, 'Lifestyle Score', `${n.subscores.lifestyle}/100`, ''],
+    [Sparkles, 'Essentials & Lifestyle Score', Number.isFinite(n.subscores.lifestyle) ? `${n.subscores.lifestyle}/100` : 'Unavailable', ''],
   ]
   const highlights = [
-    `Live air quality: AQI ${n.aqi} (${n.aqiCategory || 'live'})`,
-    `Around ${n.commuteMin} min to the main work hub by road`,
+    Number.isFinite(n.aqi)
+      ? `Air quality: AQI ${n.aqi}${n.airHealthBand ? ` (${n.airHealthBand})` : n.aqiCategory ? ` (${n.aqiCategory})` : ''}`
+      : 'Air quality reading is temporarily unavailable (not estimated)',
+    Number.isFinite(n.commuteMin) ? `Around ${n.commuteMin} min to the main work hub by road` : 'Commute time is temporarily unavailable (not estimated)',
     `Median rent about ${n.rentDisplay || '$' + n.rent.toLocaleString()}/month`,
-    `Air Quality sub-score ${n.subscores.air_quality}/100 vs. the rest of the city`,
-    `Amenities & lifestyle score ${n.subscores.lifestyle}/100`,
+    Number.isFinite(n.subscores.air_quality)
+      ? `Air Quality health score ${n.subscores.air_quality}/100 on the absolute CPCB band`
+      : 'Air Quality health score unavailable',
+    Number.isFinite(n.subscores.lifestyle) ? `Amenities & lifestyle score ${n.subscores.lifestyle}/100` : 'Amenities signal incomplete; lifestyle score excluded',
   ]
 
   return (
@@ -222,9 +269,11 @@ export function OverviewTab({ n }) {
                   </span>
                   <span className="w-24 shrink-0 text-sm text-ink-soft">{s.label}</span>
                   <div className="h-2 flex-1 rounded-full bg-line">
-                    <div className="h-2 rounded-full" style={{ width: `${n.subscores[s.key]}%`, backgroundColor: SUB_COLOR[s.color] }} />
+                    <div className="h-2 rounded-full" style={{ width: `${Number.isFinite(n.subscores[s.key]) ? n.subscores[s.key] : 0}%`, backgroundColor: SUB_COLOR[s.color] }} />
                   </div>
-                  <span className="w-14 shrink-0 text-right text-sm font-semibold text-ink">{n.subscores[s.key]}<span className="text-xs text-muted">/100</span></span>
+                  <span className="w-14 shrink-0 text-right text-sm font-semibold text-ink">
+                    {Number.isFinite(n.subscores[s.key]) ? <>{n.subscores[s.key]}<span className="text-xs text-muted">/100</span></> : <span className="text-xs text-amber-700">—</span>}
+                  </span>
                   <span className="hidden w-16 shrink-0 text-right text-[11px] text-muted sm:block">Weight {WEIGHTS[s.key]}%</span>
                 </div>
               )
@@ -317,14 +366,17 @@ export function OverviewTab({ n }) {
 
         <Panel title="Sources & method">
           <p className="text-sm leading-relaxed text-ink-soft">
-            Every number on this page is normalized across this city's localities from live Google data,
-            then explained by Gemini. See the summary at the top of the page.
+            Every pillar carries its own source, freshness and limitation. Live Google signals are kept separate from curated market estimates and proxies; Gemini explains the evidence but does not create the values.
           </p>
-          <p className="mt-3 text-xs font-medium text-ink">Sources</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            {SOURCE_CHIPS.map((s) => (
-              <span key={s} className="chip">{s}</span>
-            ))}
+          <div className="mt-3 space-y-2">
+            {Object.values(n.evidence || {}).length
+              ? Object.values(n.evidence).map((e) => (
+                  <div key={e.metric} className="flex items-start justify-between gap-3 rounded-lg border border-line px-3 py-2 text-xs">
+                    <span className="font-medium capitalize text-ink">{e.metric.replace('_', ' ')}</span>
+                    <span className="text-right text-muted">{EVIDENCE_STATUS[e.status] || e.status} · {e.source}</span>
+                  </div>
+                ))
+              : <div className="flex flex-wrap gap-2">{SOURCE_CHIPS.map((s) => <span key={s} className="chip">{s}</span>)}</div>}
           </div>
         </Panel>
       </div>
@@ -336,6 +388,83 @@ export function OverviewTab({ n }) {
 export function AffordabilityTab({ n }) {
   const aff = n.subscores.affordability
   const ins = n.insights || { peers: [] }
+  const [verification, setVerification] = useState(() => getCachedRentVerification(n.id, n.cityId))
+  const [rentRevealed, setRentRevealed] = useState(false)
+  const [verifying, setVerifying] = useState(false)
+  const [backgroundPending, setBackgroundPending] = useState(false)
+  const [verificationNotice, setVerificationNotice] = useState('')
+
+  useEffect(() => {
+    setVerification(getCachedRentVerification(n.id, n.cityId))
+    setRentRevealed(false)
+    setVerifying(false)
+    setBackgroundPending(false)
+    setVerificationNotice('')
+  }, [n.id, n.cityId])
+
+  useEffect(() => {
+    if (!backgroundPending) return undefined
+    let alive = true
+    let attempts = 0
+    const poll = async () => {
+      attempts += 1
+      const result = await apiRentVerification(n.id, n.cityId, false)
+      if (!alive) return
+      if (result?.status === 'available' && result?.refreshStatus !== 'refreshing') {
+        setVerification(result)
+        setBackgroundPending(false)
+        setVerificationNotice('Verification updated from grounded sources.')
+      } else if (result?.status !== 'pending' && result?.refreshStatus !== 'refreshing') {
+        setVerification(result)
+        setBackgroundPending(false)
+        setVerificationNotice(result?.limitation || 'Verification could not complete. The curated estimate remains unchanged.')
+      } else if (attempts >= 30) {
+        setBackgroundPending(false)
+        setVerificationNotice('Verification is still running. You can continue browsing and select Check status later.')
+      }
+    }
+    const timer = setInterval(poll, 4000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [backgroundPending, n.id, n.cityId])
+
+  const verifyRent = async (refresh = false) => {
+    setRentRevealed(true)
+    setVerifying(true)
+    setVerificationNotice(refresh ? 'Refreshing sources in the background. Your current verification remains visible.' : '')
+    try {
+      const result = await apiRentVerification(n.id, n.cityId, refresh)
+      if (result?.status === 'pending' || result?.refreshStatus === 'refreshing') {
+        if (result?.status === 'available' || verification?.status !== 'available') setVerification(result)
+        const canPoll = result?.pollable !== false
+        setBackgroundPending(canPoll)
+        setVerificationNotice(canPoll
+          ? 'Grounded verification is running in the background. You can continue browsing while NestIQ checks sources.'
+          : (result?.limitation || 'The source check is continuing. You can keep browsing and check again shortly.'))
+      } else {
+        setVerification(result || {
+          status: 'temporarily_unavailable',
+          limitation: 'The verification service could not be reached. The curated estimate remains unchanged.',
+        })
+        setVerificationNotice('')
+        setBackgroundPending(false)
+      }
+    } finally {
+      setVerifying(false)
+    }
+  }
+  const handleRentAction = () => {
+    if (!rentRevealed) {
+      const cached = getCachedRentVerification(n.id, n.cityId)
+      setRentRevealed(true)
+      if (cached?.status === 'available') {
+        setVerification(cached)
+        return
+      }
+      verifyRent(false)
+      return
+    }
+    verifyRent(verification?.status === 'available' && !backgroundPending)
+  }
   return (
     <div>
       <SubHeader
@@ -345,12 +474,72 @@ export function AffordabilityTab({ n }) {
         band={aff >= 75 ? 'Excellent' : aff >= 55 ? 'Good' : 'Moderate'}
         why={`At ${n.rentDisplay}/month, ${n.name} is ${rankLabel(ins.rent, 'cheapest')} in the city, an affordability score of ${aff}/100.`}
       />
-      <Panel title="Rent compared with other localities">
+      <Panel
+        title="Rent compared with other localities"
+        action={(
+          <button
+            type="button"
+            onClick={handleRentAction}
+            disabled={verifying}
+            className="rounded-lg border border-brand-200 px-3 py-1.5 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 disabled:cursor-wait disabled:opacity-60"
+          >
+            {verifying
+              ? 'Starting verification…'
+              : !rentRevealed
+                ? 'Verify current rent'
+                : backgroundPending
+                ? 'Check status'
+                : verification?.status === 'available'
+                  ? 'Refresh verification'
+                  : 'Verify current rent'}
+          </button>
+        )}
+      >
         <p className="mb-4 text-xs text-muted">Lower bars are more affordable · {n.short || n.name} is highlighted.</p>
         <PeerBars peers={ins.peers} metricKey="rent" lowerBetter currentId={n.id} color="#3FB984" format={inr} />
-        <p className="mt-4 flex items-center gap-2 text-xs text-muted">
-          <Info size={13} /> Rent is a market estimate; air quality, amenities and commute are live from Google Maps Platform.
-        </p>
+        {rentRevealed && verificationNotice && <p className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-700">{verificationNotice}</p>}
+        {rentRevealed && verification?.status === 'available' && (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Grounded market verification</p>
+                <p className="mt-1 text-xl font-semibold text-ink">
+                  {inr(verification.medianRent)} median
+                  <span className="ml-2 text-sm font-normal text-muted">
+                    {inr(verification.rangeLow)}–{inr(verification.rangeHigh)} observed range
+                  </span>
+                </p>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold capitalize text-emerald-700">
+                {verification.confidence} confidence · {verification.confidenceScore}/100
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-muted">
+              {verification.sampleSize} validated observations across {verification.sourceCount} grounded sources. This verification is evidence only and does not silently change FitScore.
+            </p>
+            {verification.citations?.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {verification.citations.slice(0, 5).map((c) => (
+                  <a key={c.uri} href={c.uri} target="_blank" rel="noreferrer" className="chip text-[11px] hover:border-brand-300">
+                    <ExternalLink size={11} /> {c.title}
+                  </a>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-muted">{verification.limitation}</p>
+          </div>
+        )}
+        {rentRevealed && verification?.status === 'pending' && !verificationNotice && (
+          <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs text-brand-700">
+            Grounded verification is running in the background. You can continue browsing while NestIQ checks sources.
+          </div>
+        )}
+        {rentRevealed && verification && verification.status !== 'available' && verification.status !== 'pending' && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            {verification.limitation || 'Not enough citation-backed observations were found. The curated estimate remains unchanged.'}
+          </div>
+        )}
+        <EvidenceNote evidence={n.evidence?.affordability} />
       </Panel>
     </div>
   )
@@ -360,6 +549,13 @@ export function AffordabilityTab({ n }) {
 export function SafetyTab({ n }) {
   const s = n.subscores.safety
   const ins = n.insights || { peers: [] }
+  const profile = n.safety_profile || n.evidence?.safety?.supportingEvidence
+  const safetySignals = profile?.signals || {}
+  const signalCards = [
+    ['police', 'Police stations', ShieldCheck],
+    ['hospital', 'Hospitals', Heart],
+    ['fire_station', 'Fire stations', TriangleAlert],
+  ]
   return (
     <div>
       <SubHeader
@@ -367,14 +563,52 @@ export function SafetyTab({ n }) {
         sub={`Safety and well-being in ${n.name}.`}
         score={s}
         band={s >= 75 ? 'Excellent' : s >= 55 ? 'Good' : 'Moderate'}
-        why={`${n.name} is ${rankLabel(ins.safety, 'safest')} in the city, combining locality profile with live environmental health.`}
+        why={`${n.name} is ${rankLabel(ins.safety, 'safest')} in the city, based on a curated locality safety profile normalized across localities.`}
       />
       <Panel title="Safety compared with other localities">
         <p className="mb-4 text-xs text-muted">Higher bars are safer · {n.short || n.name} is highlighted.</p>
         <PeerBars peers={ins.peers} metricKey="safety" currentId={n.id} color="#7C5CF6" unit="/100" />
-        <p className="mt-4 flex items-center gap-2 text-xs text-muted">
-          <Info size={13} /> Granular crime data isn't openly published for Indian cities, so this index blends the locality profile with live air quality. Here it's <b className="mx-1">AQI {n.aqi} ({n.aqiCategory})</b>. {aqiAdvice(n.aqi ?? 0)}
-        </p>
+        {profile && (
+          <div className="mt-5 border-t border-line pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-ink">Live emergency-access evidence</p>
+                <p className="text-xs text-muted">Supporting context only; it does not replace the curated safety score.</p>
+              </div>
+              <span className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold capitalize text-brand-700">
+                {profile.confidence} evidence confidence
+              </span>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              {signalCards.map(([key, label, Icon]) => {
+                const signal = safetySignals[key]
+                return (
+                  <div key={key} className="rounded-xl border border-line bg-[#F9FAFC] p-3">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-ink"><Icon size={14} className="text-brand-600" /> {label}</div>
+                    {signal ? (
+                      <>
+                        <p className="mt-2 text-xl font-semibold text-ink">{signal.count}</p>
+                        <p className="text-[11px] text-muted">
+                          within {signal.radiusKm} km{Number.isFinite(signal.nearestDistanceKm) ? ` · nearest ${signal.nearestDistanceKm} km` : ''}
+                        </p>
+                      </>
+                    ) : <p className="mt-2 text-xs text-amber-700">Temporarily unavailable</p>}
+                  </div>
+                )
+              })}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-brand-50/60 px-3 py-2.5 text-xs">
+              <span className="text-ink-soft">
+                Emergency Access Index: <b className="text-ink">{Number.isFinite(profile.emergencyAccessScore) ? `${profile.emergencyAccessScore}/100` : 'Unavailable'}</b>
+              </span>
+              <a href={profile.officialCrimeContext?.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-brand-700">
+                NCRB official context <ExternalLink size={11} />
+              </a>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted">{profile.limitation} {profile.officialCrimeContext?.limitation}</p>
+          </div>
+        )}
+        <EvidenceNote evidence={n.evidence?.safety} />
       </Panel>
     </div>
   )
@@ -384,6 +618,7 @@ export function SafetyTab({ n }) {
 export function CommuteTab({ n }) {
   const c = n.subscores.commute
   const ins = n.insights || { peers: [] }
+  const available = Number.isFinite(n.commuteMin) && Number.isFinite(c)
   return (
     <div>
       <SubHeader
@@ -391,15 +626,19 @@ export function CommuteTab({ n }) {
         sub={`Getting around from ${n.name}.`}
         score={c}
         band={c >= 75 ? 'Excellent' : c >= 55 ? 'Good' : 'Moderate'}
-        why={`At about ${n.commuteMin} min to the city's main hub, ${n.name} is ${rankLabel(ins.commute, 'fastest')} in the city, a commute score of ${c}/100.`}
+        why={available
+          ? `At about ${n.commuteMin} min to the city's main hub, ${n.name} is ${rankLabel(ins.commute, 'fastest')} in the city, a commute score of ${c}/100.`
+          : 'Google Distance Matrix did not return a valid route time. NestIQ excludes this pillar instead of substituting a typical commute.'}
       />
       <div className="grid gap-5 lg:grid-cols-2">
         <Panel title="Commute compared with other localities">
           <p className="mb-4 text-xs text-muted">Shorter bars are quicker · {n.short || n.name} is highlighted.</p>
-          <PeerBars peers={ins.peers} metricKey="commute" lowerBetter currentId={n.id} color="#4F86F7" unit=" min" />
-          <p className="mt-4 flex items-center gap-2 text-xs text-muted">
-            <Info size={13} /> Live driving time to the city work hub from Google Maps Distance Matrix (varies with time of day).
-          </p>
+          {available ? (
+            <PeerBars peers={ins.peers} metricKey="commute" lowerBetter currentId={n.id} color="#4F86F7" unit=" min" />
+          ) : (
+            <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">No route time is available right now. No 40-minute fallback has been inserted.</p>
+          )}
+          <EvidenceNote evidence={n.evidence?.commute} />
         </Panel>
         <LocalityMap items={[n]} zoom={13} className="min-h-[320px]" />
       </div>
@@ -408,18 +647,91 @@ export function CommuteTab({ n }) {
 }
 
 /* -------------------------------- Lifestyle ------------------------------- */
-export function LifestyleTab({ n }) {
+const ESSENTIAL_ICONS = {
+  hospital: Hospital,
+  doctor: Stethoscope,
+  pharmacy: Pill,
+  school: School,
+  university: GraduationCap,
+}
+
+function fetchedLabel(value) {
+  if (!value) return 'Update time unavailable'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Update time unavailable' : `Updated ${date.toLocaleString()}`
+}
+
+function EssentialServicesPanel({ profile }) {
+  const cards = essentialCards(profile)
+  const summary = essentialsSummary(profile)
+  const isLoading = summary.status === 'loading'
+
+  return (
+    <Panel title="Essential Services" className="mb-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium text-brand-700">Live Google signal · Google Places API</p>
+          <p className="mt-1 text-xs text-muted">Within 1.5 km · {profile ? fetchedLabel(profile.fetchedAt) : 'Loading current evidence…'}</p>
+        </div>
+        <span
+          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+            summary.status === 'live'
+              ? 'bg-[#EAF7F0] text-aff'
+              : summary.status === 'loading'
+                ? 'bg-brand-50 text-brand-700'
+                : 'bg-amber-50 text-amber-700'
+          }`}
+        >
+          {summary.status === 'live' ? 'Live' : summary.status === 'partial' ? 'Partial' : isLoading ? 'Loading' : 'Temporarily unavailable'}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {cards.map((card) => {
+          const Icon = ESSENTIAL_ICONS[card.key]
+          return (
+            <div key={card.key} className="rounded-xl border border-line bg-band/40 p-3">
+              <div className="flex items-center gap-2 text-ink-soft">
+                <Icon size={16} className="text-brand-600" />
+                <span className="text-xs font-medium">{card.label}</span>
+              </div>
+              <p className={`mt-2 text-2xl font-semibold ${card.value == null ? 'text-muted' : 'text-brand-700'}`}>
+                {isLoading ? <span className="inline-block h-7 w-8 animate-pulse rounded bg-line" /> : card.value ?? '—'}
+              </p>
+              <p className="mt-1 text-[11px] text-muted">
+                {isLoading ? 'Checking…' : card.value == null ? 'Unavailable' : `${card.confidence} confidence`}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className={`mt-4 rounded-xl px-3 py-2 text-xs ${summary.status === 'live' ? 'bg-[#F0F9F4] text-ink-soft' : 'bg-amber-50 text-amber-800'}`}>
+        {summary.note}
+      </p>
+      <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-muted">
+        <Info size={13} /> Shown for context — not part of the FitScore.
+      </p>
+    </Panel>
+  )
+}
+
+export function LifestyleTab({ n, essentials }) {
   const l = n.subscores.lifestyle
   const ins = n.insights || { peers: [] }
+  const available = Number.isFinite(l) && n.evidence?.lifestyle?.status !== 'partial'
   return (
     <div>
       <SubHeader
-        title="Lifestyle Overview"
+        title="Essentials & Lifestyle Overview"
         sub={`Amenities and daily life in ${n.name}.`}
         score={l}
         band={l >= 75 ? 'Excellent' : l >= 55 ? 'Good' : 'Moderate'}
-        why={`${n.name} has about ${n.amenity_count} key amenities within 1.5 km, ${rankLabel(ins.amenity, 'busiest')} in the city, a lifestyle score of ${l}/100.`}
+        why={available
+          ? `${n.name} has about ${n.amenity_count} key amenities within 1.5 km, ${rankLabel(ins.amenity, 'busiest')} in the city, a lifestyle score of ${l}/100.`
+          : 'The Places lookup was incomplete or unavailable. NestIQ preserves successful counts for context but excludes the incomplete lifestyle pillar from FitScore.'}
       />
+      <EssentialServicesPanel profile={essentials} />
       <div className="grid gap-5 lg:grid-cols-2">
         <Panel title="Amenities compared with other localities">
           {n.amenity_breakdown && (
@@ -434,10 +746,12 @@ export function LifestyleTab({ n }) {
             </div>
           )}
           <p className="mb-4 text-xs text-muted">Total within 1.5 km vs. the rest of the city · {n.short || n.name} is highlighted.</p>
-          <PeerBars peers={ins.peers} metricKey="amenity" currentId={n.id} color="#EC6FA6" />
-          <p className="mt-4 flex items-center gap-2 text-xs text-muted">
-            <Info size={13} /> Amenity counts are live from Google Maps Platform Places API.
-          </p>
+          {available ? (
+            <PeerBars peers={ins.peers} metricKey="amenity" currentId={n.id} color="#EC6FA6" />
+          ) : (
+            <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">Amenity coverage is incomplete, so it is shown for context but not scored.</p>
+          )}
+          <EvidenceNote evidence={n.evidence?.lifestyle} />
         </Panel>
         <LocalityMap items={[n]} zoom={14} className="min-h-[320px]" />
       </div>
@@ -462,39 +776,115 @@ function aqiAdvice(aqi) {
   return 'Health alert: avoid outdoor activity, keep windows shut, and use an air purifier and N95 mask.'
 }
 
+function AqiForecastPanel({ data }) {
+  return (
+    <Panel title="AQI · last 24h and next 24h forecast" className="lg:col-span-2">
+      <ResponsiveContainer width="100%" height={240}>
+        <LineChart data={data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F6" vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9AA0AE' }} tickLine={false} axisLine={false} interval={3} />
+          <YAxis tick={{ fontSize: 11, fill: '#9AA0AE' }} tickLine={false} axisLine={false} />
+          <Tooltip />
+          <Legend wrapperStyle={{ fontSize: 11 }} iconType="plainline" />
+          <Line type="monotone" dataKey="past" name="Past 24h" stroke="#7C5CF6" strokeWidth={2.5} dot={false} connectNulls />
+          <Line type="monotone" dataKey="future" name="Google forecast" stroke="#F5A63B" strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+          <Line type="monotone" dataKey="bqml" name="BigQuery ML (ARIMA_PLUS)" stroke="#3FB984" strokeWidth={2.5} strokeDasharray="4 3" dot={false} connectNulls />
+        </LineChart>
+      </ResponsiveContainer>
+      <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
+        <Info size={13} /> History from Google Air Quality API (CPCB); green line is our own <b className="mx-1 font-semibold text-aff">BigQuery ML ARIMA_PLUS</b> forecast, trained on live India AQI history.
+      </p>
+    </Panel>
+  )
+}
+
 export function AirQualityTab({ n }) {
   const series = n.aqiSeries || { history: [], forecast: [], bqmlForecast: [] }
   const bqml = series.bqmlForecast || []
+  const hasReading = Number.isFinite(n.aqi)
+  const isCpcb = n.airIndexCode !== 'uaqi' // a Universal-AQI reading has no CPCB health score
+  const cpcbScored = hasReading && isCpcb && Number.isFinite(n.subscores.air_quality)
+  const stale = n.airStale
+
+  // The forecast chart is independently sourced (Google history/forecast + BQML),
+  // so it can still render even when the current reading is unavailable.
   const fcByLabel = Object.fromEntries((series.forecast || []).map((f) => [f.label, f.aqi]))
   const futureRows = (bqml.length ? bqml : series.forecast || []).map((b) => ({
-    label: b.label,
-    future: fcByLabel[b.label],
-    bqml: bqml.length ? b.aqi : undefined,
+    label: b.label, future: fcByLabel[b.label], bqml: bqml.length ? b.aqi : undefined,
   }))
-  const data = [
-    ...series.history.map((h) => ({ label: h.label, past: h.aqi })),
-    ...futureRows,
-  ]
-  const aqi = n.aqi ?? 0
+  const data = [...(series.history || []).map((h) => ({ label: h.label, past: h.aqi })), ...futureRows]
+  const hasForecast = data.length > 0
+
+  // Unavailable or Universal-AQI-only: never fabricate a reading, band or advice.
+  if (!cpcbScored) {
+    const uaqiOnly = hasReading && !isCpcb
+    const tiles = [
+      ['Current AQI', uaqiOnly ? `${n.aqi} (UAQI)` : 'Unavailable'],
+      ['Air-health score (CPCB)', 'Unavailable'],
+      ['Dominant pollutant', n.aqi_pollutant ? n.aqi_pollutant.toUpperCase() : 'Unavailable'],
+      ['Source', uaqiOnly ? 'Universal AQI (Google)' : n.airSource || 'Google Air Quality API'],
+    ]
+    return (
+      <div>
+        <div className="mb-5 rounded-2xl border border-line bg-[#FFF8EC] p-5">
+          <p className="flex items-center gap-2 text-sm font-semibold text-amber-800">
+            <TriangleAlert size={16} /> CPCB air-health score unavailable
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-ink-soft">
+            {uaqiOnly
+              ? `Only a Universal AQI reading is available for ${n.name}. Universal AQI is a different scale, so NestIQ does not convert it into a CPCB health score.`
+              : `The CPCB air-quality reading for ${n.name} is temporarily unavailable. NestIQ does not estimate or guess it.`}{' '}
+            The air pillar is therefore excluded and this locality's FitScore is provisional.
+          </p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {tiles.map(([k, v]) => (
+              <div key={k} className="card p-4">
+                <p className="text-xs text-muted">{k}</p>
+                <p className="mt-1 text-xl font-semibold text-ink">{v}</p>
+              </div>
+            ))}
+          </div>
+          <EvidenceNote evidence={n.evidence?.air_quality} />
+        </div>
+        {hasForecast && (
+          <div className="grid gap-5">
+            <AqiForecastPanel data={data} />
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const aqi = n.aqi
   const [band, color] = aqiBand(aqi)
   const spike = aqiSpike(n)
   const forecastVals = (bqml.length ? bqml : series.forecast || []).map((f) => f.aqi)
   const peak = forecastVals.length ? Math.max(...forecastVals) : aqi
   const tiles = [
-    ['Current AQI', String(aqi), band],
-    ['Dominant Pollutant', (n.aqi_pollutant || 'PM2.5').toUpperCase(), 'Main driver'],
+    ['Current AQI', String(aqi), `${band}${stale ? ' · cached' : ''}`],
+    ['Dominant Pollutant', n.aqi_pollutant ? n.aqi_pollutant.toUpperCase() : 'Unavailable', 'Main driver'],
     ['24h Forecast Peak', String(peak), aqiBand(peak)[0]],
-    ['Air Quality Sub-score', `${n.subscores.air_quality}/100`, 'vs. this city'],
+    ['Air-health score (CPCB)', `${n.subscores.air_quality}/100`, 'absolute health band'],
   ]
   return (
     <div>
       <SubHeader
         title="Air Quality Overview"
-        sub={`Live air quality and 24-hour forecast for ${n.name}.`}
+        sub={`${stale ? 'Cached' : 'Live'} air quality and 24-hour forecast for ${n.name}.`}
         score={n.subscores.air_quality}
         band={band}
         why={`${n.name} currently reports a CPCB AQI of ${aqi} (${band}). ${aqiAdvice(aqi)}`}
       />
+      <EvidenceNote evidence={n.evidence?.air_quality} />
+      {stale && (
+        <div className="mb-5 flex items-start gap-2 rounded-xl bg-[#FFF8EC] px-4 py-3 text-sm text-amber-800">
+          <Info size={16} className="mt-0.5 shrink-0" />
+          <p>
+            <b className="font-semibold">Cached reading:</b> a live refresh did not succeed, so this shows the last successful reading
+            {n.airFetchedAt ? ` from ${new Date(n.airFetchedAt).toLocaleString('en-IN')}` : ''}. It is not current.
+          </p>
+        </div>
+      )}
       {spike && (
         <div className="mb-5 flex items-start gap-2 rounded-xl bg-[#FDECEC] px-4 py-3 text-sm text-red-700">
           <TriangleAlert size={16} className="mt-0.5 shrink-0" />
@@ -513,23 +903,7 @@ export function AirQualityTab({ n }) {
         ))}
       </div>
       <div className="grid gap-5 lg:grid-cols-3">
-        <Panel title="AQI · last 24h and next 24h forecast" className="lg:col-span-2">
-          <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F6" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9AA0AE' }} tickLine={false} axisLine={false} interval={3} />
-              <YAxis tick={{ fontSize: 11, fill: '#9AA0AE' }} tickLine={false} axisLine={false} />
-              <Tooltip />
-              <Legend wrapperStyle={{ fontSize: 11 }} iconType="plainline" />
-              <Line type="monotone" dataKey="past" name="Past 24h (live)" stroke="#7C5CF6" strokeWidth={2.5} dot={false} connectNulls />
-              <Line type="monotone" dataKey="future" name="Google forecast" stroke="#F5A63B" strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
-              <Line type="monotone" dataKey="bqml" name="BigQuery ML (ARIMA_PLUS)" stroke="#3FB984" strokeWidth={2.5} strokeDasharray="4 3" dot={false} connectNulls />
-            </LineChart>
-          </ResponsiveContainer>
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
-            <Info size={13} /> History from Google Air Quality API (CPCB); green line is our own <b className="mx-1 font-semibold text-aff">BigQuery ML ARIMA_PLUS</b> forecast, trained on live India AQI history.
-          </p>
-        </Panel>
+        <AqiForecastPanel data={data} />
 
         <Panel title="Health Advisory">
           <div className="rounded-xl p-4" style={{ backgroundColor: `${color}1a` }}>
@@ -550,12 +924,13 @@ export function AirQualityTab({ n }) {
 function ReviewsPanel({ n }) {
   const [reviews, setReviews] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let alive = true
     setLoading(true)
     setReviews(null)
-    apiReviews(n.id, n.cityId).then((d) => {
+    apiReviews(n.id, n.cityId, retryKey > 0).then((d) => {
       if (!alive) return
       setReviews(d)
       setLoading(false)
@@ -563,7 +938,7 @@ function ReviewsPanel({ n }) {
     return () => {
       alive = false
     }
-  }, [n.id, n.cityId])
+  }, [n.id, n.cityId, retryKey])
 
   return (
     <Panel
@@ -580,6 +955,22 @@ function ReviewsPanel({ n }) {
           <div className="h-3 w-11/12 animate-pulse rounded bg-gray-100" />
           <div className="h-3 w-4/5 animate-pulse rounded bg-gray-100" />
           <p className="pt-1 text-xs text-muted">Searching the web with Gemini…</p>
+        </div>
+      ) : reviews?.status === 'temporarily_unavailable' ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+          <p className="flex items-center gap-2 text-sm font-semibold text-amber-800">
+            <TriangleAlert size={15} /> Community insights temporarily unavailable
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-ink-soft">
+            Google Search grounding could not be reached, so NestIQ is not treating this as evidence that the locality lacks public discussion.
+          </p>
+          <button
+            type="button"
+            onClick={() => setRetryKey((v) => v + 1)}
+            className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+          >
+            Try again
+          </button>
         </div>
       ) : reviews?.summary ? (
         <>
@@ -610,13 +1001,71 @@ function ReviewsPanel({ n }) {
           </p>
         </>
       ) : (
-        <p className="flex items-center gap-2 text-sm text-muted">
-          <Lightbulb size={15} className="shrink-0 text-trend" />
-          Not much public discussion found for this locality yet. The hard live signals on the other tabs tell the fuller story.
-        </p>
+        <div className="rounded-xl border border-line bg-[#F7F8FB] p-4">
+          <p className="flex items-start gap-2 text-sm text-muted">
+            <Lightbulb size={15} className="mt-0.5 shrink-0 text-trend" />
+            Community discussion could not be confirmed right now. NestIQ will not treat an empty grounding response as evidence that residents have nothing to say.
+          </p>
+          <button type="button" onClick={() => setRetryKey((v) => v + 1)} className="mt-3 rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
+            Try again
+          </button>
+        </div>
       )}
     </Panel>
   )
+}
+
+function LocalityPulse({ n }) {
+  const [pulse, setPulse] = useState(null)
+  const [retryKey, setRetryKey] = useState(0)
+  useEffect(() => {
+    let alive = true
+    let timer
+    let attempts = 0
+    const load = async () => {
+      const result = await apiLocalityPulse(n.id, n.cityId, retryKey > 0 && attempts === 0)
+      if (!alive) return
+      setPulse(result)
+      if ((result?.status === 'pending' || result?.refreshStatus === 'refreshing') && attempts < 30) {
+        attempts += 1
+        timer = setTimeout(load, 4000)
+      }
+    }
+    setPulse(null)
+    load()
+    return () => { alive = false; clearTimeout(timer) }
+  }, [n.id, n.cityId, retryKey])
+  const live = pulse?.status === 'available' && pulse.items?.length > 0
+  const noEvidence = pulse?.status === 'no_evidence'
+  const pending = pulse === null || pulse?.status === 'pending'
+  const severityStyle = { low: 'bg-emerald-50 text-emerald-700', informational: 'bg-blue-50 text-blue-700', moderate: 'bg-amber-50 text-amber-700', high: 'bg-red-50 text-red-700' }
+  return <Panel title={<span className="flex flex-wrap items-center gap-1.5"><Radio size={15} className="text-trend" /> Locality Pulse <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${live ? 'bg-emerald-50 text-emerald-700' : pending || noEvidence ? 'bg-gray-100 text-muted' : 'bg-amber-50 text-amber-700'}`}>{live ? 'Verified recent updates' : pending ? 'Checking sources…' : noEvidence ? 'No recent updates' : 'Evidence unavailable'}</span></span>} className="lg:col-span-3">
+    <p className="mb-3 text-xs text-muted">Recent verified updates affecting {n.short || n.name}. Evidence only; this does not change FitScore.</p>
+    {pulse === null || pulse.status === 'pending' ? <div className="h-20 animate-pulse rounded-xl bg-gray-100" /> : pulse.status === 'temporarily_unavailable' ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-sm text-amber-800">Recent civic evidence is temporarily unavailable. This does not mean nothing is happening.</p><button type="button" onClick={() => setRetryKey((v) => v + 1)} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800">Try again</button></div> : live ? <div className="overflow-hidden rounded-xl border border-line">{pulse.items.map((item, i) => <article key={`${item.headline}-${i}`} className="grid gap-3 border-b border-line p-3 last:border-b-0 lg:grid-cols-[185px_minmax(0,1fr)_150px_105px_180px] lg:items-center"><div className="flex min-w-0 flex-wrap items-center gap-2"><span className="capitalize text-xs font-semibold text-ink-soft">{item.category}</span><span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${severityStyle[item.severity] || severityStyle.informational}`}>{item.severity}</span></div><div className="min-w-0"><h4 className="text-sm font-semibold text-ink">{item.headline}</h4><p className="mt-0.5 text-xs leading-relaxed text-muted">{item.summary}</p></div><span className="flex min-w-0 items-center gap-1 text-xs text-muted"><MapPin size={12} className="shrink-0" /><span className="truncate">{item.affectedArea}</span></span><span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted"><Clock3 size={12} /> {item.freshness}</span><a href={item.sourceUrl} target="_blank" rel="noreferrer" className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-brand-200 px-2.5 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50"><span className="truncate">{item.source}</span><ExternalLink size={12} className="shrink-0" /></a></article>)}</div> : <p className="rounded-xl border border-line bg-[#F7F8FB] p-3 text-sm text-muted">No verified civic updates from the last 30 days were found. This is different from a source failure.</p>}
+  </Panel>
+}
+
+function CivicKnowledge({ n }) {
+  const suggestions = [
+    'Any official air-quality or vehicle restrictions?',
+    'What development projects affect this area?',
+    'Are there public consultations nearby?',
+  ]
+  const [question, setQuestion] = useState('What official civic or development notices affect this area?')
+  const [result, setResult] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const search = async () => {
+    if (question.trim().length < 3) return
+    setLoading(true)
+    setResult(await apiCivicKnowledge(n.id, n.cityId, question.trim()))
+    setLoading(false)
+  }
+  return <Panel title={<span className="flex items-center gap-1.5"><BookOpenText size={15} className="text-brand-600" /> Official Civic Knowledge <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-700">Controlled RAG</span></span>} className="lg:col-span-3">
+    <p className="text-xs text-muted">Ask the indexed official-document library. Citations open the issuing authority's official notice portal, so confirm the specific notice there. Retrieved evidence never changes FitScore.</p>
+    <div className="mt-3 flex flex-col gap-2 sm:flex-row"><input value={question} onChange={(e) => setQuestion(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="min-w-0 flex-1 rounded-xl border border-line px-3 py-2 text-sm outline-none focus:border-brand-400" aria-label="Ask official civic knowledge" /><button type="button" onClick={search} disabled={loading || question.trim().length < 3} className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading ? 'Retrieving…' : 'Search documents'}</button></div>
+    <div className="mt-2 flex flex-wrap gap-2">{suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setQuestion(suggestion)} className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:border-brand-300 hover:bg-brand-100">{suggestion}</button>)}</div>
+    {result?.status === 'available' ? <div className="mt-4"><div className="whitespace-pre-line rounded-xl bg-brand-50/50 p-4 text-sm leading-relaxed text-ink-soft">{result.answer}</div><div className="mt-3 flex flex-wrap gap-2">{result.citations.map((c) => <a key={c.id} href={c.url} target="_blank" rel="noreferrer" className="flex max-w-[260px] items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-ink-soft hover:text-brand-700"><ExternalLink size={12} /><span className="truncate">{c.authority} · {c.publishedOn}</span></a>)}</div><p className="mt-3 text-xs text-muted">{result.limitation}</p></div> : result?.status === 'no_evidence' ? <p className="mt-4 rounded-xl border border-line bg-[#F7F8FB] p-3 text-sm text-muted">No matching official document is currently indexed. This does not mean no notice exists.</p> : result ? <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">The civic knowledge library is temporarily unavailable.</p> : null}
+  </Panel>
 }
 
 export function CommunityTab({ n }) {
@@ -626,7 +1075,7 @@ export function CommunityTab({ n }) {
     ['Air Quality', rankLabel(ins.aqi, 'cleanest'), '#F5A63B', ins.aqi],
     ['Commute', rankLabel(ins.commute, 'fastest'), '#4F86F7', ins.commute],
     ['Safety', rankLabel(ins.safety, 'safest'), '#7C5CF6', ins.safety],
-    ['Lifestyle', rankLabel(ins.amenity, 'busiest'), '#EC6FA6', ins.amenity],
+    ['Essentials & Lifestyle', rankLabel(ins.amenity, 'busiest'), '#EC6FA6', ins.amenity],
   ]
   return (
     <div>
@@ -634,11 +1083,22 @@ export function CommunityTab({ n }) {
         title="Community Insights"
         sub={`What residents say about ${n.name}, and where it ranks in the city.`}
         score={n.fitScore ?? 0}
-        band={n.match || ''}
+        band={n.matchDisplay || n.match || ''}
         scoreLabel="FitScore"
-        why="Live web sentiment plus a live ranking of this locality against every other one in the city."
+        why="FitScore is your personalized five-pillar score (affordability, safety, commute, lifestyle and air quality). The panels below add live web sentiment and this locality's rank in the city; they do not change the FitScore."
       />
+      {n.isProvisional && (
+        <div className="-mt-2 mb-5 flex flex-wrap gap-2">
+          {n.isProvisional && (
+            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+              Provisional FitScore · {n.missingPillars?.includes('air_quality') ? 'air-quality data unavailable' : 'incomplete data'}
+            </span>
+          )}
+        </div>
+      )}
       <div className="grid gap-5 lg:grid-cols-3">
+        <LocalityPulse n={n} />
+        <CivicKnowledge n={n} />
         <ReviewsPanel n={n} />
 
         <Panel title={`How ${n.short || n.name} ranks`}>

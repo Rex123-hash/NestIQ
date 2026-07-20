@@ -1,19 +1,40 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Heart, ArrowLeftRight, Trash2, Search } from 'lucide-react'
+import { Heart, ArrowLeftRight, Trash2, Search, RefreshCw } from 'lucide-react'
 import ScoreGauge from '../components/ui/ScoreGauge.jsx'
 import CityPicker from '../components/layout/CityPicker.jsx'
-import { useSaved, removeSaved } from '../lib/saved.js'
+import { useSaved, removeSaved, getSaved, refreshSaved, isOutdated } from '../lib/saved.js'
+import { apiNeighborhoods, prefetchLocality } from '../lib/api.js'
+import { adaptList } from '../lib/adapt.js'
 
 const PILLARS = [
   ['affordability', 'Affordability'],
   ['safety', 'Safety'],
   ['commute', 'Commute'],
-  ['lifestyle', 'Lifestyle'],
+  ['lifestyle', 'Essentials & Lifestyle'],
   ['air_quality', 'Air Quality'],
 ]
 
 export default function Saved() {
   const saved = useSaved()
+
+  // Migrate/refresh saved snapshots against the current backend, so records
+  // saved under the old scoring model (which could show AQI 500 with an air
+  // sub-score of 96) are updated to the current absolute-CPCB scoring.
+  useEffect(() => {
+    let alive = true
+    const cities = [...new Set(getSaved().map((n) => n.city).filter(Boolean))]
+    if (!cities.length) return
+    Promise.all(cities.map((c) => apiNeighborhoods(c))).then((lists) => {
+      if (!alive) return
+      const fresh = {}
+      for (const list of lists) for (const a of adaptList(list || [])) fresh[a.id] = a
+      if (Object.keys(fresh).length) refreshSaved(fresh)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   return (
     <div>
@@ -60,7 +81,7 @@ export default function Saved() {
                       {n.city ? ` · ${n.city.replace('-', ' ')}` : ''}
                     </p>
                     <p className="mt-1 text-xs text-muted">
-                      {n.rentDisplay}/mo · AQI {n.aqi ?? '—'} · {n.commuteMin} min commute
+                      {n.rentDisplay}/mo · AQI {n.aqi ?? '—'} · {Number.isFinite(n.commuteMin) ? `${n.commuteMin} min commute` : 'commute unavailable'}
                     </p>
                     {n.blurb && (
                       <p className="mt-2 rounded-lg bg-brand-50/50 p-2 text-xs italic text-ink-soft">{n.blurb}</p>
@@ -68,24 +89,43 @@ export default function Saved() {
                   </div>
 
                   <div className="flex items-center gap-6">
-                    <div className="flex flex-col items-center">
-                      <p className="text-xs text-muted">FitScore</p>
-                      <p className="font-serif text-2xl text-brand-700">{n.fitScore}<span className="text-sm text-muted">/100</span></p>
-                      <ScoreGauge score={n.fitScore} size={56} />
-                      <span className="text-[11px] font-medium text-aff">{n.match}</span>
-                    </div>
-                    <ul className="hidden space-y-1 md:block">
-                      {PILLARS.map(([key, label]) => (
-                        <li key={key} className="flex items-center justify-between gap-6 text-xs">
-                          <span className="text-muted">{label}</span>
-                          <b className="font-semibold text-ink">{n.subscores?.[key] ?? '—'}</b>
-                        </li>
-                      ))}
-                    </ul>
+                    {isOutdated(n) ? (
+                      <div className="flex max-w-[180px] flex-col items-center gap-1 text-center">
+                        <span className="grid h-10 w-10 place-items-center rounded-full bg-amber-50 text-amber-700"><RefreshCw size={18} /></span>
+                        <p className="text-xs font-semibold text-amber-700">Scores need refreshing</p>
+                        <p className="text-[11px] text-muted">Saved under an older scoring model. Reconnect or open the locality to refresh.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-col items-center">
+                          <p className="text-xs text-muted">FitScore</p>
+                          <p className="font-serif text-2xl text-brand-700">{n.fitScore}<span className="text-sm text-muted">/100</span></p>
+                          <ScoreGauge score={n.fitScore} size={56} />
+                          <span className={`text-[11px] font-medium ${n.isProvisional ? 'text-amber-700' : 'text-aff'}`}>{n.matchDisplay || n.match}</span>
+                          {n.criticalRisk && (
+                            <span className="mt-0.5 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700" title={n.criticalRisk.detail}>
+                              {n.healthQualifier}
+                            </span>
+                          )}
+                        </div>
+                        <ul className="hidden space-y-1 md:block">
+                          {PILLARS.map(([key, label]) => (
+                            <li key={key} className="flex items-center justify-between gap-6 text-xs">
+                              <span className="text-muted">{label}</span>
+                              <b className="font-semibold text-ink">{n.subscores?.[key] ?? '—'}</b>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    <Link to={`/neighborhood/${n.id}`} className="btn-primary py-2 text-xs">View Details</Link>
+                    <Link to={`/neighborhood/${n.id}`}
+                      onMouseEnter={() => prefetchLocality(n.id, n.city || city)}
+                      onFocus={() => prefetchLocality(n.id, n.city || city)}
+                      onTouchStart={() => prefetchLocality(n.id, n.city || city)}
+                      className="btn-primary py-2 text-xs">View Details</Link>
                     <Link to="/compare" className="btn-ghost py-2 text-xs"><ArrowLeftRight size={14} /> Compare</Link>
                     <button onClick={() => removeSaved(n.id)} className="btn-ghost py-2 text-xs text-ink-soft"><Trash2 size={14} /> Remove</button>
                   </div>

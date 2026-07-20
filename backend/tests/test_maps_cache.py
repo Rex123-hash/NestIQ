@@ -16,7 +16,7 @@ CALL_DELAY = 0.08  # each fake Google call takes this long
 
 @pytest.fixture()
 def slow_fetchers(monkeypatch):
-    """Stub the four per-locality Google calls with slow, counting fakes."""
+    """Stub the five per-locality Google calls with slow, counting fakes."""
     calls = {"n": 0}
 
     def slow(value):
@@ -30,6 +30,10 @@ def slow_fetchers(monkeypatch):
     monkeypatch.setattr(maps, "amenity_profile", slow({"total": 12, "breakdown": {"restaurant": 12}}))
     monkeypatch.setattr(maps, "commute_minutes", slow(30))
     monkeypatch.setattr(maps, "locality_photo", slow(""))
+    monkeypatch.setattr(maps, "safety_profile", slow({
+        "status": "live", "confidence": "high", "signals": {},
+        "emergencyAccessScore": 80,
+    }))
     maps._cache.clear()
     yield calls
     maps._cache.clear()
@@ -41,10 +45,10 @@ def test_cold_build_fetches_all_localities_in_parallel(slow_fetchers):
     elapsed = time.time() - start
 
     assert len(feats) == LOC_COUNT
-    assert slow_fetchers["n"] == LOC_COUNT * 4
-    # Sequential would take LOC_COUNT * 4 * CALL_DELAY (~2.5s for 8 localities).
+    assert slow_fetchers["n"] == LOC_COUNT * 5
+    # Sequential would take LOC_COUNT * 5 * CALL_DELAY.
     # Parallel fan-out should finish in a small multiple of one call's latency.
-    sequential = LOC_COUNT * 4 * CALL_DELAY
+    sequential = LOC_COUNT * 5 * CALL_DELAY
     assert elapsed < sequential / 3, f"took {elapsed:.2f}s — calls are not parallel"
 
 
@@ -72,7 +76,7 @@ def test_concurrent_cold_requests_share_one_build(slow_fetchers):
 
     assert all(len(r) == LOC_COUNT for r in results)
     # The three concurrent requests must not each fan out to Google.
-    assert slow_fetchers["n"] == LOC_COUNT * 4
+    assert slow_fetchers["n"] == LOC_COUNT * 5
 
 
 def test_expired_cache_served_instantly_and_refreshed_in_background(slow_fetchers):

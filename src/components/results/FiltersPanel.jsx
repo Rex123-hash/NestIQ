@@ -4,7 +4,7 @@ const PILLARS = [
   ['affordability', 'Affordability'],
   ['safety', 'Safety'],
   ['commute', 'Commute'],
-  ['lifestyle', 'Lifestyle'],
+  ['lifestyle', 'Essentials & Lifestyle'],
   ['air_quality', 'Air Quality'],
 ]
 

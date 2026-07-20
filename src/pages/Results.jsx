@@ -7,9 +7,11 @@ import ResultsMap from '../components/results/ResultsMap.jsx'
 import FiltersPanel from '../components/results/FiltersPanel.jsx'
 import AgentProgress from '../components/results/AgentProgress.jsx'
 import { preferences as defaultPrefs, WEIGHTS as INDIA_DEFAULT, SUBSCORES } from '../data/neighborhoods.js'
-import { streamSearch, apiNeighborhoods } from '../lib/api.js'
+import { streamSearch, apiNeighborhoods, prefetchLocality } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
+import { reweight } from '../lib/fitscore.js'
 import { useCity } from '../lib/cityStore.jsx'
+import { FAMILY_HEALTH, isPreset } from '../lib/presets.js'
 
 const PILLARS = SUBSCORES.map((s) => s.key)
 
@@ -17,6 +19,7 @@ const SOURCES_INDIA = [
   { name: 'Google Air Quality API (CPCB AQI)', color: '#3FB984' },
   { name: 'Google Places (amenities)', color: '#EA4335' },
   { name: 'Google Maps Distance Matrix', color: '#4F86F7' },
+  { name: 'Curated rent estimates & safety proxies', color: '#F5A63B' },
   { name: 'Gemini on Vertex AI', color: '#7C5CF6' },
 ]
 const SOURCES_NYC = [
@@ -48,11 +51,23 @@ function whyBullets(top, set, budget) {
   const out = []
   if (Number.isFinite(top.aqi)) {
     const r = rankOf(set, 'aqi', top.aqi, true)
-    out.push(
-      r?.rank === 1
-        ? `Cleanest air of your ${n} matches, AQI ${top.aqi}${top.aqiCategory ? ` (${top.aqiCategory})` : ''}`
-        : `${ordinal(r.rank)}-cleanest air of ${n}, AQI ${top.aqi}`,
-    )
+    const band = top.airHealthBand || top.aqiCategory
+    const allTied = set.every((x) => x.aqi === top.aqi)
+    if (top.criticalRisk) {
+      // Never frame unhealthy air as an achievement. State the health risk plainly,
+      // and only claim "least-polluted" when raw values actually differ.
+      out.push(
+        allTied
+          ? `All ${n} matches share AQI ${top.aqi} (${band}), a ${top.criticalRisk.severity} health risk`
+          : `Least-polluted of ${n}, but still AQI ${top.aqi} (${band}), a ${top.criticalRisk.severity} health risk`,
+      )
+    } else {
+      out.push(
+        r?.rank === 1 && !allTied
+          ? `Cleanest air of your ${n} matches, AQI ${top.aqi}${band ? ` (${band})` : ''}`
+          : `AQI ${top.aqi}${band ? ` (${band})` : ''}, ${allTied ? `tied across all ${n}` : `${ordinal(r.rank)}-cleanest of ${n}`}`,
+      )
+    }
   }
   if (Number.isFinite(top.rent)) {
     const r = rankOf(set, 'rent', top.rent, true)
@@ -85,14 +100,6 @@ function prioritiesText(weights) {
     .sort((a, b) => b[1] - a[1])
     .map(([k, v]) => `${PILLAR_LABEL[k] || k} (${label(v)})`)
     .join(', ')
-}
-
-const matchLabel = (s) => (s >= 85 ? 'Excellent Match' : s >= 75 ? 'Good Match' : 'Fair Match')
-
-function reweight(sub, w) {
-  const sum = PILLARS.reduce((a, k) => a + (w[k] || 0), 0)
-  if (!sum || !sub) return null
-  return Math.round(PILLARS.reduce((a, k) => a + (sub[k] || 0) * (w[k] || 0), 0) / sum)
 }
 
 const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0)
@@ -152,10 +159,20 @@ export default function Results() {
   const [weights, setWeights] = useState(INDIA_DEFAULT)
   const [limits, setLimits] = useState(null)
 
-  const { state } = useLocation()
-  const { city } = useCity()
-  const isNYC = city === 'new-york'
+  const location = useLocation()
+  const { city, setCity, cities } = useCity()
+  const urlParams = useMemo(() => new URLSearchParams(location.search), [location.search])
+  const query = urlParams.get('q') || location.state?.query || ''
+  const requestedPreset = urlParams.get('preset') || location.state?.preset || null
+  const preset = isPreset(requestedPreset) ? requestedPreset : null
+  const requestedCity = urlParams.get('city')
+  const searchCity = cities.some((candidate) => candidate.id === requestedCity) ? requestedCity : city
+  const isNYC = searchCity === 'new-york'
   const currency = isNYC ? '$' : '₹'
+
+  useEffect(() => {
+    if (searchCity !== city) setCity(searchCity)
+  }, [searchCity, city, setCity])
 
   useEffect(() => {
     let alive = true
@@ -163,8 +180,11 @@ export default function Results() {
     setLoading(true)
     setShowAll(false)
     setAgents([])
-    const query = state?.query
-    setPrefs((p) => ({ ...p, statement: query || 'Top neighborhood matches for you' }))
+    setPrefs((p) => ({
+      ...p,
+      statement: query || 'Top neighborhood matches for you',
+      presetApplied: null,
+    }))
 
     function apply(res) {
       if (!alive) return
@@ -183,6 +203,7 @@ export default function Results() {
           budget: res?.preferences?.budget ?? defaultPrefs.budget,
           bed: '1 bed preferred',
           priorities: prioritiesText(w),
+          presetApplied: res?.preferences?.presetApplied || null,
         })
       } else {
         setItems([])
@@ -193,7 +214,7 @@ export default function Results() {
 
     if (query) {
       // stream the agent fan-out, then render the final results
-      es = streamSearch(query, city, {
+      es = streamSearch(query, searchCity, {
         onAgent: (a) =>
           alive &&
           setAgents((prev) => {
@@ -207,16 +228,17 @@ export default function Results() {
           }),
         onFinal: (data) => apply(data),
         onError: () => alive && apply(null),
+        preset,
       })
     } else {
-      apiNeighborhoods(city).then((list) => apply({ results: list, preferences: { weights: INDIA_DEFAULT } }))
+      apiNeighborhoods(searchCity).then((list) => apply({ results: list, preferences: { weights: INDIA_DEFAULT } }))
     }
 
     return () => {
       alive = false
       es && es.close()
     }
-  }, [state, city])
+  }, [query, preset, searchCity])
 
   const bounds = useMemo(() => computeBounds(items), [items])
   // Localities the backend flagged as statistical outliers (>=1.5σ from the
@@ -235,15 +257,27 @@ export default function Results() {
     if (!items.length) return []
     const lim = limits || { maxRent: bounds.maxRent, maxAqi: bounds.maxAqi, maxCommute: bounds.maxCommute, minFit: 0 }
     const scored = items.map((n) => {
-      const s = weightsDirty ? reweight(n.subscores, weights) ?? n.fitScore : n.fitScore
-      return { ...n, fitScore: s, match: matchLabel(s) }
+      if (!weightsDirty) return n // keep backend score + provisional/qualifier fields
+      // Re-rank with the SAME missing-pillar policy as the backend (renormalize,
+      // never treat a missing pillar as zero), so client scores stay consistent.
+      const rw = reweight(n.subscores, weights, PILLARS)
+      return {
+        ...n,
+        fitScore: rw.score,
+        match: rw.match,
+        matchDisplay: rw.matchDisplay,
+        fitScoreDataStatus: rw.status,
+        isProvisional: rw.status === 'provisional',
+        missingPillars: rw.missingPillars,
+        coveragePercent: rw.coveragePercent,
+      }
     })
     return scored
       .filter(
         (n) =>
           (n.rent ?? 0) <= lim.maxRent &&
           (Number.isFinite(n.aqi) ? n.aqi <= lim.maxAqi : true) &&
-          (n.commuteMin ?? 0) <= lim.maxCommute &&
+          (Number.isFinite(n.commuteMin) ? n.commuteMin <= lim.maxCommute : lim.maxCommute === bounds.maxCommute) &&
           n.fitScore >= lim.minFit,
       )
       .sort((a, b) => b.fitScore - a.fitScore)
@@ -336,6 +370,21 @@ export default function Results() {
           </span>
         </div>
 
+        {prefs.presetApplied === FAMILY_HEALTH && (
+          <div className="mt-4 rounded-2xl border border-brand-200 bg-brand-50/70 px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-2 text-sm font-semibold text-brand-700">
+                <CircleCheck size={16} className="text-brand-600" /> Prioritized for family health
+              </p>
+              <span className="text-xs font-medium text-brand-700">Applied by the FitScore service</span>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+              Air quality 35% · Safety 28% · Commute 20% · Affordability 12% · Essentials &amp; Lifestyle 5%.
+              Essential-service availability is shown separately and does not change FitScore.
+            </p>
+          </div>
+        )}
+
         <div className="mt-6 flex items-center justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-ink">Top Neighborhood Matches</h2>
@@ -390,7 +439,11 @@ export default function Results() {
             </h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {anomalyItems.map(({ id, name, flags }) => (
-                <Link key={id} to={`/neighborhood/${id}`} className="rounded-xl border border-line p-3 transition hover:border-brand-200">
+                <Link key={id} to={`/neighborhood/${id}`}
+                  onMouseEnter={() => prefetchLocality(id, searchCity)}
+                  onFocus={() => prefetchLocality(id, searchCity)}
+                  onTouchStart={() => prefetchLocality(id, searchCity)}
+                  className="rounded-xl border border-line p-3 transition hover:border-brand-200">
                   <p className="text-sm font-semibold text-ink">{name}</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {flags.map((a) => (
@@ -435,7 +488,10 @@ export default function Results() {
               ))}
             </ul>
             {top && (
-              <Link to={`/neighborhood/${top.id}`} className="mt-4 inline-block text-sm font-medium text-brand-700">
+              <Link to={`/neighborhood/${top.id}`}
+                onMouseEnter={() => prefetchLocality(top.id, searchCity)}
+                onFocus={() => prefetchLocality(top.id, searchCity)}
+                className="mt-4 inline-block text-sm font-medium text-brand-700">
                 View Full Explanation →
               </Link>
             )}
@@ -458,7 +514,7 @@ export default function Results() {
                 </li>
                 <li className="flex items-center justify-between">
                   <span className="text-muted">Avg. commute to hub</span>
-                  <span className="font-semibold text-ink">{snap.commute} min</span>
+                  <span className="font-semibold text-ink">{Number.isFinite(snap.commute) ? `${snap.commute} min` : 'Unavailable'}</span>
                 </li>
                 <li className="flex items-center justify-between">
                   <span className="text-muted">Localities analyzed</span>
@@ -481,7 +537,10 @@ export default function Results() {
               ))}
             </ul>
             {top && (
-              <Link to={`/neighborhood/${top.id}`} className="mt-4 inline-block text-sm font-medium text-brand-700">
+              <Link to={`/neighborhood/${top.id}`}
+                onMouseEnter={() => prefetchLocality(top.id, searchCity)}
+                onFocus={() => prefetchLocality(top.id, searchCity)}
+                className="mt-4 inline-block text-sm font-medium text-brand-700">
                 See sources in detail →
               </Link>
             )}

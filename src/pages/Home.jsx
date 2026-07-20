@@ -4,6 +4,7 @@ import { useCity, detectCity } from '../lib/cityStore.jsx'
 import { useAuth } from '../lib/auth.jsx'
 import { apiNeighborhoods } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
+import { FAMILY_HEALTH, PRESETS, resultsSearch } from '../lib/presets.js'
 import { LogoMark } from '../components/ui/Logo.jsx'
 import {
   House,
@@ -197,33 +198,56 @@ const EXAMPLES = [
 
 function Hero() {
   const navigate = useNavigate()
-  const { setCity, cities } = useCity()
+  const { city, setCity, cities } = useCity()
   const { user, signInAsGuest } = useAuth()
   const [q, setQ] = useState('')
   const inputRef = useRef(null)
   const [err, setErr] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
+  const [pendingSearch, setPendingSearch] = useState(null)
+  const [activePreset, setActivePreset] = useState(null)
 
-  const go = () => {
-    const query = q.trim()
+  const beginSearch = (rawQuery, preset = null) => {
+    const query = rawQuery.trim()
     if (!query) {
       setErr('Please describe what you are looking for first.')
       return
     }
     setErr('')
     const match = detectCity(query, cities)
-    if (match) setCity(match.id)
+    const targetCity = match?.id || city
+    if (match) setCity(targetCity)
+    const target = `/results${resultsSearch(query, preset, targetCity)}`
     // Already signed in (or guest): go straight to results. Otherwise ask.
-    if (user) navigate('/results', { state: { query } })
-    else setGateOpen(true)
+    if (user) navigate(target)
+    else {
+      setPendingSearch({ query, preset, city: targetCity, target })
+      setGateOpen(true)
+    }
+  }
+
+  const go = () => beginSearch(q, activePreset)
+
+  const launchFamilyHealth = () => {
+    const query = PRESETS[FAMILY_HEALTH].query
+    setQ(query)
+    setActivePreset(FAMILY_HEALTH)
+    setErr('')
+    inputRef.current?.focus()
   }
 
   const proceedAsGuest = () => {
     signInAsGuest()
     setGateOpen(false)
-    navigate('/results', { state: { query: q.trim() } })
+    navigate(pendingSearch?.target || `/results${resultsSearch(q.trim(), null, city)}`)
   }
-  const proceedToSignIn = () => navigate('/signin', { state: { resumeQuery: q.trim() } })
+  const proceedToSignIn = () =>
+    navigate('/signin', {
+      state: {
+        resumeTo: pendingSearch?.target,
+        resumeQuery: pendingSearch?.query || q.trim(),
+      },
+    })
 
   const checks = ['Adapts to your priorities', 'Cited & explainable', 'Trusted public data']
   return (
@@ -274,6 +298,33 @@ function Hero() {
             </button>
           </div>
           {err && <p className="mt-2 px-1 text-xs font-medium text-[#E5484D]">{err}</p>}
+          {q && (
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-brand-50 px-3 py-2 text-xs">
+              {activePreset === FAMILY_HEALTH ? (
+                <span className="flex items-center gap-1.5 font-semibold text-brand-700">
+                  <CircleCheck size={14} /> Family Health Mode selected
+                  <span className="font-normal text-muted">· Prioritizes air quality and safety</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 font-medium text-ink-soft">
+                  <Sparkles size={14} className="text-brand-600" /> Search query ready
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setQ('')
+                  setActivePreset(null)
+                  setErr('')
+                  inputRef.current?.focus()
+                }}
+                className="-m-2 p-2 font-semibold text-brand-700 transition hover:text-brand-600 hover:underline"
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </div>
 
         {/* one-tap example chips: prefill the search box */}
@@ -284,6 +335,7 @@ function Hero() {
               key={ex.label}
               onClick={() => {
                 setQ(ex.q)
+                setActivePreset(null)
                 setErr('')
                 inputRef.current?.focus()
               }}
@@ -293,6 +345,36 @@ function Hero() {
             </button>
           ))}
         </div>
+
+        <button
+          type="button"
+          onClick={launchFamilyHealth}
+          aria-pressed={activePreset === FAMILY_HEALTH}
+          className={`mt-5 w-full rounded-2xl border bg-gradient-to-r p-4 text-left shadow-card transition hover:border-brand-400 hover:shadow-float ${
+            activePreset === FAMILY_HEALTH
+              ? 'border-brand-500 from-brand-100 to-brand-50 ring-2 ring-brand-100'
+              : 'border-brand-200 from-brand-50 to-white'
+          }`}
+        >
+          <span className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-brand-600 shadow-sm">
+              <Heart size={19} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center justify-between gap-3">
+                <span className="text-sm font-semibold text-ink">Try {PRESETS[FAMILY_HEALTH].label} Mode</span>
+                {activePreset === FAMILY_HEALTH ? (
+                  <CircleCheck size={17} className="shrink-0 text-brand-600" />
+                ) : (
+                  <Sparkles size={17} className="shrink-0 text-brand-600" />
+                )}
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-muted">
+                Prefill a health-sensitive family search, then review or edit it before continuing.
+              </span>
+            </span>
+          </span>
+        </button>
 
         <p className="mt-4 flex items-center gap-2 text-sm text-muted">
           <ShieldCheck size={16} className="text-brand-500" />
@@ -317,8 +399,8 @@ function Hero() {
             <p className="mx-auto mt-1 max-w-xs text-sm text-muted">
               Sign in to save your searches and get personalized matches, or keep going as a guest.
             </p>
-            <p className="mt-3 truncate rounded-lg bg-band px-3 py-2 text-xs text-ink-soft" title={q}>
-              "{q.trim()}"
+            <p className="mt-3 line-clamp-2 rounded-lg bg-band px-3 py-2 text-xs text-ink-soft" title={pendingSearch?.query || q}>
+              "{pendingSearch?.query || q.trim()}"
             </p>
             <div className="mt-5 flex flex-col gap-2.5">
               <button onClick={proceedToSignIn} className="btn-primary w-full justify-center">
@@ -343,7 +425,7 @@ const FEATURES = [
   { icon: PiggyBank, tint: 'bg-[#E8F6EF] text-aff', title: 'Affordability', sub: 'Rent vs. your budget' },
   { icon: ShieldCheck, tint: 'bg-brand-50 text-brand-600', title: 'Safety', sub: 'Locality safety profile' },
   { icon: TrainFront, tint: 'bg-[#E7F6EE] text-aff', title: 'Commute', sub: 'Live drive time to the hub' },
-  { icon: Coffee, tint: 'bg-[#FCEBF2] text-life', title: 'Lifestyle', sub: 'Amenities within 1.5 km' },
+  { icon: Coffee, tint: 'bg-[#FCEBF2] text-life', title: 'Essentials & Lifestyle', sub: 'Amenities within 1.5 km' },
   { icon: Wind, tint: 'bg-[#FDF0DF] text-trend', title: 'Air Quality', sub: 'Live AQI & forecast' },
 ]
 
@@ -373,7 +455,7 @@ function FeatureBand() {
 /* ------------------------------ How it works ----------------------------- */
 const STEPS = [
   { icon: Search, title: 'Tell us what matters', desc: 'Describe your ideal home in plain words: clean air, budget, short commute, safety.' },
-  { icon: Cpu, title: 'AI agents analyze live data', desc: 'Specialist agents score every locality on air quality, affordability, commute, lifestyle and safety from live Google + BigQuery data.' },
+  { icon: Cpu, title: 'ADK agents analyze sourced evidence', desc: 'NestIQ\'s Google ADK agents combine live Google signals with clearly labelled rent estimates and safety proxies, with a Validator checking for contradictions; missing data is never guessed.' },
   { icon: ListChecks, title: 'Get ranked, explainable matches', desc: 'A weighted FitScore ranks localities for you, with every number cited and every match explained.' },
 ]
 

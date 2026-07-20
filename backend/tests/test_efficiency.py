@@ -54,6 +54,54 @@ def test_reviews_endpoint_caches(client, monkeypatch):
     assert calls["n"] == 1, "grounded review call must be cached, not repeated"
 
 
+def test_reviews_endpoint_does_not_cache_service_failure(client, monkeypatch):
+    calls = {"n": 0}
+
+    def unavailable(name, city):
+        calls["n"] += 1
+        return {"summary": "", "citations": [], "status": "temporarily_unavailable",
+                "errorCode": "vertex_permission_denied"}
+
+    monkeypatch.setattr(gemini, "web_reviews", unavailable)
+    main._reviews_cache.clear()
+    r1 = client.get("/api/neighborhood/middle/reviews?city=delhi-ncr")
+    r2 = client.get("/api/neighborhood/middle/reviews?city=delhi-ncr")
+
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json()["status"] == "temporarily_unavailable"
+    assert calls["n"] == 2, "retryable grounding failures must not be cached for 24 hours"
+
+
+def test_reviews_endpoint_does_not_cache_empty_no_evidence(client, monkeypatch):
+    calls = {"n": 0}
+
+    def empty(name, city):
+        calls["n"] += 1
+        return {"summary": "", "citations": [], "status": "no_evidence"}
+
+    monkeypatch.setattr(gemini, "web_reviews", empty)
+    main._reviews_cache.clear()
+    client.get("/api/neighborhood/middle/reviews?city=delhi-ncr")
+    client.get("/api/neighborhood/middle/reviews?city=delhi-ncr")
+    assert calls["n"] == 2, "an empty grounding response must not poison the 24-hour cache"
+
+
+def test_reviews_refresh_bypasses_a_cached_summary(client, monkeypatch):
+    calls = {"n": 0}
+
+    def reviews(name, city):
+        calls["n"] += 1
+        return {"summary": f"version {calls['n']}", "citations": [], "status": "available"}
+
+    monkeypatch.setattr(gemini, "web_reviews", reviews)
+    main._reviews_cache.clear()
+    first = client.get("/api/neighborhood/middle/reviews?city=delhi-ncr").json()
+    cached = client.get("/api/neighborhood/middle/reviews?city=delhi-ncr").json()
+    refreshed = client.get("/api/neighborhood/middle/reviews?city=delhi-ncr&refresh=true").json()
+    assert first["summary"] == cached["summary"] == "version 1"
+    assert refreshed["summary"] == "version 2"
+
+
 def test_reviews_endpoint_404_for_unknown(client):
     main._reviews_cache.clear()
     r = client.get("/api/neighborhood/nope/reviews?city=delhi-ncr")

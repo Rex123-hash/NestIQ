@@ -94,6 +94,110 @@ class TestAnomalies:
             assert r["anomalies"] == []
 
 
+class TestScoreIndiaAirTrust:
+    """Phase 1: absolute CPCB air semantics wired into score_india."""
+
+    def _severe(self, varied=False):
+        base = {"aqi_category": "Severe", "aqi_pollutant": "pm25", "photo": "", "short": "S",
+                "accent": "#111", "lat": 0.0, "lng": 0.0, "median_rent": 20000,
+                "safety_est": 75, "amenity_count": 15, "commute_min": 30}
+        aqis = {"a": 410, "b": 450, "c": 500, "d": 430} if varied else {k: 500 for k in "abcd"}
+        return [{**base, "id": k, "name": k, "aqi": v} for k, v in aqis.items()]
+
+    def test_all_severe_air_subscore_stays_in_severe_band(self):
+        for r in score_india(self._severe()):
+            assert r["subscores"]["air_quality"] <= 14
+            assert r["airHealthBand"] == "Severe"
+
+    def test_all_severe_never_reads_as_clean(self):
+        # The exact regression: no locality at AQI 500 may score 96 for air.
+        assert all(r["subscores"]["air_quality"] != 96 for r in score_india(self._severe()))
+
+    def test_air_subscore_equals_air_health_score(self):
+        for r in score_india(self._severe(varied=True)):
+            assert r["subscores"]["air_quality"] == r["airHealthScore"]
+
+    def test_all_severe_carries_critical_risk(self):
+        for r in score_india(self._severe()):
+            assert r["criticalRisks"] and r["criticalRisks"][0]["severity"] == "critical"
+
+    def test_equal_aqi_ties_relative_rank(self):
+        # Every locality identical -> all tied at rank 1, no invented winner.
+        assert all(r["airRelativeRank"] == 1 for r in score_india(self._severe()))
+
+    def test_varied_severe_still_identifies_least_polluted(self):
+        ranked = score_india(self._severe(varied=True))
+        cleanest = next(r for r in ranked if r["airRelativeRank"] == 1)
+        assert cleanest["aqi"] == 410  # lowest AQI ranks first
+        # ...but it is still Severe, not clean.
+        assert cleanest["subscores"]["air_quality"] <= 14
+
+    def test_additive_provenance_fields_present(self):
+        for r in score_india(self._severe()):
+            for f in ("airHealthScore", "airRelativeRank", "airDataStatus",
+                      "airSource", "airFetchedAt", "airHealthBand", "criticalRisks"):
+                assert f in r
+
+    def test_missing_aqi_does_not_fabricate_a_score(self):
+        feats = self._severe()
+        feats[0]["aqi"] = None
+        ranked = score_india(feats)
+        missing = next(r for r in ranked if r["id"] == "a")
+        assert missing["subscores"]["air_quality"] is None
+        assert missing["airHealthScore"] is None
+        assert missing["airDataStatus"] == "temporarily_unavailable"
+        # still ranked with a real FitScore from the remaining pillars
+        assert isinstance(missing["fitScore"], int)
+        assert "air_quality" in missing["subscores"]  # key preserved
+
+    def test_complete_score_is_marked_complete(self):
+        for r in score_india(self._severe()):
+            assert r["fitScoreDataStatus"] == "complete"
+            assert r["missingPillars"] == []
+            assert r["coveragePercent"] == 100
+            assert r["matchDisplay"] == r["match"]
+
+    def test_missing_air_makes_score_provisional(self):
+        feats = self._severe()
+        feats[0]["aqi"] = None
+        r = next(x for x in score_india(feats) if x["id"] == "a")
+        assert r["fitScoreDataStatus"] == "provisional"
+        assert r["missingPillars"] == ["air_quality"]
+        assert r["coveragePercent"] < 100
+        assert r["matchDisplay"].startswith("Provisional ")
+
+    def test_uaqi_only_is_not_scored_as_cpcb(self):
+        # A Universal-AQI reading must not run through CPCB bands.
+        feats = self._severe()
+        feats[0]["aqi"] = 55            # UAQI 55 (0-100 scale) is NOT CPCB 55
+        feats[0]["airIndexCode"] = "uaqi"
+        r = next(x for x in score_india(feats) if x["id"] == "a")
+        assert r["airHealthScore"] is None      # no CPCB health score
+        assert r["airHealthBand"] is None
+        assert r["criticalRisks"] == []
+        assert r["subscores"]["air_quality"] is None
+        assert r["fitScoreDataStatus"] == "provisional"
+        assert r["airIndexCode"] == "uaqi"
+        assert r["aqi"] == 55                    # raw reading preserved for display
+
+    def test_cpcb_index_is_scored(self):
+        feats = self._severe()
+        feats[0]["airIndexCode"] = "ind_cpcb"
+        r = next(x for x in score_india(feats) if x["id"] == "a")
+        assert r["airHealthScore"] == 0
+        assert r["airHealthBand"] == "Severe"
+        assert r["fitScoreDataStatus"] == "complete"
+
+    def test_provenance_passthrough_from_features(self):
+        feats = self._severe()
+        feats[0]["airDataStatus"] = "stale"
+        feats[0]["airSource"] = "Google Air Quality API (CPCB)"
+        feats[0]["airFetchedAt"] = "2026-07-19T00:00:00Z"
+        r = next(x for x in score_india(feats) if x["id"] == "a")
+        assert r["airDataStatus"] == "stale"
+        assert r["airFetchedAt"] == "2026-07-19T00:00:00Z"
+
+
 class TestScoreNeighborhoodsNYC:
     def make(self):
         return [

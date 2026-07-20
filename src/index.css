@@ -37,3 +37,87 @@
 }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-thumb { background: #d5d5e3; border-radius: 999px; }
+
+/* Branded cursor for precise pointer devices. Text editing keeps the familiar I-beam. */
+@media (pointer: fine) {
+  html,
+  body {
+    cursor: url('/cursor-purple.svg') 3 2, default;
+  }
+
+  /* Anything clickable gets the branded HAND, not the arrow. Previously this
+     rule reused the arrow SVG, so the pointer state never visibly changed. */
+  a,
+  button,
+  label,
+  select,
+  summary,
+  [role='button'],
+  input[type='button'],
+  input[type='submit'],
+  input[type='reset'] {
+    cursor: url('/cursor-purple-pointer.svg') 11 3, pointer;
+  }
+
+  /* Disabled controls must not promise a click. */
+  button:disabled,
+  [aria-disabled='true'],
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+  }
+
+  /* Draggable surfaces: open hand, closing to a fist while dragging. */
+  .cursor-grab,
+  .gm-style,
+  [role='application'] {
+    cursor: url('/cursor-purple-grab.svg') 14 12, grab;
+  }
+
+  .cursor-grab:active,
+  .gm-style:active,
+  [role='application']:active,
+  .cursor-grabbing {
+    cursor: url('/cursor-purple-grabbing.svg') 14 12, grabbing;
+  }
+
+  /* Trailing halo. Purely decorative and never interactive, so it cannot swallow a
+     click. Position and scale are driven on the GPU from CursorHalo.jsx; only the
+     opacity is transitioned here. */
+  .cursor-halo {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 9999;
+    width: 34px;
+    height: 34px;
+    border-radius: 9999px;
+    pointer-events: none;
+    opacity: 0;
+    will-change: transform, opacity;
+    transition: opacity 220ms ease;
+    background: radial-gradient(
+      circle,
+      rgba(124, 92, 246, 0.20) 0%,
+      rgba(124, 92, 246, 0.10) 45%,
+      rgba(124, 92, 246, 0) 72%
+    );
+    box-shadow: 0 0 18px 4px rgba(124, 92, 246, 0.10);
+  }
+}
+
+/* No halo, and no listeners, when the user prefers reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .cursor-halo {
+    display: none;
+  }
+
+  input:not([type='button']):not([type='submit']):not([type='reset']),
+  textarea,
+  [contenteditable='true'],
+  .cursor-text {
+    cursor: url('/cursor-purple-text.svg') 8 10, text;
+    caret-color: theme('colors.brand.600');
+  }
+}

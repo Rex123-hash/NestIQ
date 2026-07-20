@@ -57,6 +57,62 @@ describe('adaptNeighborhood', () => {
     expect(n.aqi).toBe(90)
     expect(n.commuteMin).toBe(24)
   })
+
+  it('surfaces a health qualifier so a match never stands alone with critical air', () => {
+    const n = adaptNeighborhood(locality({
+      match: 'Good Match',
+      airHealthBand: 'Severe',
+      criticalRisks: [{ type: 'air_quality', severity: 'critical', label: 'Severe air-quality risk', detail: 'AQI 500, Severe (CPCB)' }],
+    }))
+    expect(n.criticalRisk.severity).toBe('critical')
+    expect(n.healthQualifier).toBe('Severe air-quality risk')
+    expect(n.airHealthBand).toBe('Severe')
+  })
+
+  it('has no health qualifier when air is clean', () => {
+    const n = adaptNeighborhood(locality({ criticalRisks: [] }))
+    expect(n.criticalRisk).toBeNull()
+    expect(n.healthQualifier).toBeNull()
+  })
+
+  it('exposes provisional-score fields when a pillar is missing', () => {
+    const n = adaptNeighborhood(locality({
+      fitScoreDataStatus: 'provisional',
+      missingPillars: ['air_quality'],
+      coveragePercent: 75,
+      matchDisplay: 'Provisional Good Match',
+    }))
+    expect(n.isProvisional).toBe(true)
+    expect(n.matchDisplay).toBe('Provisional Good Match')
+    expect(n.coveragePercent).toBe(75)
+    expect(n.missingPillars).toEqual(['air_quality'])
+  })
+
+  it('defaults to a complete score when not provided', () => {
+    const n = adaptNeighborhood(locality())
+    expect(n.isProvisional).toBe(false)
+    expect(n.matchDisplay).toBe('Good Match')
+  })
+
+  it('carries air index + stale provenance for downstream surfaces', () => {
+    const n = adaptNeighborhood(locality({
+      airIndexCode: 'uaqi', airScoringMethod: 'none', airStale: true, airDataStatus: 'stale',
+    }))
+    expect(n.airIndexCode).toBe('uaqi')
+    expect(n.airStale).toBe(true)
+    expect(n.airDataStatus).toBe('stale')
+  })
+
+  it('carries the Phase 2 evidence envelope without changing legacy fields', () => {
+    const evidence = {
+      commute: { status: 'live', source: 'Google Maps Distance Matrix', value: 24 },
+      affordability: { status: 'estimated', source: 'NestIQ curated locality market dataset', value: 19000 },
+    }
+    const n = adaptNeighborhood(locality({ evidence }))
+    expect(n.evidence).toEqual(evidence)
+    expect(n.commuteMin).toBe(24)
+    expect(n.rent).toBe(19000)
+  })
 })
 
 describe('adaptList', () => {
