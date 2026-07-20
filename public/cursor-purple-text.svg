@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="20" viewBox="0 0 16 20">
+  <defs>
+    <!-- Vibrant, modern gradient -->
+    <linearGradient id="textPurple" x1="8" y1="2" x2="8" y2="18" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#D6CCFB" />
+      <stop offset="50%" stop-color="#7C5CF6" />
+      <stop offset="100%" stop-color="#4A37C0" />
+    </linearGradient>
+    
+    <!-- Ambient premium glow -->
+    <filter id="premiumGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <!-- Crisp outer dark drop shadow for depth -->
+      <feDropShadow dx="0" dy="1" stdDeviation="0.5" flood-color="#1B1B2F" flood-opacity="0.15"/>
+      <!-- Soft brand-colored ambient bloom -->
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#7C5CF6" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Base white outline + Glow -->
+  <path
+    d="M5.5 2.5h5M8 2.5v15M5.5 17.5h5"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="3.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    filter="url(#premiumGlow)"
+  />
+
+  <!-- Vibrant inner gradient stroke -->
+  <path
+    d="M5.5 2.5h5M8 2.5v15M5.5 17.5h5"
+    fill="none"
+    stroke="url(#textPurple)"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  
+  <!-- Tiny bright highlight at the center (glassy effect) -->
+  <path
+    d="M8 8v4"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="0.5"
+    stroke-linecap="round"
+    opacity="0.8"
+  />
+</svg>
