@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import bq, gemini, maps, bq_india, civic_rag, rate_limit
+from . import bq, gemini, maps, bq_india, civic_rag, rate_limit, telemetry
 from .config import settings
 from .fitscore import score_neighborhoods, DEFAULT_WEIGHTS
 from .india import city_list, get_city
@@ -46,7 +46,7 @@ def warm_default_city_cache() -> None:
         try:
             gemini.parse_query("warmup: flat with clean air")
         except Exception as error:  # noqa: BLE001
-            print(f"[warmup] gemini skipped: {error}")
+            telemetry.event("warmup_failed", tool="gemini_parse_query", errorType=type(error).__name__)
 
     threading.Thread(target=warm, daemon=True).start()
 
@@ -63,7 +63,33 @@ app.add_middleware(
     allow_origins=cors_origins(),
     allow_methods=["GET", "POST"],  # the API exposes nothing else
     allow_headers=["Content-Type", "Authorization"],
+    expose_headers=["X-Request-ID"],
 )
+
+
+@app.middleware("http")
+async def structured_request_telemetry(request: Request, call_next):
+    """Attach a request ID and emit metadata-only request lifecycle events."""
+    request_id = telemetry.accepted_request_id(request.headers.get("X-Request-ID"))
+    token = telemetry.bind_request(request_id)
+    started = time.perf_counter()
+    telemetry.event("request_started", method=request.method, path=request.url.path)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        telemetry.event(
+            "request_completed", method=request.method, path=request.url.path,
+            statusCode=response.status_code, latencyMs=telemetry.elapsed_ms(started),
+        )
+        return response
+    except Exception as error:  # noqa: BLE001
+        telemetry.event(
+            "request_failed", method=request.method, path=request.url.path,
+            latencyMs=telemetry.elapsed_ms(started), errorType=type(error).__name__,
+        )
+        raise
+    finally:
+        telemetry.reset_request(token)
 
 # Per-instance request budget for the expensive Ask endpoint (Gemini + BigQuery).
 # NOT a global cap: Cloud Run runs N instances, so the real ceiling is N x this.
@@ -129,35 +155,74 @@ def _fresh_reviews_failure(key: tuple[str, str]) -> dict | None:
     return None
 
 
-def _refresh_reviews_in_background(key: tuple[str, str], name: str, city_name: str) -> None:
+def _refresh_reviews_in_background(key: tuple[str, str], name: str, city_name: str,
+                                   request_id: str | None = None) -> None:
+    started = time.perf_counter()
+    telemetry.event("evidence_job_started", request_id=request_id, evidenceType="community_reviews",
+                    city=key[0], locality=key[1], cacheState="miss")
     try:
         data = gemini.web_reviews(name, city_name)
         if data.get("summary") and data.get("status") != "temporarily_unavailable":
             _reviews_cache[key] = (time.time(), data)
             _reviews_failure_cache.pop(key, None)
+            telemetry.event(
+                "evidence_job_completed", request_id=request_id, evidenceType="community_reviews",
+                city=key[0], locality=key[1], status="available", fallbackUsed=False,
+                sourceType="grounded_web", retrievalCount=len(data.get("citations", [])),
+                latencyMs=telemetry.elapsed_ms(started),
+            )
         else:
             _reviews_failure_cache[key] = (time.time(), data or dict(REVIEWS_UNAVAILABLE))
+            telemetry.event(
+                "evidence_job_completed", request_id=request_id, evidenceType="community_reviews",
+                city=key[0], locality=key[1], status="temporarily_unavailable", fallbackUsed=True,
+                sourceType="grounded_web", retrievalCount=0, latencyMs=telemetry.elapsed_ms(started),
+            )
     except Exception as error:  # noqa: BLE001
-        print(f"[reviews] refresh failed for {key}: {type(error).__name__}")
         _reviews_failure_cache[key] = (time.time(), dict(REVIEWS_UNAVAILABLE))
+        telemetry.event(
+            "evidence_job_failed", request_id=request_id, evidenceType="community_reviews",
+            city=key[0], locality=key[1], errorType=type(error).__name__, fallbackUsed=True,
+            latencyMs=telemetry.elapsed_ms(started),
+        )
     finally:
         with _reviews_refresh_lock:
             _reviews_refreshing.discard(key)
 
 
-def _refresh_pulse_in_background(key: tuple[str, str], name: str, city_name: str) -> None:
+def _refresh_pulse_in_background(key: tuple[str, str], name: str, city_name: str,
+                                 request_id: str | None = None) -> None:
+    started = time.perf_counter()
+    telemetry.event("evidence_job_started", request_id=request_id, evidenceType="locality_pulse",
+                    city=key[0], locality=key[1], cacheState="miss")
     try:
         data = gemini.locality_pulse(name, city_name)
         if data.get("status") in {"available", "no_evidence"}:
             _pulse_cache[key] = (time.time(), data)
             _pulse_failure_cache.pop(key, None)  # a success clears the failure
+            telemetry.event(
+                "evidence_job_completed", request_id=request_id, evidenceType="locality_pulse",
+                city=key[0], locality=key[1], status=data.get("status"), fallbackUsed=False,
+                sourceType="grounded_web", retrievalCount=len(data.get("citations", [])),
+                validatorResult="passed", latencyMs=telemetry.elapsed_ms(started),
+            )
         else:
             # Grounding ran but produced nothing usable: record it so the caller stops
             # being told "pending" forever.
             _pulse_failure_cache[key] = (time.time(), dict(PULSE_UNAVAILABLE))
+            telemetry.event(
+                "evidence_job_completed", request_id=request_id, evidenceType="locality_pulse",
+                city=key[0], locality=key[1], status="temporarily_unavailable", fallbackUsed=True,
+                sourceType="grounded_web", retrievalCount=0, validatorResult="no_usable_evidence",
+                latencyMs=telemetry.elapsed_ms(started),
+            )
     except Exception as error:  # noqa: BLE001
-        print(f"[pulse] refresh failed for {key}: {type(error).__name__}")
         _pulse_failure_cache[key] = (time.time(), dict(PULSE_UNAVAILABLE))
+        telemetry.event(
+            "evidence_job_failed", request_id=request_id, evidenceType="locality_pulse",
+            city=key[0], locality=key[1], errorType=type(error).__name__, fallbackUsed=True,
+            validatorResult="failed", latencyMs=telemetry.elapsed_ms(started),
+        )
     finally:
         with _pulse_refresh_lock:
             _pulse_refreshing.discard(key)
@@ -173,8 +238,12 @@ _rent_failure_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 _RENT_FAILURE_TTL = 60
 
 
-def _refresh_rent_in_background(key: tuple[str, str], name: str, city_name: str, curated_rent) -> None:
+def _refresh_rent_in_background(key: tuple[str, str], name: str, city_name: str, curated_rent,
+                                request_id: str | None = None) -> None:
     """Refresh grounded rent evidence once while callers keep seeing cached data."""
+    started = time.perf_counter()
+    telemetry.event("evidence_job_started", request_id=request_id, evidenceType="rent_verification",
+                    city=key[0], locality=key[1], cacheState="miss")
     try:
         data = gemini.verify_rent(name, city_name)
         data["curatedMedianRent"] = curated_rent
@@ -182,8 +251,20 @@ def _refresh_rent_in_background(key: tuple[str, str], name: str, city_name: str,
         if data.get("status") == "available" and data.get("sampleSize", 0) >= 2:
             _rent_verification_cache[key] = (time.time(), data)
             _rent_failure_cache.pop(key, None)
+            telemetry.event(
+                "evidence_job_completed", request_id=request_id, evidenceType="rent_verification",
+                city=key[0], locality=key[1], status="available", fallbackUsed=False,
+                sourceType="grounded_web", retrievalCount=data.get("sourceCount", 0),
+                validatorResult="passed", latencyMs=telemetry.elapsed_ms(started),
+            )
         else:
             _rent_failure_cache[key] = (time.time(), data)
+            telemetry.event(
+                "evidence_job_completed", request_id=request_id, evidenceType="rent_verification",
+                city=key[0], locality=key[1], status=data.get("status", "no_evidence"), fallbackUsed=True,
+                sourceType="grounded_web", retrievalCount=data.get("sourceCount", 0),
+                validatorResult="insufficient_evidence", latencyMs=telemetry.elapsed_ms(started),
+            )
     except Exception as error:  # noqa: BLE001
         _rent_failure_cache[key] = (time.time(), {
             "status": "temporarily_unavailable",
@@ -191,6 +272,11 @@ def _refresh_rent_in_background(key: tuple[str, str], name: str, city_name: str,
             "curatedMedianRent": curated_rent,
             "scoreImpact": "none",
         })
+        telemetry.event(
+            "evidence_job_failed", request_id=request_id, evidenceType="rent_verification",
+            city=key[0], locality=key[1], errorType=type(error).__name__, fallbackUsed=True,
+            validatorResult="failed", latencyMs=telemetry.elapsed_ms(started),
+        )
     finally:
         with _rent_refresh_lock:
             _rent_refreshing.discard(key)
@@ -290,8 +376,7 @@ def config():
     string and the map degrades — falling back to the server key would re-open exactly
     the leak this closes."""
     if not settings.maps_browser_key:
-        print("[config] MAPS_BROWSER_KEY is not set; maps will not load. "
-              "Set it to a referrer-restricted browser key.")
+        telemetry.event("configuration_warning", setting="MAPS_BROWSER_KEY", status="missing")
     return {"mapsKey": settings.maps_browser_key}
 
 
@@ -339,7 +424,8 @@ def search_stream(q: str = "", city: str = DEFAULT_CITY, preset: str | None = No
                 from . import adk_orchestration
                 payloads = adk_orchestration.run_adk_search(q, city, parse_with_preset, rank)
             except Exception as e:  # noqa: BLE001
-                print(f"[adk] orchestration failed, using legacy stream: {e}")
+                telemetry.event("agent_fallback", city=city, fromEngine="adk", toEngine="legacy_stream",
+                                fallbackUsed=True, errorType=type(e).__name__)
                 payloads = None
             if payloads is not None:
                 for payload in payloads:
@@ -407,7 +493,10 @@ def neighborhood(nid: str, city: str = DEFAULT_CITY):
     key = (city, nid)
     cached = _detail_cache.get(key)
     if cached and time.time() - cached[0] < _DETAIL_TTL:
+        telemetry.event("cache_access", cache="neighborhood_detail", city=city, locality=nid, cacheState="hit")
         return {**match, **cached[1]}
+
+    telemetry.event("cache_access", cache="neighborhood_detail", city=city, locality=nid, cacheState="miss")
 
     extra: dict = {"why": gemini.explain(match["name"], match["subscores"], match["median_rent"], note_for(city, match))}
     if city == NYC:
@@ -446,20 +535,26 @@ def neighborhood_reviews(nid: str, city: str = DEFAULT_CITY, refresh: bool = Fal
     key = (city, nid)
     cached = _reviews_cache.get(key)
     if not refresh and cached and time.time() - cached[0] < _REVIEWS_TTL:
+        telemetry.event("cache_access", cache="community_reviews", city=city, locality=nid, cacheState="hit")
         return cached[1]
     city_obj = get_city(city)
     if not refresh and not cached:
         failed = _fresh_reviews_failure(key)
         if failed:
+            telemetry.event("cache_access", cache="community_reviews", city=city, locality=nid,
+                            cacheState="failure_hit", fallbackUsed=True)
             return dict(failed)
     with _reviews_refresh_lock:
         if key not in _reviews_refreshing:
             _reviews_refreshing.add(key)
             threading.Thread(
                 target=_refresh_reviews_in_background,
-                args=(key, match["name"], city_obj["name"] if city_obj else city),
+                args=(key, match["name"], city_obj["name"] if city_obj else city,
+                      telemetry.current_request_id()),
                 daemon=True,
             ).start()
+    telemetry.event("cache_access", cache="community_reviews", city=city, locality=nid,
+                    cacheState="stale" if cached else "miss", refreshStarted=True)
     if cached:
         return {**cached[1], "refreshStatus": "refreshing"}
     return {
@@ -481,12 +576,16 @@ def neighborhood_pulse(nid: str, city: str = DEFAULT_CITY, refresh: bool = False
     if not refresh and cached and time.time() - cached[0] < _PULSE_TTL:
         with _pulse_refresh_lock:
             refreshing = key in _pulse_refreshing
+        telemetry.event("cache_access", cache="locality_pulse", city=city, locality=nid,
+                        cacheState="hit", refreshRunning=refreshing)
         return {**cached[1], **({"refreshStatus": "refreshing"} if refreshing else {})}
     # A recent failed attempt: tell the truth instead of loading forever. Retries
     # resume automatically once _PULSE_FAILURE_TTL expires.
     if not refresh and not cached:
         failed = _fresh_pulse_failure(key)
         if failed:
+            telemetry.event("cache_access", cache="locality_pulse", city=city, locality=nid,
+                            cacheState="failure_hit", fallbackUsed=True)
             return dict(failed)
     city_obj = get_city(city)
     with _pulse_refresh_lock:
@@ -494,9 +593,12 @@ def neighborhood_pulse(nid: str, city: str = DEFAULT_CITY, refresh: bool = False
             _pulse_refreshing.add(key)
             threading.Thread(
                 target=_refresh_pulse_in_background,
-                args=(key, match["name"], city_obj["name"] if city_obj else city),
+                args=(key, match["name"], city_obj["name"] if city_obj else city,
+                      telemetry.current_request_id()),
                 daemon=True,
             ).start()
+    telemetry.event("cache_access", cache="locality_pulse", city=city, locality=nid,
+                    cacheState="stale" if cached else "miss", refreshStarted=True)
     if cached:
         return {**cached[1], "refreshStatus": "refreshing"}
     return {
@@ -522,19 +624,25 @@ def city_pulse(city: str, refresh: bool = False):
     if not refresh and cached and time.time() - cached[0] < _PULSE_TTL:
         with _pulse_refresh_lock:
             refreshing = key in _pulse_refreshing
+        telemetry.event("cache_access", cache="city_pulse", city=city, locality="__city__",
+                        cacheState="hit", refreshRunning=refreshing)
         return {**cached[1], **({"refreshStatus": "refreshing"} if refreshing else {})}
     if not refresh and not cached:
         failed = _fresh_pulse_failure(key)
         if failed:
+            telemetry.event("cache_access", cache="city_pulse", city=city, locality="__city__",
+                            cacheState="failure_hit", fallbackUsed=True)
             return dict(failed)
     with _pulse_refresh_lock:
         if key not in _pulse_refreshing:
             _pulse_refreshing.add(key)
             threading.Thread(
                 target=_refresh_pulse_in_background,
-                args=(key, city_name, city_name),
+                args=(key, city_name, city_name, telemetry.current_request_id()),
                 daemon=True,
             ).start()
+    telemetry.event("cache_access", cache="city_pulse", city=city, locality="__city__",
+                    cacheState="stale" if cached else "miss", refreshStarted=True)
     if cached:
         return {**cached[1], "refreshStatus": "refreshing"}
     return {
@@ -553,7 +661,13 @@ def neighborhood_civic_knowledge(nid: str, q: str, city: str = DEFAULT_CITY):
     question = (q or "").strip()
     if len(question) < 3:
         raise HTTPException(422, "question must contain at least 3 characters")
-    return civic_rag.answer(question[:500], city, nid)
+    result = civic_rag.answer(question[:500], city, nid)
+    telemetry.event(
+        "rag_retrieval_completed", city=city, locality=nid, sourceType="controlled_official_catalog",
+        retrievalCount=result.get("retrievedCount", 0), validatorResult=result.get("status"),
+        citationCount=len(result.get("citations", [])), fallbackUsed=result.get("status") != "available",
+    )
+    return result
 
 
 @app.get("/api/neighborhood/{nid}/rent-verification")
@@ -574,25 +688,35 @@ def neighborhood_rent_verification(nid: str, city: str = DEFAULT_CITY, refresh: 
                 _rent_refreshing.add(key)
                 threading.Thread(
                     target=_refresh_rent_in_background,
-                    args=(key, match["name"], city_name, match.get("median_rent")),
+                    args=(key, match["name"], city_name, match.get("median_rent"),
+                          telemetry.current_request_id()),
                     daemon=True,
                 ).start()
+        telemetry.event("cache_access", cache="rent_verification", city=city, locality=nid,
+                        cacheState="stale", refreshStarted=True)
         return {**cached[1], "refreshStatus": "refreshing"}
     if not refresh and cached and time.time() - cached[0] < _RENT_VERIFICATION_TTL:
         with _rent_refresh_lock:
             refreshing = key in _rent_refreshing
+        telemetry.event("cache_access", cache="rent_verification", city=city, locality=nid,
+                        cacheState="hit", refreshRunning=refreshing)
         return {**cached[1], **({"refreshStatus": "refreshing"} if refreshing else {})}
     failed = _rent_failure_cache.get(key)
     if failed and time.time() - failed[0] < _RENT_FAILURE_TTL:
+        telemetry.event("cache_access", cache="rent_verification", city=city, locality=nid,
+                        cacheState="failure_hit", fallbackUsed=True)
         return failed[1]
     with _rent_refresh_lock:
         if key not in _rent_refreshing:
             _rent_refreshing.add(key)
             threading.Thread(
                 target=_refresh_rent_in_background,
-                args=(key, match["name"], city_name, match.get("median_rent")),
+                args=(key, match["name"], city_name, match.get("median_rent"),
+                      telemetry.current_request_id()),
                 daemon=True,
             ).start()
+    telemetry.event("cache_access", cache="rent_verification", city=city, locality=nid,
+                    cacheState="miss", refreshStarted=True)
     return {
         "status": "pending",
         "refreshStatus": "refreshing",
@@ -629,8 +753,12 @@ def ask(req: AskRequest, request: Request):
     key = (city, req.neighborhoodId or "", (req.question or "").strip().lower())
     cached = _ask_cache.get(key)
     if cached and time.time() - cached[0] < _ASK_TTL:
+        telemetry.event("cache_access", cache="ask", city=city,
+                        locality=req.neighborhoodId, cacheState="hit")
         return cached[1]
 
+    telemetry.event("cache_access", cache="ask", city=city,
+                    locality=req.neighborhoodId, cacheState="miss")
     resp = _ask(city, req)
     if resp.get("answer"):
         _ask_cache[key] = (time.time(), resp)
@@ -649,7 +777,10 @@ def _ask(city: str, req: AskRequest) -> dict:
                 return {"answer": answer, "sql": sql, "rows": rows[:8],
                         "sources": ["BigQuery (NL→SQL)", "india_localities_latest view", "Gemini on Vertex AI"]}
         except Exception as e:  # noqa: BLE001
-            print(f"[ask] NL->SQL fallback: {e}")
+            telemetry.event(
+                "tool_fallback", tool="nl_to_sql", city=city, sourceType="bigquery",
+                fallbackUsed=True, errorType=type(e).__name__,
+            )
 
     feats = {f["id"]: f for f in rank(city, default_weights(city), None)}
     if req.neighborhoodId and req.neighborhoodId in feats:

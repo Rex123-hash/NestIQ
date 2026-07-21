@@ -19,6 +19,7 @@ from .fitscore import _minmax, _match
 from .air_quality import air_health_score, cpcb_band, critical_risks, air_relative_ranks, valid_aqi
 from .evidence import metric_evidence, _envelope
 from .india import get_city, INDIA_DEFAULT_WEIGHTS as INDIA_WEIGHTS
+from . import telemetry
 
 INDIA_KEYS = list(INDIA_WEIGHTS.keys())
 
@@ -92,7 +93,8 @@ def air_quality(lat: float, lng: float) -> dict:
         _last_good_aqi[key] = dict(result)
         return result
     except Exception as e:  # noqa: BLE001
-        print(f"[maps] air_quality unavailable: {e}")
+        telemetry.event("tool_fallback", tool="maps_air_quality", fallbackUsed=True,
+                        errorType=type(e).__name__)
         return _unavailable_or_stale(key)
 
 
@@ -125,7 +127,8 @@ def air_quality_history(lat: float, lng: float, hours: int = 24) -> list[dict]:
         out.reverse()  # oldest -> newest
         return out
     except Exception as e:  # noqa: BLE001
-        print(f"[maps] aqi_history fallback: {e}")
+        telemetry.event("tool_fallback", tool="maps_aqi_history", fallbackUsed=True,
+                        errorType=type(e).__name__)
         return []
 
 
@@ -150,7 +153,8 @@ def air_quality_forecast(lat: float, lng: float, hours: int = 24) -> list[dict]:
                 out.append({"label": dt[11:16], "aqi": aqi})
         return out
     except Exception as e:  # noqa: BLE001
-        print(f"[maps] aqi_forecast fallback: {e}")
+        telemetry.event("tool_fallback", tool="maps_aqi_forecast", fallbackUsed=True,
+                        errorType=type(e).__name__)
         return []
 
 
@@ -179,7 +183,8 @@ def _count_places(lat: float, lng: float, place_type: str) -> int | None:
             raise RuntimeError(payload["error"].get("message", "Places request failed"))
         return len(payload.get("places", []))
     except Exception as e:  # noqa: BLE001
-        print(f"[maps] _count_places {place_type} fallback: {e}")
+        telemetry.event("tool_fallback", tool="maps_count_places", placeType=place_type,
+                        fallbackUsed=True, errorType=type(e).__name__)
         return None
 
 
@@ -331,7 +336,8 @@ def _nearby_safety_places(lat: float, lng: float, place_type: str, radius: float
             "radiusKm": round(radius / 1000),
         }
     except Exception as e:  # noqa: BLE001
-        print(f"[maps] safety places {place_type} unavailable: {e}")
+        telemetry.event("tool_fallback", tool="maps_safety_places", placeType=place_type,
+                        fallbackUsed=True, errorType=type(e).__name__)
         return None
 
 
@@ -409,7 +415,8 @@ def locality_photo(query: str) -> str:
                 return photos[0]["name"]
         return ""
     except Exception as e:  # noqa: BLE001
-        print(f"[maps] locality_photo fallback: {e}")
+        telemetry.event("tool_fallback", tool="maps_locality_photo", fallbackUsed=True,
+                        errorType=type(e).__name__)
         return ""
 
 
@@ -431,7 +438,8 @@ def commute_minutes(o_lat: float, o_lng: float, d_lat: float, d_lng: float) -> i
         secs = el.get("duration_in_traffic", el.get("duration"))["value"]
         return round(secs / 60)
     except Exception as e:  # noqa: BLE001
-        print(f"[maps] commute fallback: {e}")
+        telemetry.event("tool_fallback", tool="maps_commute", fallbackUsed=True,
+                        errorType=type(e).__name__)
         return None
 
 

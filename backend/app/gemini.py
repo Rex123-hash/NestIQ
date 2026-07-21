@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .india import INDIA_DEFAULT_WEIGHTS as INDIA_DEFAULT
+from . import telemetry
 _client = None
 
 
@@ -112,7 +113,8 @@ def parse_query(text: str, budget: float | None = None) -> dict:
             final_budget = 30000
         return {"budget": final_budget, "weights": weights, "anchor": c.anchor}
     except Exception as e:  # noqa: BLE001
-        print(f"[gemini] parse_query fallback: {e}")
+        telemetry.event("tool_fallback", tool="gemini_parse_query", fallbackUsed=True,
+                        errorType=type(e).__name__)
         return {"budget": budget or 30000, "weights": dict(INDIA_DEFAULT), "anchor": ""}
 
 
@@ -132,7 +134,8 @@ def explain(name: str, subscores: dict, rent: int, note: str) -> str:
         resp = _generate(model=settings.gemini_model, contents=prompt)
         return (resp.text or "").strip()
     except Exception as e:  # noqa: BLE001
-        print(f"[gemini] explain fallback: {e}")
+        telemetry.event("tool_fallback", tool="gemini_explain", fallbackUsed=True,
+                        errorType=type(e).__name__)
         # Ignore pillars with no score (e.g. air quality when the reading is
         # unavailable) so the fallback never compares None with an int.
         valid = {k: v for k, v in subscores.items() if v is not None}
@@ -191,7 +194,8 @@ def ask(question: str, context: str) -> str:
         resp = _generate(model=settings.gemini_model, contents=prompt)
         return (resp.text or "").strip()
     except Exception as e:  # noqa: BLE001
-        print(f"[gemini] ask fallback: {e}")
+        telemetry.event("tool_fallback", tool="gemini_ask", fallbackUsed=True,
+                        errorType=type(e).__name__)
         return "I couldn't reach the assistant just now. Explore the locality's scores and AQI on its detail page."
 
 
@@ -240,7 +244,8 @@ def web_reviews(name: str, city: str) -> dict:
             "status": "available" if summary else "no_evidence",
         }
     except Exception as e:  # noqa: BLE001
-        print(f"[gemini] web_reviews fallback: {e}")
+        telemetry.event("tool_fallback", tool="gemini_web_reviews", fallbackUsed=True,
+                        errorType=type(e).__name__)
         message = str(e).lower()
         if "permission_denied" in message or "403" in message or "aiplatform.endpoints.predict" in message:
             code = "vertex_permission_denied"
@@ -355,7 +360,8 @@ def locality_pulse(name: str, city: str) -> dict:
         items = analyze_pulse_items(raw, citations)
         return {"status": "available" if items else "no_evidence", "items": items, "citations": citations}
     except Exception as e:  # noqa: BLE001
-        print(f"[gemini] locality_pulse fallback: {e}")
+        telemetry.event("tool_fallback", tool="gemini_locality_pulse", fallbackUsed=True,
+                        errorType=type(e).__name__)
         return {"status": "temporarily_unavailable", "items": [], "citations": [], "errorCode": "grounding_unavailable"}
 
 
@@ -632,7 +638,8 @@ def verify_rent(name: str, city: str) -> dict:
         raw = parsed.model_dump() if hasattr(parsed, "model_dump") else _json_object(extracted.text)
         return analyze_rent_observations(raw, citations)
     except Exception as e:  # noqa: BLE001
-        print(f"[gemini] verify_rent fallback: {e}")
+        telemetry.event("tool_fallback", tool="gemini_verify_rent", fallbackUsed=True,
+                        errorType=type(e).__name__)
         message = str(e).lower()
         if "permission_denied" in message or "403" in message or "aiplatform.endpoints.predict" in message:
             code = "vertex_permission_denied"

@@ -8,6 +8,7 @@ feature flag for rollback.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from typing import Any, Callable, AsyncGenerator
 
@@ -18,7 +19,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from . import civic_rag
+from . import civic_rag, telemetry
 
 
 def _event(author: str, kind: str, payload: dict[str, Any]) -> Event:
@@ -37,10 +38,23 @@ class _ToolAgent(BaseAgent):
         self._display_name = display_name
 
     async def _run_async_impl(self, ctx) -> AsyncGenerator[Event, None]:
+        started = time.perf_counter()
+        telemetry.event("agent_tool_started", agent=self.name, tool=self._tool_name)
         yield _event(self.name, "agent", {"id": self.name, "name": self._display_name, "status": "running",
                                            "msg": f"{self._tool_name} tool running"})
-        result = self._run_tool(ctx.session.state)
+        try:
+            result = self._run_tool(ctx.session.state)
+        except Exception as error:  # noqa: BLE001
+            telemetry.event(
+                "agent_tool_failed", agent=self.name, tool=self._tool_name,
+                latencyMs=telemetry.elapsed_ms(started), errorType=type(error).__name__,
+            )
+            raise
         ctx.session.state[f"{self.name}_result"] = result
+        telemetry.event(
+            "agent_tool_completed", agent=self.name, tool=self._tool_name,
+            latencyMs=telemetry.elapsed_ms(started),
+        )
         yield _event(self.name, "agent", {"id": self.name, "name": self._display_name, "status": "done",
                                            "msg": result.get("message", f"{self._tool_name} tool completed")})
 
@@ -111,9 +125,11 @@ class _NestIQCoordinator(BaseAgent):
         return {"message": f"Retrieved {len(docs)} scoped civic document(s); citations preserved"}
 
     async def _run_async_impl(self, ctx) -> AsyncGenerator[Event, None]:
+        started = time.perf_counter()
         parsed = self._parse_query(self._query, None)
         ctx.session.state["preferences"] = parsed
         top = ", ".join(k.replace("_", " ") for k, value in sorted(parsed["weights"].items(), key=lambda item: -item[1]) if value >= 40)
+        telemetry.event("agent_plan_selected", agent=self.name, city=self._city, priorityCount=len(top.split(", ")) if top else 0)
         yield _event(self.name, "agent", {"id": "planner", "name": "NestIQ Planner", "status": "done",
                                            "msg": f"Selected tools for {top or 'balanced priorities'}"})
         # ADK executes each specialist as a real agent; the tools themselves remain deterministic.
@@ -142,6 +158,11 @@ class _NestIQCoordinator(BaseAgent):
             vmsg = f"Validator: no contradictions; {provisional} result(s) marked provisional for missing signals"
         else:
             vmsg = "Validator found no contradictions"
+        telemetry.event(
+            "agent_validation_completed", agent="validator_agent", city=self._city,
+            validatorResult="failed" if contradictions else "passed",
+            contradictionCount=len(contradictions), provisionalCount=provisional,
+        )
         yield _event("validator_agent", "agent", {"id": "validator", "name": "Validator Agent", "status": "done",
                                                    "msg": vmsg, "contradictions": contradictions})
         # Explainer: a deterministic summary drawn only from validated structured
@@ -155,6 +176,11 @@ class _NestIQCoordinator(BaseAgent):
         else:
             emsg = "No localities to rank"
         yield _event("explainer", "agent", {"id": "explainer", "name": "Explainer", "status": "done", "msg": emsg})
+        telemetry.event(
+            "agent_run_completed", agent=self.name, city=self._city,
+            resultCount=len(results), latencyMs=telemetry.elapsed_ms(started),
+            usageAvailable=False,
+        )
         yield _event(self.name, "final", {"preferences": parsed, "results": results, "city": self._city})
 
 

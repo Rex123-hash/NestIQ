@@ -19,6 +19,7 @@ from google.cloud import bigquery
 from .bq import client
 from .config import settings
 from .sql_guard import validate_analytics_sql, SqlGuardError, MAX_ROWS
+from . import telemetry
 
 LOCALITIES = "india_localities"
 LOCALITIES_LATEST = "india_localities_latest"
@@ -120,7 +121,8 @@ def log_localities(city: str, ranked: list[dict]) -> int:
         })
     errors = client().insert_rows_json(_ref(LOCALITIES), rows)
     if errors:
-        print(f"[bq_india] log_localities errors: {errors[:2]}")
+        telemetry.event("tool_failed", tool="bigquery_log_localities", errorType="InsertError",
+                        errorCount=len(errors))
         return 0
     return len(rows)
 
@@ -142,7 +144,8 @@ def append_aqi_history(city: str, locality: dict, series: list[dict]) -> int:
         return 0
     errors = client().insert_rows_json(_ref(AQI_HISTORY), rows)
     if errors:
-        print(f"[bq_india] append_aqi_history errors: {errors[:2]}")
+        telemetry.event("tool_failed", tool="bigquery_append_aqi_history", errorType="InsertError",
+                        errorCount=len(errors))
         return 0
     return len(rows)
 
@@ -172,7 +175,8 @@ def ensure_ready() -> None:
         ensure_tables()
         _ready = True
     except Exception as e:  # noqa: BLE001
-        print(f"[bq_india] ensure_ready skipped: {e}")
+        telemetry.event("tool_fallback", tool="bigquery_ensure_ready", fallbackUsed=True,
+                        errorType=type(e).__name__)
 
 
 def log_snapshot_safe(city: str, ranked: list[dict]) -> None:
@@ -182,7 +186,8 @@ def log_snapshot_safe(city: str, ranked: list[dict]) -> None:
             ensure_ready()
             log_localities(city, ranked)
         except Exception as e:  # noqa: BLE001
-            print(f"[bq_india] log_snapshot_safe skipped: {e}")
+            telemetry.event("tool_fallback", tool="bigquery_log_snapshot", fallbackUsed=True,
+                            errorType=type(e).__name__)
 
     threading.Thread(target=work, daemon=True).start()
 
@@ -206,7 +211,8 @@ def aqi_forecast_bqml(locality_id: str, horizon: int = 24) -> list[dict]:
         ).result()
         return [dict(r) for r in rows]
     except Exception as e:  # noqa: BLE001
-        print(f"[bq_india] aqi_forecast_bqml unavailable: {e}")
+        telemetry.event("tool_fallback", tool="bigquery_aqi_forecast", fallbackUsed=True,
+                        errorType=type(e).__name__)
         return []
 
 
