@@ -10,7 +10,17 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import gemini, maps, bq_india, main  # noqa: E402
+from app import gemini, maps, bq_india, main, pulse_store  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def isolated_pulse_store(monkeypatch):
+    """Every test gets an offline store; no test can reach real Firestore."""
+    store = pulse_store.InMemoryPulseStore(
+        ttl_seconds=main._PULSE_TTL, lease_seconds=main._PULSE_DEADLINE,
+        failure_ttl_seconds=main._PULSE_FAILURE_TTL)
+    monkeypatch.setattr(main, "_pulse_store", store)
+    return store
 
 
 def fake_features():

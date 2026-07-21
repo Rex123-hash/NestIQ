@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import bq, gemini, maps, bq_india, civic_rag, copilot, image_analysis, rate_limit, telemetry, transcription
+from . import bq, gemini, maps, bq_india, civic_rag, copilot, image_analysis, pulse_store, rate_limit, telemetry, transcription
 from .config import settings
 from .fitscore import score_neighborhoods, DEFAULT_WEIGHTS
 from .india import city_list, get_city
@@ -123,15 +123,12 @@ REVIEWS_UNAVAILABLE = {
     "citations": [],
     "limitation": "Verified community sources could not be reached just now.",
 }
-_PULSE_TTL = 21600
-_pulse_cache: dict[tuple[str, str], tuple[float, dict]] = {}
-_pulse_refreshing: set[tuple[str, str]] = set()
-_pulse_refresh_lock = threading.Lock()
-# A failed grounding attempt is remembered briefly so the UI can show an honest
-# "temporarily unavailable" instead of a skeleton that loads forever. Short TTL so a
-# transient failure still retries soon. Mirrors _rent_failure_cache.
-_pulse_failure_cache: dict[tuple[str, str], tuple[float, dict]] = {}
-_PULSE_FAILURE_TTL = 60
+_PULSE_TTL = settings.pulse_ttl_seconds
+_PULSE_FAILURE_TTL = settings.pulse_failure_ttl_seconds
+_PULSE_DEADLINE = settings.pulse_job_deadline_seconds
+# Tests replace this with InMemoryPulseStore. Production resolves the official
+# Firestore client lazily so importing the app never performs network I/O.
+_pulse_store: pulse_store.PulseStore | None = None
 
 PULSE_UNAVAILABLE = {
     "status": "temporarily_unavailable",
@@ -142,12 +139,11 @@ PULSE_UNAVAILABLE = {
 }
 
 
-def _fresh_pulse_failure(key: tuple[str, str]) -> dict | None:
-    """The recorded failure for this key, if it is still within the retry window."""
-    failed = _pulse_failure_cache.get(key)
-    if failed and time.time() - failed[0] < _PULSE_FAILURE_TTL:
-        return failed[1]
-    return None
+def _get_pulse_store() -> pulse_store.PulseStore:
+    return _pulse_store or pulse_store.production_store(
+        settings.gcp_project, settings.firestore_database, ttl_seconds=_PULSE_TTL,
+        lease_seconds=_PULSE_DEADLINE, failure_ttl_seconds=_PULSE_FAILURE_TTL,
+    )
 
 
 def _fresh_reviews_failure(key: tuple[str, str]) -> dict | None:
@@ -192,42 +188,120 @@ def _refresh_reviews_in_background(key: tuple[str, str], name: str, city_name: s
             _reviews_refreshing.discard(key)
 
 
-def _refresh_pulse_in_background(key: tuple[str, str], name: str, city_name: str,
+def _pulse_failure_category(data: dict) -> str:
+    code = str(data.get("errorCode") or "")
+    if "timeout" in code:
+        return "timeout"
+    return "grounding_unavailable" if code else "unusable_grounding"
+
+
+def _refresh_pulse_in_background(store: pulse_store.PulseStore, key: tuple[str, str],
+                                 job_id: str, name: str, city_name: str,
                                  request_id: str | None = None) -> None:
     started = time.perf_counter()
-    telemetry.event("evidence_job_started", request_id=request_id, evidenceType="locality_pulse",
-                    city=key[0], locality=key[1], cacheState="miss")
+    deadline = threading.Timer(
+        _PULSE_DEADLINE,
+        lambda: _expire_pulse_job(store, key, job_id, request_id, started),
+    )
+    deadline.daemon = True
+    deadline.start()
     try:
         data = gemini.locality_pulse(name, city_name)
         if data.get("status") in {"available", "no_evidence"}:
-            _pulse_cache[key] = (time.time(), data)
-            _pulse_failure_cache.pop(key, None)  # a success clears the failure
-            telemetry.event(
-                "evidence_job_completed", request_id=request_id, evidenceType="locality_pulse",
-                city=key[0], locality=key[1], status=data.get("status"), fallbackUsed=False,
-                sourceType="grounded_web", retrievalCount=len(data.get("citations", [])),
-                validatorResult="passed", latencyMs=telemetry.elapsed_ms(started),
-            )
+            validator = "passed" if data.get("status") == "available" else "no_qualifying_evidence"
+            written = store.complete(key[0], key[1], job_id, data, validator)
+            event_name = "pulse_job_completed" if written else "pulse_late_result_discarded"
+            telemetry.event(event_name, request_id=request_id, city=key[0], locality=key[1],
+                            jobId=job_id, status=data.get("status"), validatorResult=validator,
+                            retrievalCount=len(data.get("citations", [])),
+                            latencyMs=telemetry.elapsed_ms(started))
         else:
-            # Grounding ran but produced nothing usable: record it so the caller stops
-            # being told "pending" forever.
-            _pulse_failure_cache[key] = (time.time(), dict(PULSE_UNAVAILABLE))
-            telemetry.event(
-                "evidence_job_completed", request_id=request_id, evidenceType="locality_pulse",
-                city=key[0], locality=key[1], status="temporarily_unavailable", fallbackUsed=True,
-                sourceType="grounded_web", retrievalCount=0, validatorResult="no_usable_evidence",
-                latencyMs=telemetry.elapsed_ms(started),
-            )
+            category = _pulse_failure_category(data)
+            written = store.fail(key[0], key[1], job_id, category, "failed")
+            telemetry.event("pulse_job_failed" if written else "pulse_late_result_discarded",
+                            request_id=request_id, city=key[0], locality=key[1], jobId=job_id,
+                            status="temporarily_unavailable", errorType=category,
+                            validatorResult="failed", latencyMs=telemetry.elapsed_ms(started))
     except Exception as error:  # noqa: BLE001
-        _pulse_failure_cache[key] = (time.time(), dict(PULSE_UNAVAILABLE))
-        telemetry.event(
-            "evidence_job_failed", request_id=request_id, evidenceType="locality_pulse",
-            city=key[0], locality=key[1], errorType=type(error).__name__, fallbackUsed=True,
-            validatorResult="failed", latencyMs=telemetry.elapsed_ms(started),
-        )
+        category = "timeout" if "timeout" in type(error).__name__.lower() else "service_error"
+        try:
+            written = store.fail(key[0], key[1], job_id, category, "failed")
+        except Exception as store_error:  # noqa: BLE001
+            telemetry.event("pulse_store_write_failed", request_id=request_id, city=key[0], locality=key[1],
+                            jobId=job_id, errorType=type(store_error).__name__)
+            return
+        telemetry.event("pulse_job_failed" if written else "pulse_late_result_discarded",
+                        request_id=request_id, city=key[0], locality=key[1], jobId=job_id,
+                        errorType=type(error).__name__, validatorResult="failed",
+                        latencyMs=telemetry.elapsed_ms(started))
     finally:
-        with _pulse_refresh_lock:
-            _pulse_refreshing.discard(key)
+        deadline.cancel()
+
+
+def _expire_pulse_job(store: pulse_store.PulseStore, key: tuple[str, str], job_id: str,
+                      request_id: str | None, started: float) -> None:
+    try:
+        written = store.fail(key[0], key[1], job_id, "timeout", "deadline_exceeded")
+        telemetry.event("pulse_job_timed_out" if written else "pulse_late_result_discarded",
+                        request_id=request_id, city=key[0], locality=key[1], jobId=job_id,
+                        status="temporarily_unavailable", validatorResult="deadline_exceeded",
+                        latencyMs=telemetry.elapsed_ms(started))
+    except Exception as error:  # noqa: BLE001
+        telemetry.event("pulse_store_write_failed", request_id=request_id, city=key[0], locality=key[1],
+                        jobId=job_id, errorType=type(error).__name__)
+
+
+def _pulse_response(doc: dict) -> dict:
+    """Map internal coordination fields to the backward-compatible public shape."""
+    status = doc.get("status")
+    stale_items = bool(doc.get("items")) and doc.get("lastSuccessAt") is not None
+    base = {
+        "status": status,
+        "items": list(doc.get("items") or []),
+        "citations": list(doc.get("citations") or []),
+    }
+    if doc.get("limitation"):
+        base["limitation"] = doc["limitation"]
+    if stale_items and status in {"pending", "temporarily_unavailable"}:
+        base["status"] = "available"
+        base["cacheStatus"] = "stale"
+        base["refreshStatus"] = "refreshing" if status == "pending" else "failed"
+        if status == "temporarily_unavailable":
+            base["limitation"] = "Showing previously verified civic evidence because the latest refresh did not complete."
+        return base
+    if status == "pending":
+        base["refreshStatus"] = "refreshing"
+        base["limitation"] = "Verified civic sources are being checked in the background."
+    return base
+
+
+def _serve_pulse(key: tuple[str, str], name: str, city_name: str, refresh: bool,
+                 cache_name: str) -> dict:
+    try:
+        store = _get_pulse_store()
+        claim = store.claim(key[0], key[1], force=refresh)
+    except Exception as error:  # noqa: BLE001
+        telemetry.event("pulse_store_read_failed", city=key[0], locality=key[1],
+                        errorType=type(error).__name__)
+        return dict(PULSE_UNAVAILABLE)
+    if claim.launch and claim.job_id:
+        telemetry.event("pulse_lease_reclaimed" if claim.reclaimed else "pulse_job_claimed",
+                        city=key[0], locality=key[1], jobId=claim.job_id,
+                        status="pending", attemptCount=claim.document.get("attemptCount"))
+        threading.Thread(
+            target=_refresh_pulse_in_background,
+            args=(store, key, claim.job_id, name, city_name, telemetry.current_request_id()),
+            daemon=True,
+        ).start()
+    else:
+        event_name = "pulse_job_deduplicated" if claim.document.get("status") == "pending" else "pulse_shared_cache_hit"
+        telemetry.event(event_name, cache=cache_name, city=key[0], locality=key[1],
+                        jobId=claim.document.get("jobId"), status=claim.document.get("status"))
+    response = _pulse_response(claim.document)
+    if response.get("cacheStatus") == "stale":
+        telemetry.event("pulse_stale_evidence_served", cache=cache_name, city=key[0], locality=key[1],
+                        jobId=claim.document.get("jobId"), status=response.get("status"))
+    return response
 
 # Rent verification is intentionally on-demand: a judge/user asks for fresh
 # evidence, then the grounded result is reused for 24 hours. Empty or failed
@@ -573,40 +647,9 @@ def neighborhood_pulse(nid: str, city: str = DEFAULT_CITY, refresh: bool = False
     match = next((r for r in ranked if r["id"] == nid), None)
     if not match:
         raise HTTPException(404, "neighborhood not found")
-    key = (city, nid)
-    cached = _pulse_cache.get(key)
-    if not refresh and cached and time.time() - cached[0] < _PULSE_TTL:
-        with _pulse_refresh_lock:
-            refreshing = key in _pulse_refreshing
-        telemetry.event("cache_access", cache="locality_pulse", city=city, locality=nid,
-                        cacheState="hit", refreshRunning=refreshing)
-        return {**cached[1], **({"refreshStatus": "refreshing"} if refreshing else {})}
-    # A recent failed attempt: tell the truth instead of loading forever. Retries
-    # resume automatically once _PULSE_FAILURE_TTL expires.
-    if not refresh and not cached:
-        failed = _fresh_pulse_failure(key)
-        if failed:
-            telemetry.event("cache_access", cache="locality_pulse", city=city, locality=nid,
-                            cacheState="failure_hit", fallbackUsed=True)
-            return dict(failed)
     city_obj = get_city(city)
-    with _pulse_refresh_lock:
-        if key not in _pulse_refreshing:
-            _pulse_refreshing.add(key)
-            threading.Thread(
-                target=_refresh_pulse_in_background,
-                args=(key, match["name"], city_obj["name"] if city_obj else city,
-                      telemetry.current_request_id()),
-                daemon=True,
-            ).start()
-    telemetry.event("cache_access", cache="locality_pulse", city=city, locality=nid,
-                    cacheState="stale" if cached else "miss", refreshStarted=True)
-    if cached:
-        return {**cached[1], "refreshStatus": "refreshing"}
-    return {
-        "status": "pending", "items": [], "citations": [], "refreshStatus": "refreshing",
-        "limitation": "Verified civic sources are being checked in the background.",
-    }
+    return _serve_pulse((city, nid), match["name"], city_obj["name"] if city_obj else city,
+                        refresh, "locality_pulse")
 
 
 @app.get("/api/city/{city}/pulse")
@@ -621,36 +664,7 @@ def city_pulse(city: str, refresh: bool = False):
     if not city_obj:
         raise HTTPException(404, "city not found")
     city_name = city_obj["name"]
-    key = (city, "__city__")
-    cached = _pulse_cache.get(key)
-    if not refresh and cached and time.time() - cached[0] < _PULSE_TTL:
-        with _pulse_refresh_lock:
-            refreshing = key in _pulse_refreshing
-        telemetry.event("cache_access", cache="city_pulse", city=city, locality="__city__",
-                        cacheState="hit", refreshRunning=refreshing)
-        return {**cached[1], **({"refreshStatus": "refreshing"} if refreshing else {})}
-    if not refresh and not cached:
-        failed = _fresh_pulse_failure(key)
-        if failed:
-            telemetry.event("cache_access", cache="city_pulse", city=city, locality="__city__",
-                            cacheState="failure_hit", fallbackUsed=True)
-            return dict(failed)
-    with _pulse_refresh_lock:
-        if key not in _pulse_refreshing:
-            _pulse_refreshing.add(key)
-            threading.Thread(
-                target=_refresh_pulse_in_background,
-                args=(key, city_name, city_name, telemetry.current_request_id()),
-                daemon=True,
-            ).start()
-    telemetry.event("cache_access", cache="city_pulse", city=city, locality="__city__",
-                    cacheState="stale" if cached else "miss", refreshStarted=True)
-    if cached:
-        return {**cached[1], "refreshStatus": "refreshing"}
-    return {
-        "status": "pending", "items": [], "citations": [], "refreshStatus": "refreshing",
-        "limitation": "Verified civic sources are being checked in the background.",
-    }
+    return _serve_pulse((city, "__city__"), city_name, city_name, refresh, "city_pulse")
 
 
 @app.get("/api/neighborhood/{nid}/civic-knowledge")

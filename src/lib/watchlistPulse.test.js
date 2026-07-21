@@ -5,8 +5,8 @@
 // user "No important civic alerts ... This is different from a source failure" even when
 // the source had in fact failed. Confident claims must require positive evidence;
 // anything unknown must degrade to "temporarily unavailable".
-import { describe, it, expect } from 'vitest'
-import { aggregateWatchlistPulse, runPulseQueue } from './watchlistPulse.js'
+import { describe, it, expect, vi } from 'vitest'
+import { aggregateWatchlistPulse, pollPulse, runPulseQueue } from './watchlistPulse.js'
 
 const loc = (name) => ({ name })
 const item = (severity) => ({ severity, headline: 'x' })
@@ -102,5 +102,47 @@ describe('runPulseQueue', () => {
     }, 2)
     expect(peak).toBe(2)
     expect(results.map(({ n }) => n.name)).toEqual(['A', 'B', 'C', 'D', 'E'])
+  })
+})
+
+describe('pollPulse', () => {
+  const noWait = async () => {}
+
+  it('publishes pending then available and stops', async () => {
+    const seen = []
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ status: 'pending', items: [] })
+      .mockResolvedValueOnce({ status: 'available', items: [{ headline: 'x' }] })
+    const result = await pollPulse(fetch, { delay: noWait, onUpdate: (x) => seen.push(x.status) })
+    expect(result.status).toBe('available')
+    expect(seen).toEqual(['pending', 'available'])
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['no_evidence', 'temporarily_unavailable'])('stops immediately on %s', async (status) => {
+    const fetch = vi.fn().mockResolvedValue({ status, items: [] })
+    expect((await pollPulse(fetch, { delay: noWait })).status).toBe(status)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns a truthful client-only timeout at the bounded deadline', async () => {
+    let elapsed = 0
+    const result = await pollPulse(async () => ({ status: 'pending', items: [] }), {
+      deadline: 12, interval: 4, now: () => elapsed,
+      delay: async (_signal, ms) => { elapsed += ms },
+    })
+    expect(result.status).toBe('client_wait_expired')
+  })
+
+  it('sends refresh only on the first request and honours cancellation', async () => {
+    const controller = new AbortController()
+    const flags = []
+    const result = await pollPulse(async (refresh) => {
+      flags.push(refresh)
+      controller.abort()
+      return { status: 'pending' }
+    }, { signal: controller.signal, refresh: true, delay: noWait })
+    expect(flags).toEqual([true])
+    expect(result.status).toBe('client_wait_expired')
   })
 })

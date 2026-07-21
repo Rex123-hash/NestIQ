@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 google-cloud-bigquery
+google-cloud-firestore>=2.19,<3
 google-cloud-speech>=2.33,<3
 google-genai
 google-adk

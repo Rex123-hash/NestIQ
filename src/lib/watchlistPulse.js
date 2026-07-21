@@ -11,6 +11,37 @@
 
 const SEVERE = new Set(['moderate', 'high'])
 
+export const PULSE_POLL_INTERVAL = 4000
+// Slightly outlast the server's 70-second job lease so a completion near the
+// boundary receives one final poll instead of being mislabeled as a client wait expiry.
+export const PULSE_POLL_DEADLINE = 74000
+export const PULSE_WAIT_EXPIRED = { status: 'client_wait_expired', items: [] }
+
+const defaultDelay = (signal, milliseconds) => new Promise((resolve) => {
+  if (signal?.aborted) return resolve()
+  const timer = setTimeout(resolve, milliseconds)
+  signal?.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+})
+
+// One explicit bounded polling policy shared by city and locality Pulse.
+export async function pollPulse(fetchPulse, {
+  signal, refresh = false, onUpdate = () => {}, interval = PULSE_POLL_INTERVAL,
+  deadline = PULSE_POLL_DEADLINE, now = Date.now, delay = defaultDelay,
+} = {}) {
+  const started = now()
+  let first = true
+  while (!signal?.aborted) {
+    const data = await fetchPulse(refresh && first)
+    first = false
+    if (signal?.aborted) return PULSE_WAIT_EXPIRED
+    onUpdate(data)
+    if (data?.status !== 'pending') return data
+    if (now() - started >= deadline) return PULSE_WAIT_EXPIRED
+    await delay(signal, interval)
+  }
+  return PULSE_WAIT_EXPIRED
+}
+
 // Run expensive locality jobs with a small worker pool. Each worker keeps its
 // slot until that locality reaches a terminal state, so a fast `pending`
 // response cannot accidentally start every Gemini job at once.
@@ -41,7 +72,7 @@ export function aggregateWatchlistPulse(results) {
     const status = p?.status
     if (status === 'pending') {
       anyPending = true
-    } else if (status === 'temporarily_unavailable') {
+    } else if (status === 'temporarily_unavailable' || status === 'client_wait_expired') {
       anyUnavailable = true
     } else if (status === 'available') {
       anyConfirmed = true

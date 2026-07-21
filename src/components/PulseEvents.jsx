@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MapPin, Clock3, ExternalLink } from 'lucide-react'
 
 // Shared renderer for grounded civic Pulse events. Used by the Community
@@ -63,6 +63,12 @@ export default function PulseEvents({
   emptyLabel = 'No verified civic updates from the last 30 days were found. This is different from a source failure.',
 }) {
   const [cat, setCat] = useState('all')
+  const [retrying, setRetrying] = useState(false)
+  const previousStatus = useRef(pulse?.status)
+  useEffect(() => {
+    if (previousStatus.current === 'pending' && pulse?.status !== 'pending') setRetrying(false)
+    previousStatus.current = pulse?.status
+  }, [pulse?.status])
 
   if (!pulse || pulse.status === 'pending') {
     return (
@@ -72,13 +78,16 @@ export default function PulseEvents({
       </div>
     )
   }
-  if (pulse.status === 'temporarily_unavailable') {
+  if (pulse.status === 'temporarily_unavailable' || pulse.status === 'client_wait_expired') {
+    const waitExpired = pulse.status === 'client_wait_expired'
     return (
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
-        <p className="text-sm text-amber-800">Recent civic evidence is temporarily unavailable. This does not mean nothing is happening.</p>
+        <p className="text-sm text-amber-800">{waitExpired
+          ? 'This browser stopped waiting, but the server may still be checking verified sources.'
+          : 'Recent civic evidence is temporarily unavailable. This does not mean nothing is happening.'}</p>
         {onRetry && (
-          <button type="button" onClick={onRetry} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800">
-            Try again
+          <button type="button" disabled={retrying} onClick={() => { if (!retrying) { setRetrying(true); onRetry() } }} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 disabled:opacity-60">
+            {retrying ? 'Retrying…' : 'Try again'}
           </button>
         )}
       </div>
@@ -95,6 +104,18 @@ export default function PulseEvents({
 
   return (
     <div>
+      {pulse.cacheStatus === 'stale' && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <p>{pulse.refreshStatus === 'failed'
+            ? 'Showing previously verified evidence; the latest refresh was unavailable.'
+            : 'Showing previously verified evidence while newer sources are checked.'}</p>
+          {pulse.refreshStatus === 'failed' && onRetry && (
+            <button type="button" disabled={retrying} onClick={() => { if (!retrying) { setRetrying(true); onRetry() } }} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-800 disabled:opacity-60">
+              {retrying ? 'Refreshing…' : 'Try refresh again'}
+            </button>
+          )}
+        </div>
+      )}
       {categories && cats.length > 1 && (
         <div className="mb-3 flex flex-wrap gap-2">
           {['all', ...cats].map((c) => (

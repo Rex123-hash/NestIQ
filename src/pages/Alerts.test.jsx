@@ -30,7 +30,9 @@ describe('Alerts preloading', () => {
   it('starts City Pulse before the user opens its view', async () => {
     apiCityPulse.mockResolvedValue({ status: 'pending', items: [] })
     render(<MemoryRouter><Alerts /></MemoryRouter>)
-    await waitFor(() => expect(apiCityPulse).toHaveBeenCalledWith('delhi-ncr', false))
+    await waitFor(() => expect(apiCityPulse).toHaveBeenCalledWith(
+      'delhi-ncr', false, expect.any(AbortSignal),
+    ))
     fireEvent.click(screen.getByRole('button', { name: /city pulse/i }))
     expect(screen.getByText(/preparing verified civic evidence/i)).toBeTruthy()
   })

@@ -54,8 +54,11 @@ async function jpost(path, body) {
   return r.json()
 }
 
-async function timedJson(base, path, timeout = EVIDENCE_TIMEOUT) {
+async function timedJson(base, path, timeout = EVIDENCE_TIMEOUT, externalSignal) {
   const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (externalSignal?.aborted) controller.abort()
+  else externalSignal?.addEventListener('abort', abort, { once: true })
   const timer = setTimeout(() => controller.abort(), timeout)
   try {
     const response = await fetch(base + path, { signal: controller.signal })
@@ -67,6 +70,7 @@ async function timedJson(base, path, timeout = EVIDENCE_TIMEOUT) {
     return await response.json()
   } finally {
     clearTimeout(timer)
+    externalSignal?.removeEventListener('abort', abort)
   }
 }
 
@@ -171,10 +175,10 @@ export async function apiReviews(id, city, refresh = false) {
   }
 }
 
-export async function apiLocalityPulse(id, city, refresh = false) {
+export async function apiLocalityPulse(id, city, refresh = false, signal) {
   try {
     const path = `/api/neighborhood/${id}/pulse?city=${encodeURIComponent(city)}${refresh ? '&refresh=true' : ''}`
-    return await timedJson(REVIEWS_BASE, path)
+    return await timedJson(REVIEWS_BASE, path, EVIDENCE_TIMEOUT, signal)
   } catch (e) {
     console.warn('[api] locality pulse unavailable:', e.message)
     return { status: 'temporarily_unavailable', items: [], citations: [] }
@@ -198,10 +202,10 @@ export async function apiEssentials(id, city) {
 
 // City-wide grounded pulse for the Alerts City Pulse view. Reuses the same
 // backend pulse pipeline as apiLocalityPulse, scoped to the whole city.
-export async function apiCityPulse(city, refresh = false) {
+export async function apiCityPulse(city, refresh = false, signal) {
   try {
     const path = `/api/city/${encodeURIComponent(city)}/pulse${refresh ? '?refresh=true' : ''}`
-    return await timedJson(REVIEWS_BASE, path)
+    return await timedJson(REVIEWS_BASE, path, EVIDENCE_TIMEOUT, signal)
   } catch (e) {
     console.warn('[api] city pulse unavailable:', e.message)
     return { status: 'temporarily_unavailable', items: [], citations: [] }

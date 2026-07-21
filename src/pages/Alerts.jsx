@@ -7,7 +7,7 @@ import { adaptList } from '../lib/adapt.js'
 import { useCity } from '../lib/cityStore.jsx'
 import CityPicker from '../components/layout/CityPicker.jsx'
 import PulseEvents from '../components/PulseEvents.jsx'
-import { aggregateWatchlistPulse, runPulseQueue } from '../lib/watchlistPulse.js'
+import { aggregateWatchlistPulse, pollPulse, runPulseQueue } from '../lib/watchlistPulse.js'
 
 // Re-fetch current live data for every city the user has saved from, and merge
 // the fresh air-quality/rent/commute onto the saved snapshots — so "Live" is
@@ -63,45 +63,23 @@ function useLiveSaved() {
   return [saved, isLive]
 }
 
-// Grounded civic search on a cold cache typically takes 20-60s. The old budget here was
-// 5 x 4s = 20s, which usually expired mid-search and left an endless grey skeleton (the
-// locality detail page already allowed 30 attempts). Poll for ~60s, then stop and say so.
-const PULSE_POLL_ATTEMPTS = 30
-const PULSE_POLL_INTERVAL = 4000
-
-// Never end a wait on a silent skeleton: if the source is still working when the budget
-// runs out, surface the honest unavailable state, which carries a Try again action and
-// explicitly does not claim that nothing is happening.
-const PULSE_GAVE_UP = { status: 'temporarily_unavailable', items: [] }
-
 // Grounded pulse for the whole selected city. Polls while the background source
 // check is still running, so a "pending" resolves to real evidence.
 function useCityPulse(city) {
   const [pulse, setPulse] = useState(null)
   const [tick, setTick] = useState(0)
   useEffect(() => {
-    let alive = true
-    let timer
-    let attempts = 0
+    const controller = new AbortController()
     setPulse(null)
     async function run() {
-      const data = await apiCityPulse(city, tick > 0 && attempts === 0)
-      if (!alive) return
-      setPulse(data)
-      if (data?.status === 'pending') {
-        if (attempts < PULSE_POLL_ATTEMPTS) {
-          attempts += 1
-          timer = setTimeout(run, PULSE_POLL_INTERVAL)
-        } else {
-          setPulse({ ...PULSE_GAVE_UP })
-        }
-      }
+      const data = await pollPulse(
+        (refresh) => apiCityPulse(city, refresh, controller.signal),
+        { signal: controller.signal, refresh: tick > 0, onUpdate: setPulse },
+      )
+      if (!controller.signal.aborted) setPulse(data)
     }
     run()
-    return () => {
-      alive = false
-      clearTimeout(timer)
-    }
+    return () => controller.abort()
   }, [city, tick])
   return [pulse, () => setTick((t) => t + 1)]
 }
@@ -118,30 +96,27 @@ function useWatchlistEvents(saved) {
       setPulse({ status: 'no_evidence', items: [] })
       return
     }
-    let alive = true
+    const controller = new AbortController()
     const current = new Map(saved.map((n) => [`${n.city}:${n.id}`, { n, p: { status: 'pending', items: [] } }]))
     setPulse({ status: 'pending', items: [] })
     const publish = () => {
-      if (!alive) return
+      if (controller.signal.aborted) return
       setPulse(aggregateWatchlistPulse([...current.values()]))
     }
     const fetchUntilTerminal = async (n) => {
-      let data = null
-      for (let attempt = 0; attempt <= PULSE_POLL_ATTEMPTS && alive; attempt += 1) {
-        data = await apiLocalityPulse(n.id, n.city, tick > 0 && attempt === 0)
+      return pollPulse(
+        (refresh) => apiLocalityPulse(n.id, n.city, refresh, controller.signal),
+        { signal: controller.signal, refresh: tick > 0, onUpdate: (data) => {
+          if (controller.signal.aborted) return
         current.set(`${n.city}:${n.id}`, { n, p: data })
         publish()
-        if (data?.status !== 'pending') return data
-        await new Promise((resolve) => setTimeout(resolve, PULSE_POLL_INTERVAL))
-      }
-      return { ...PULSE_GAVE_UP }
+        } },
+      )
     }
     runPulseQueue(saved, fetchUntilTerminal, 2).then((results) => {
-      if (alive) setPulse(aggregateWatchlistPulse(results))
+      if (!controller.signal.aborted) setPulse(aggregateWatchlistPulse(results))
     })
-    return () => {
-      alive = false
-    }
+    return () => controller.abort()
   }, [key, tick])
   return [pulse, () => setTick((t) => t + 1)]
 }

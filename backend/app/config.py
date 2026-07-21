@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     # Hard timeout for Vertex/Gemini calls, in MILLISECONDS (the SDK's unit). Prevents a
     # hung model call from holding a Cloud Run request open and tying up an instance.
     gemini_timeout_ms: int = 60_000
+    firestore_database: str = "(default)"
+    pulse_ttl_seconds: int = 21_600
+    # Slightly longer than the Gemini SDK timeout. The watchdog and generation
+    # check ensure a late SDK response cannot revive an expired job.
+    # Production grounding has occasionally completed just above 60 seconds;
+    # keep a small coordination margin while remaining firmly bounded.
+    pulse_job_deadline_seconds: int = 70
+    pulse_failure_ttl_seconds: int = 60
     # SERVER-ONLY key: Air Quality, Places, Distance Matrix. Never returned to a browser.
     maps_api_key: str = ""
     # Browser-exposed key, served by /api/config for the Maps JS SDK. MUST be

@@ -372,6 +372,8 @@ Passages retain document title, issuing authority, publication date, geographic 
 
 One grounded pipeline powers three surfaces — locality pulse, city-wide pulse, and watchlist alerts for saved localities (`backend/app/gemini.py`, `backend/app/main.py`). There is no second event pipeline.
 
+Pulse coordination is durable across Cloud Run instances (`backend/app/pulse_store.py`). A Firestore transaction gives each city or locality one active generation id, deduplicates simultaneous requests, rejects late workers from expired generations, and preserves the last verified evidence while a bounded refresh runs. Firestore stores coordination state and validated results only; Gemini grounding and the citation validator remain the source of evidence.
+
 Each event carries a headline, grounded summary, category, severity, geographic scope, publication time, publisher and a link to the source. Items are validated against the actual citation ledger: an event whose source is not among the returned citations is discarded rather than shown.
 
 **Temporary events never move a FitScore.** They are evidence displayed beside the score, never folded into it.
@@ -398,7 +400,7 @@ Alongside it, essential-services proximity is surfaced per locality and captione
 | **Agent orchestration** | **Google Agent Development Kit (ADK)** — coordinator with three specialist agents, deterministic tools, SSE event streaming |
 | **Data warehouse & ML** | **BigQuery** (locality snapshots, hourly AQI history) · **BigQuery ML ARIMA_PLUS** (AQI forecasting with confidence intervals) |
 | **Live data and input** | **Google Maps Platform** — Air Quality API (CPCB), Places API (New), Distance Matrix, Maps JavaScript SDK, Place Photos · **Google Cloud Speech-to-Text v2** |
-| **Backend** | **FastAPI** (Python) · Server-Sent Events · SQL allowlist guard · per-instance rate limiting · optional Secret Manager |
+| **Backend** | **FastAPI** (Python) · **Cloud Firestore** shared Pulse job state · Server-Sent Events · SQL allowlist guard · per-instance rate limiting · optional Secret Manager |
 | **Frontend** | **React 18 + Vite** · Tailwind CSS · Recharts · lucide-react · Google Identity Services with guest mode |
 | **Deployment** | **Cloud Run** (backend, built by **Cloud Build**, stored in **Artifact Registry**) · **Firebase Hosting** (frontend) |
 
@@ -410,21 +412,21 @@ All figures below were produced by running the suites in this repository, not ca
 
 | Gate | Result |
 |---|---|
-| Backend tests | **353 passed** across 35 test modules |
-| Frontend tests | **88 passed** across 17 test files |
-| Combined automated tests | **441 passed** |
-| Production build | **Passing** with Vite 8.1.5; initial JavaScript bundle **62.84 kB gzip** |
+| Backend tests | **358 passed** across 36 test modules |
+| Frontend tests | **96 passed** across 17 test files |
+| Combined automated tests | **454 passed** |
+| Production build | **Passing** with Vite 8.1.5; initial JavaScript bundle **62.89 kB gzip** |
 | Evaluation scorecard | **15 / 15** across eight dimensions, 0 billable calls |
 | City validator | **0 structural errors**, 0 flagged rent disagreements, 13 cities |
 
 Reproduce:
 
 ```bash
-cd backend && python -m pytest -q          # 353 passed
+cd backend && python -m pytest -q          # 358 passed
 python -m app.evaluation                    # 15 / 15, zero billable calls
 python -m tools.validate_city              # 0 structural errors
 
-cd .. && npm test                          # 88 passed
+cd .. && npm test                          # 96 passed
 npm run build                              # production build
 ```
 
@@ -434,7 +436,7 @@ Coverage is weighted toward the properties that are easy to get wrong: absolute 
 
 ## <img src="assets/readme/setup.svg" height="22" align="center" alt="" /> &nbsp;Setup and local development
 
-**Prerequisites:** Node 18+, Python 3.12+, and a GCP project with BigQuery, Vertex AI, Air Quality, Places (New) and Distance Matrix enabled, plus `gcloud auth application-default login`.
+**Prerequisites:** Node 18+, Python 3.12+, and a GCP project with BigQuery, Vertex AI, Cloud Firestore (Native mode), Air Quality, Places (New) and Distance Matrix enabled, plus `gcloud auth application-default login`.
 
 **Backend**
 
@@ -453,6 +455,7 @@ GCP_PROJECT=your-project-id
 GCP_LOCATION=us-central1
 BQ_DATASET=nestiq
 GEMINI_MODEL=gemini-2.5-flash
+FIRESTORE_DATABASE=(default)
 
 # Server-only key: Air Quality, Places, Distance Matrix. Never sent to a browser.
 MAPS_API_KEY=your-server-maps-key
@@ -485,11 +488,12 @@ Production behaviour under load and partial failure, each item verifiable in cod
 - **Stale-while-revalidate caching** (`backend/app/maps.py`). Locality metrics carry a 30-minute TTL; an expired entry is served immediately while a background thread refreshes it, so a user never waits on Google. Covered by `test_expired_cache_served_instantly_and_refreshed_in_background`.
 - **Parallel fan-out.** Air quality, amenities, essentials, commute and imagery are fetched concurrently per locality via `ThreadPoolExecutor`, rather than serially.
 - **Concurrent-build de-duplication.** Simultaneous cold requests for the same city share one build instead of each calling Google, asserted by `test_concurrent_cold_requests_share_one_build`.
-- **Failure caches, not endless spinners** (`backend/app/main.py`). A failed grounding attempt for pulse, reviews or rent verification is recorded for 60 seconds, so the UI reaches an honest unavailable state with a retry action instead of loading forever, and a known-failing source is not re-hit on every page view.
-- **Background refresh with single-flight locks.** Grounded work runs off the request thread behind a refresh lock, so one slow source cannot block a response or trigger duplicate calls.
+- **Durable Pulse single-flight coordination** (`backend/app/pulse_store.py`, `backend/app/main.py`). Firestore transactions let every Cloud Run instance observe the same pending or completed generation. Simultaneous requests launch one grounded job; expired leases can be reclaimed, and an older worker cannot overwrite a newer result.
+- **Stale verified evidence survives refresh failures.** Pulse returns the last successful cited result immediately while one bounded refresh runs. A failed refresh is labelled honestly and never erases previously verified evidence.
+- **Failure caches, not endless spinners** (`backend/app/main.py`). Failed review and rent-verification grounding attempts are recorded briefly, while Pulse uses a shared terminal failure state. The UI reaches an honest unavailable state with retry instead of loading forever.
 - **Evidence prefetched on intent** (`src/lib/api.js`). Hovering or tapping a locality card starts the slow evidence fetches before the click lands, guarded per locality so repeated hovers do not re-fire.
 - **Bounded evidence polling** (`src/lib/api.js`, `src/pages/neighborhood/NeighborhoodDetail.jsx`). Community reviews, Locality Pulse and rent verification have request timeouts, finite polling budgets, explicit background states and retry actions instead of indefinite spinners.
-- **Route-level recovery** (`src/App.jsx`). Every page is code-split behind `React.lazy`, with a branded loading state, a chunk-load error boundary and a real not-found route. The initial production JavaScript bundle is 62.84 kB gzip in the verified build.
+- **Route-level recovery** (`src/App.jsx`). Every page is code-split behind `React.lazy`, with a branded loading state, a chunk-load error boundary and a real not-found route. The initial production JavaScript bundle is 62.89 kB gzip in the verified build.
 - **Non-blocking snapshot writes.** BigQuery snapshots are written off the request path and only when a city's data was genuinely rebuilt (`maybe_log_snapshot`).
 - **Warm start.** The default city's signals and the Vertex client are pre-warmed at startup so the first user request does not pay cold-start cost.
 - **Privacy-safe structured telemetry** (`backend/app/telemetry.py`, `backend/app/main.py`). Request IDs, route status, tool latency, fallback use and agent outcomes are logged as bounded JSON fields; prompts, answers, SQL, document contents, credentials and provider error messages are blocked.
@@ -607,13 +611,13 @@ An unrecognised `preset` returns `422` rather than being silently ignored, so a 
 - **Safety is not a crime prediction.** Original localities may use a labelled curated proxy; newer cities use live emergency-service access when available. The latter measures resilience and is never described as a crime rate (`backend/app/maps.py`, `backend/app/evidence.py`).
 - **Rent is locality-level evidence.** Baselines and grounded observations are indicative medians, not an individual listing, quoted offer or guaranteed future price (`backend/app/market_data.py`, `backend/app/gemini.py`).
 - **Civic RAG is intentionally controlled.** It can answer only from the indexed official-document catalog; an unsupported locality or topic returns no evidence rather than an open-web guess (`backend/app/civic_rag.py`).
-- **Background job state is instance-local.** Pulse, review and rent-verification work survives in process caches, but a Cloud Run scale-down can discard pending state; the client uses finite polling and explicit retry (`backend/app/main.py`, `src/lib/api.js`).
+- **Some background jobs remain instance-local.** Pulse coordination is durable in Firestore, but community-review and rent-verification jobs still use process-local caches; a Cloud Run scale-down can discard their pending state (`backend/app/main.py`). Their clients retain finite polling and explicit retry.
 - **Rate limiting is per Cloud Run instance.** A global policy still requires Cloud Armor or API Gateway (`backend/app/rate_limit.py`).
 - **Secret Manager integration is optional and disabled by default.** Until a deployment provisions the secrets and IAM binding, environment variables remain the active source (`backend/app/secrets.py`, `backend/app/config.py`).
 - **The product interface and evaluation set are English-first.** Voice infrastructure accepts `en-IN` and `hi-IN`, but the current UI submits `en-IN`; multilingual rendering and multilingual agent-equivalent evaluation are not implemented (`backend/app/transcription.py`, `src/pages/AskNestIQ.jsx`).
 - **The responsible-AI figures are bounded offline results.** They validate deterministic tool trajectories, schemas and guardrails; they are not a production-provider uptime or open-ended prompt benchmark (`backend/app/evaluation.py`).
 
-Next engineering priorities are global edge limiting, durable background-job state, broader sourced safety coverage, scheduled watchlist notifications and multilingual product/evaluation coverage.
+Next engineering priorities are global edge limiting, durable state for the remaining review/rent jobs, broader sourced safety coverage, scheduled watchlist notifications and multilingual product/evaluation coverage.
 
 ---
 

@@ -1,51 +1,39 @@
-"""City-wide Pulse endpoint (Phase 6).
-
-Reuses the SAME grounded pulse pipeline (gemini.locality_pulse + the shared
-_pulse_cache / background refresh) as the per-locality pulse, scoped to the whole
-city. It must never fabricate events and never affect any score.
-"""
+"""Backward-compatible City Pulse API behavior over shared state."""
 import time
 
 from app import main
 
 
-class TestCityPulse:
-    def setup_method(self):
-        main._pulse_cache.clear()
-        main._pulse_refreshing.clear()
+def _drain(store):
+    for _ in range(100):
+        if not any(d.get("status") == "pending" for d in store.documents.values()):
+            return
+        time.sleep(0.01)
 
+
+class TestCityPulse:
     def test_unknown_city_is_404(self, client):
         assert client.get("/api/city/nowhere-city/pulse").status_code == 404
 
     def test_cold_call_returns_pending_without_fabricating(self, client, monkeypatch):
-        # Keep the background pipeline from making a real network call.
-        monkeypatch.setattr(main.gemini, "locality_pulse",
-                            lambda name, city: {"status": "no_evidence", "items": [], "citations": []})
+        gate = __import__("threading").Event()
+        monkeypatch.setattr(main.gemini, "locality_pulse", lambda *_: (gate.wait(), {
+            "status": "no_evidence", "items": [], "citations": []})[1])
         body = client.get("/api/city/delhi-ncr/pulse").json()
-        assert body["status"] == "pending"
-        assert body["items"] == []
-        assert body["refreshStatus"] == "refreshing"
+        assert body == {"status": "pending", "items": [], "citations": [],
+                        "refreshStatus": "refreshing",
+                        "limitation": "Verified civic sources are being checked in the background."}
+        gate.set()
 
-    def test_cached_city_pulse_is_served(self, client):
-        # Prime the shared cache with a validated result (as the pipeline would).
-        cached = {
-            "status": "available",
-            "items": [{
-                "headline": "Metro line extension approved", "summary": "A civic update.",
-                "affectedArea": "Delhi NCR", "category": "mobility", "severity": "moderate",
-                "observedOn": "2026-07-18", "freshness": "1 day ago",
-                "source": "Official Notice", "sourceUrl": "https://example.gov.in/notice",
-            }],
-            "citations": [{"title": "Official Notice", "uri": "https://example.gov.in/notice"}],
-        }
-        main._pulse_cache[("delhi-ncr", "__city__")] = (time.time(), cached)
+    def test_completed_city_pulse_is_shared_and_compatible(self, client, monkeypatch,
+                                                            isolated_pulse_store):
+        cached = {"status": "available", "items": [{
+            "headline": "Metro extension approved", "sourceUrl": "https://example.gov.in/notice",
+        }], "citations": [{"title": "Notice", "uri": "https://example.gov.in/notice"}]}
+        monkeypatch.setattr(main.gemini, "locality_pulse", lambda *_: cached)
+        client.get("/api/city/delhi-ncr/pulse")
+        _drain(isolated_pulse_store)
         body = client.get("/api/city/delhi-ncr/pulse").json()
         assert body["status"] == "available"
-        assert body["items"][0]["headline"] == "Metro line extension approved"
-        assert body["items"][0]["sourceUrl"].startswith("http")
-
-    def test_city_pulse_does_not_touch_fitscore(self, client):
-        # The city pulse response never carries score fields.
-        main._pulse_cache[("delhi-ncr", "__city__")] = (time.time(), {"status": "no_evidence", "items": [], "citations": []})
-        body = client.get("/api/city/delhi-ncr/pulse").json()
+        assert body["items"][0]["headline"] == "Metro extension approved"
         assert "fitScore" not in body and "results" not in body
