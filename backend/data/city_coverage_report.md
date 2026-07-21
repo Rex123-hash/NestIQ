@@ -1,6 +1,6 @@
 # NestIQ city coverage report
 
-Generated: 2026-07-21T10:38:51.503352+00:00
+Generated: 2026-07-21T15:45:03.857844+00:00
 
 ## Gate
 
