@@ -120,7 +120,8 @@ def validate_structure(city_id: str, city: dict) -> list[dict]:
         # Absence is legitimate and must be reported as reduced coverage, not as
         # a defect -- the scoring engine already degrades to provisional.
         if loc.get("safety") is None:
-            add("info", name, "no safety value: FitScore runs provisional (4 of 5 pillars)")
+            add("info", name, "no curated safety baseline: runtime uses the live "
+                "emergency-access resilience proxy and degrades only if it is unavailable")
 
     return findings
 
@@ -347,7 +348,7 @@ def build_report(structural, coverage, flagged, ledger, abort, live=None) -> str
               f"- Provisional-coverage notices: {len(infos)}", ""]
 
     lines += ["## Catalog coverage", "",
-              "| City | Localities | Rent | Safety |", "|---|---|---|---|"]
+              "| City | Localities | Rent | Static safety baseline |", "|---|---|---|---|"]
     for c in coverage:
         lines.append(f"| {c['city']} | {c['localities']} | {c['rentCoveragePercent']}% "
                      f"| {c['safetyCoveragePercent']}% |")

@@ -56,23 +56,27 @@ def metric_evidence(feature: dict) -> dict[str, dict]:
     # not wear the curated label, so source/status/confidence all switch.
     safety_value = feature.get("safety_est")
     has_safety = safety_value is not None
+    safety_source = feature.get("safetySource")
+    live_safety = safety_source == "live_emergency_access_proxy"
     # Cities onboarded under Phase 11 take rent from grounded search with
     # citations rather than a hand-typed integer. Absent marker = curated, so
     # the existing catalog is unaffected.
     rent_grounded = feature.get("rentSource") == "grounded_market_evidence"
+    rent_detail = feature.get("rentEvidence") or {}
     rent_value = feature.get("median_rent")
     has_rent = rent_value is not None
     evidence = {
         "affordability": _envelope(
             "affordability", rent_value, "INR/month",
             "No sourced rent evidence for this locality" if not has_rent
-            else "Grounded market evidence (Google Search grounding; median calculated by NestIQ)"
+            else rent_detail.get("source", "Grounded published rental marketplace evidence")
             if rent_grounded else "NestIQ curated locality market dataset",
             "unavailable" if not has_rent
             else "grounded_market_evidence" if rent_grounded else "curated_market_estimate",
             "temporarily_unavailable" if not has_rent else "estimated",
-            None, "locality",
-            "unavailable" if not has_rent else "medium",
+            rent_detail.get("asOf") if rent_grounded else None, "locality",
+            "unavailable" if not has_rent else
+            rent_detail.get("confidence", "medium") if rent_grounded else "medium",
             "Rent evidence has not been sourced for this locality yet, so affordability "
             "is excluded from the FitScore rather than estimated." if not has_rent
             else "A locality-level market estimate, not a guaranteed quote or an individual "
@@ -81,15 +85,21 @@ def metric_evidence(feature: dict) -> dict[str, dict]:
         ),
         "safety": _envelope(
             "safety", safety_value, "index/100",
-            "NestIQ curated locality safety profile" if has_safety
+            "Google Places emergency-service access" if live_safety
+            else "NestIQ curated locality safety profile" if has_safety
             else "No locality-level safety source available",
-            "curated_proxy" if has_safety else "unavailable",
-            "curated" if has_safety else "temporarily_unavailable",
-            None, "locality", "medium" if has_safety else "unavailable",
+            safety_source or ("curated_proxy" if has_safety else "unavailable"),
+            feature.get("safetyDataStatus") or
+            ("curated" if has_safety else "temporarily_unavailable"),
+            feature.get("safetyFetchedAt"), "locality",
+            (feature.get("safety_profile") or {}).get("confidence", "medium")
+            if live_safety else "medium" if has_safety else "unavailable",
+            "Emergency resilience proxy based on access to police, hospitals and "
+            "fire stations; it is not a crime-incidence score."
+            if live_safety else
             "Proxy index because consistent open locality-level crime data is unavailable."
             if has_safety else
-            "No curated safety profile exists for this locality, so safety is "
-            "excluded from the FitScore rather than estimated.",
+            "No safety evidence is currently available, so safety is excluded from the FitScore.",
         ),
         "commute": _envelope(
             "commute", commute, "minutes",
@@ -117,8 +127,14 @@ def metric_evidence(feature: dict) -> dict[str, dict]:
     }
     safety_profile = feature.get("safety_profile")
     evidence["safety"]["confidenceLabel"] = (
-        "Curated score confidence" if has_safety else "No safety source"
+        "Live evidence confidence" if live_safety
+        else "Curated score confidence" if has_safety else "No safety source"
     )
+    if rent_grounded:
+        evidence["affordability"]["method"] = rent_detail.get("method")
+        evidence["affordability"]["basis"] = rent_detail.get("basis")
+        evidence["affordability"]["citations"] = rent_detail.get("citations") or []
+
     if safety_profile:
         # The live profile supports interpretation of the curated index. It is
         # kept separate so emergency-service density is never mislabeled as a

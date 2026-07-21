@@ -169,13 +169,18 @@ export default function Results() {
   const requestedCity = urlParams.get('city')
   
   const lastContextCity = useRef(city)
+  const lastUrlLocation = useRef(null)
 
   useEffect(() => {
-    if (requestedCity && requestedCity !== city && cities.some(c => c.id === requestedCity)) {
+    // URL wins once per navigation. A picker change happens under the same
+    // location key, so the stale URL cannot immediately snap the city back.
+    if (lastUrlLocation.current === location.key) return
+    lastUrlLocation.current = location.key
+    if (requestedCity && requestedCity !== city && cities.some((c) => c.id === requestedCity)) {
       lastContextCity.current = requestedCity
       setCity(requestedCity)
     }
-  }, [requestedCity, city, cities, setCity])
+  }, [location.key, requestedCity, city, cities, setCity])
 
   useEffect(() => {
     if (city !== lastContextCity.current) {

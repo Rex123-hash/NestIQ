@@ -336,7 +336,7 @@ def _nearby_safety_places(lat: float, lng: float, place_type: str, radius: float
 
 
 def _emergency_access_score(signals: dict) -> int | None:
-    """A transparent access score, deliberately separate from Safety/FitScore."""
+    """Transparent emergency resilience; never described as a crime rate."""
     weights = {"police": 40, "hospital": 35, "fire_station": 25}
     target_counts = {"police": 3, "hospital": 4, "fire_station": 2}
     available = {k: v for k, v in signals.items() if v is not None}
@@ -360,7 +360,7 @@ def _emergency_access_score(signals: dict) -> int | None:
 
 
 def safety_profile(lat: float, lng: float) -> dict:
-    """Live emergency-access evidence supporting, but not replacing, safety."""
+    """Live emergency-access evidence used where no curated safety exists."""
     kinds = list(SAFETY_PLACE_TYPES)
     with ThreadPoolExecutor(max_workers=len(kinds)) as ex:
         values = list(ex.map(
@@ -462,6 +462,15 @@ def _fetch_features(city: dict) -> list[dict]:
             prof = am[i].result()
             commute = cm[i].result()
             evidence_time = _now_iso()
+            safety = sf[i].result()
+            curated_safety = loc.get("safety")
+            live_safety = safety.get("emergencyAccessScore") if safety else None
+            safety_value = curated_safety if curated_safety is not None else live_safety
+            safety_source = (
+                "curated_proxy" if curated_safety is not None
+                else "live_emergency_access_proxy" if live_safety is not None
+                else "unavailable"
+            )
             feats.append({
                 "id": loc["id"], "name": loc["name"], "short": loc["short"], "accent": loc.get("accent", "#7C5CF6"),
                 "lat": loc["lat"], "lng": loc["lng"],
@@ -471,12 +480,16 @@ def _fetch_features(city: dict) -> list[dict]:
                 # Phase 11 cities carry rent from grounded search with citations.
                 # Absent = curated, so the existing catalog is unchanged.
                 "rentSource": loc.get("rentSource", "curated_market_estimate"),
-                # A newly onboarded city may have no safety source at all: no
-                # consistent open locality-level crime data exists for India.
-                # Omission flows through as a provisional score, never as a
-                # fabricated index.
-                "safety_est": loc.get("safety"),
-                "safety_profile": sf[i].result(),
+                "rentEvidence": loc.get("rentEvidence"),
+                "safety_est": safety_value,
+                "safetySource": safety_source,
+                "safetyDataStatus": (
+                    "curated" if curated_safety is not None
+                    else safety.get("status", "temporarily_unavailable") if safety
+                    else "temporarily_unavailable"
+                ),
+                "safetyFetchedAt": safety.get("fetchedAt") if safety else None,
+                "safety_profile": safety,
                 "aqi": a.get("aqi"), "aqi_category": a.get("category", "Unknown"), "aqi_pollutant": a.get("dominant", ""),
                 # Air provenance flows through to score_india's additive fields.
                 "airIndexCode": a.get("indexCode"),

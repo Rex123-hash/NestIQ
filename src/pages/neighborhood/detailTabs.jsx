@@ -105,12 +105,27 @@ function EvidenceNote({ evidence }) {
   const curatedSafetyBaseline = evidence.metric === 'safety' && evidence.sourceType === 'curated_proxy'
   const curatedRentBaseline = evidence.metric === 'affordability' && evidence.sourceType === 'curated_market_estimate'
   const curatedBaseline = curatedSafetyBaseline || curatedRentBaseline
+  const citations = Array.isArray(evidence.citations) ? evidence.citations : []
   return (
     <div className={`mt-4 rounded-xl border px-3 py-2.5 text-xs ${unavailable ? 'border-amber-200 bg-amber-50/70' : 'border-line bg-[#F7F8FB]'}`}>
       <p className={`font-semibold ${unavailable ? 'text-amber-800' : 'text-ink'}`}>
         {curatedBaseline ? 'Curated baseline' : (EVIDENCE_STATUS[evidence.status] || evidence.status)} · {evidence.source}
       </p>
       <p className="mt-1 leading-relaxed text-muted">{evidence.limitation}</p>
+      {evidence.method && <p className="mt-1 text-[11px] leading-relaxed text-muted">Method: {evidence.method}</p>}
+      {citations.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {citations.map((citation) => (
+            <a
+              key={citation.uri}
+              href={citation.uri}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-brand-700 hover:underline"
+            >Source <ExternalLink size={10} /></a>
+          ))}
+        </div>
+      )}
       <p className="mt-1 text-[11px] text-muted">
         Scope: {String(evidence.geographicScope || 'locality').replaceAll('_', ' ')}
         {curatedBaseline
@@ -583,9 +598,10 @@ export function AffordabilityTab({ n }) {
 /* --------------------------------- Safety --------------------------------- */
 export function SafetyTab({ n }) {
   const s = n.subscores.safety
-  // A newly onboarded city has no curated safety profile at all. The copy below must
-  // not describe a source that does not exist, so every claim keys off this.
-  const hasCurated = Number.isFinite(s)
+  const safetySource = n.evidence?.safety?.sourceType
+  const liveResilience = safetySource === 'live_emergency_access_proxy'
+  const hasScore = Number.isFinite(s)
+  const hasCurated = hasScore && !liveResilience
   const ins = n.insights || { peers: [] }
   const profile = n.safety_profile || n.evidence?.safety?.supportingEvidence
   const safetySignals = profile?.signals || {}
@@ -601,12 +617,14 @@ export function SafetyTab({ n }) {
         sub={`Safety and well-being in ${n.name}.`}
         score={s}
         band={s >= 75 ? 'Excellent' : s >= 55 ? 'Good' : 'Moderate'}
-        why={hasCurated
+        why={liveResilience
+          ? `${n.name} is ${rankLabel(ins.safety, 'best emergency access')} in the city, based on live access to police, hospitals and fire stations. This is a resilience measure, not a crime rate.`
+          : hasCurated
           ? `${n.name} is ${rankLabel(ins.safety, 'safest')} in the city, based on a curated locality safety profile normalized across localities.`
-          : `No curated safety profile exists for ${n.name}, so safety is excluded from the FitScore rather than estimated. The live emergency-access evidence below is context, not a crime-safety measure.`}
+          : `No usable safety evidence exists for ${n.name}, so safety is excluded from the FitScore rather than replaced with a guess.`}
       />
-      <Panel title="Safety compared with other localities">
-        {hasCurated ? (
+      <Panel title={liveResilience ? 'Emergency resilience compared with other localities' : 'Safety compared with other localities'}>
+        {hasScore ? (
           <>
             <p className="mb-4 text-xs text-muted">Higher bars are safer · {n.short || n.name} is highlighted.</p>
             <PeerBars peers={ins.peers} metricKey="safety" currentId={n.id} color="#7C5CF6" unit="/100" />
@@ -623,9 +641,11 @@ export function SafetyTab({ n }) {
               <div>
                 <p className="text-sm font-semibold text-ink">Live emergency-access evidence</p>
                 <p className="text-xs text-muted">
-                  {hasCurated
+                  {liveResilience
+                    ? 'This live emergency-access index supplies the resilience pillar; it is never presented as a crime rate.'
+                    : hasCurated
                     ? 'Supporting context only; it does not replace the curated safety score.'
-                    : 'Emergency-service access only. This is not a crime-safety measure and is not scored.'}
+                    : 'Emergency-service access only. No score is produced while the source is unavailable.'}
                 </p>
               </div>
               <span className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold capitalize text-brand-700">

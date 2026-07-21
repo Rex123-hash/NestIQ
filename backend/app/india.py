@@ -6,6 +6,8 @@ market estimates (no open locality-level dataset exists for India) and are
 labelled as estimates in the UI.
 """
 
+from .market_data import rent_baseline
+
 # Single source of truth for the India FitScore pillar weights.
 # gemini.py (query parsing) and maps.py (scoring) both import from here so the
 # backend can never disagree with itself.
@@ -123,12 +125,9 @@ CITIES = {
         ],
     },
     # --- Phase 11 onboarded metros -----------------------------------------
-    # Centroids verified against live Google Air Quality, Places and Distance
-    # Matrix (100% resolution on all three). Rent and safety are deliberately
-    # absent: rent is sourced from grounded search with citations rather than
-    # typed in, and no consistent open locality-level crime data exists for
-    # India. Both pillars are excluded from the FitScore, which therefore runs
-    # provisional with a published coverage percentage, rather than estimated.
+    # Centroids verified against live Google signals. Source-backed rent is
+    # merged below; safety uses a live emergency-access resilience proxy.
+    # Neither is represented as locality-level crime data.
     "ahmedabad": {
         "id": "ahmedabad", "name": "Ahmedabad (Gujarat)",
         "anchor": {"name": "Ashram Road", "lat": 23.0395, "lng": 72.5660},
@@ -174,6 +173,20 @@ CITIES = {
         ],
     },
 }
+
+def _apply_grounded_rent_baselines() -> None:
+    """Add reviewable rent evidence without touching established cities."""
+    for city in CITIES.values():
+        for loc in city["localities"]:
+            evidence = rent_baseline(loc["id"])
+            if not evidence:
+                continue
+            loc["rent"] = evidence["medianRent"]
+            loc["rentSource"] = evidence["sourceType"]
+            loc["rentEvidence"] = evidence
+
+
+_apply_grounded_rent_baselines()
 
 # Assign a display accent to any locality that doesn't specify one.
 _PALETTE = ["#7C5CF6", "#4F86F7", "#3FB984", "#F5A63B", "#9478F1", "#EC6FA6", "#2FB6A8", "#F2775A"]

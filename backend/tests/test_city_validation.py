@@ -87,7 +87,7 @@ class TestSafetyOmissionIsNotADefect:
         del loc["safety"]
         findings = validate_structure("test", _city([loc]))
         assert _messages(findings, "error") == []
-        assert any("provisional" in m for m in _messages(findings, "info"))
+        assert any("emergency-access resilience proxy" in m for m in _messages(findings, "info"))
 
     def test_coverage_reports_the_safety_gap_numerically(self):
         with_safety = _loc(id="a")

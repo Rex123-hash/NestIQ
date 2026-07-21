@@ -10,6 +10,10 @@ const FALLBACK_CITIES = [
   { id: 'chennai', name: 'Chennai' },
   { id: 'pune', name: 'Pune' },
   { id: 'patna', name: 'Patna (Bihar)' },
+  { id: 'ahmedabad', name: 'Ahmedabad (Gujarat)' },
+  { id: 'jaipur', name: 'Jaipur (Rajasthan)' },
+  { id: 'lucknow', name: 'Lucknow (Uttar Pradesh)' },
+  { id: 'kochi', name: 'Kochi (Kerala)' },
   { id: 'ranchi', name: 'Ranchi (Jharkhand)' },
 ]
 
