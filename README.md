@@ -14,8 +14,8 @@ Ask in plain language. Real Google ADK agents gather live evidence, a determinis
 ![Gemini](https://img.shields.io/badge/Gemini_on_Vertex_AI-7C5CF6?style=flat-square&logo=googlegemini&logoColor=white)
 ![BigQuery](https://img.shields.io/badge/BigQuery_+_BQML-7C5CF6?style=flat-square&logo=googlebigquery&logoColor=white)
 ![Maps](https://img.shields.io/badge/Google_Maps_Platform-7C5CF6?style=flat-square&logo=googlemaps&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-369_passing-3FB984?style=flat-square)
 ![ADK](https://img.shields.io/badge/Google_ADK_agents-7C5CF6?style=flat-square&logo=google&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-381_passing-3FB984?style=flat-square)
 
 Built for the **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon**
 Problem Statement: *AI for Better Living and Smarter Communities*
@@ -30,15 +30,47 @@ Problem Statement: *AI for Better Living and Smarter Communities*
 
 ---
 
-## <img src="assets/readme/overview.svg" height="22" align="center" alt="" /> &nbsp;Overview
+## <img src="assets/readme/overview.svg" height="22" align="center" alt="" /> &nbsp;What NestIQ is
 
-**The persona.** A young professional or student relocating to a new city for a job. They have three days to pick a neighborhood they have never seen. They need to balance rent, commute time to a new office, and safety — and in Indian metros, they *must* also weigh air quality. Today that means juggling a dozen browser tabs: rent portals, a maps app for commute, word-of-mouth for safety, and a separate app for AQI. The data exists, but it is scattered, unpersonalized, and never predictive.
+NestIQ helps someone relocating within India decide **where to live**, by turning one plain-language sentence into a ranked, explainable shortlist of neighborhoods. It is built for a person with three days and no local knowledge, who has to weigh rent against commute, safety and — in Indian metros — air quality, using data that today sits scattered across rent portals, maps apps and AQI trackers.
 
-**NestIQ turns all of that into a single decision.** You describe what you need in one sentence — *"clean air, safe area under ₹25,000, short commute"* — and NestIQ returns a ranked shortlist of localities, each with a transparent **FitScore**, a live air-quality forecast, cited resident sentiment, and a plain-language explanation of *why* it fits **you**.
+The core promise is narrow and deliberate: **NestIQ will not show a number it cannot source.** Every metric carries its origin, freshness and limitation. When a signal is missing, the pillar is excluded and the score is labelled provisional with its coverage percentage, rather than filled with a plausible-looking default. That constraint is enforced in code and covered by tests, not left to convention.
 
-It is not a search filter with sliders. It is a **parallel multi-agent system** that converts natural language into weighted priorities, pulls live data from Google Maps Platform, forecasts air quality with a model it trains itself in BigQuery ML, and streams the specialist scoring process to the browser over Server-Sent Events so you can watch the system think.
+Coverage today is **13 cities and 73 localities** (`backend/app/india.py`), from Delhi NCR and Mumbai down to Patna, Ranchi and Kochi.
 
-> **Design principle: zero hallucination.** Every number NestIQ shows is traceable to a live source. FitScores come strictly from Google Maps and Air Quality APIs. Natural-language questions are turned into real BigQuery SQL and the exact query is shown to you alongside the answer. Gemini explains the numbers; it never invents them.
+---
+
+## <img src="assets/readme/problem.svg" height="22" align="center" alt="" /> &nbsp;Problem statement fit
+
+**PS1 — AI for Better Living and Smarter Communities.**
+
+The statement asks for a decision-intelligence platform that improves everyday living and identifies patterns, trends and anomalies in community data. NestIQ addresses it directly:
+
+| Requirement | How NestIQ meets it |
+|---|---|
+| **Better living decisions** | A five-pillar FitScore weighted by the user's own stated priorities, not fixed defaults (`backend/app/maps.py`, `backend/app/fitscore.py`) |
+| **Smarter communities** | Live civic evidence per locality: grounded current events, official civic documents with page-level citations, and resident sentiment (`backend/app/gemini.py`, `backend/app/civic_rag.py`) |
+| **Patterns, trends, anomalies** | Cross-sectional outlier detection at 1.5σ from the city mean, plus temporal AQI spike detection against a locality's own 24-hour history (`backend/app/maps.py`) |
+| **Predictive insight** | A BigQuery ML `ARIMA_PLUS` model trained on AQI history the platform accumulates itself (`backend/app/bq_india.py`) |
+| **Applied Gen AI** | Gemini on Vertex AI for intent parsing, NL→SQL, grounded retrieval and explanation, orchestrated through Google ADK (`backend/app/adk_orchestration.py`) |
+
+Air quality is treated as a first-class pillar rather than a nice-to-have, because in Indian cities it is the most health-critical signal and the one that varies most between localities.
+
+---
+
+## <img src="assets/readme/features.svg" height="22" align="center" alt="" /> &nbsp;Feature overview
+
+**Search and ranking.** Describe what you need in one sentence. Gemini extracts a budget and a weight per pillar, live signals are fetched per locality, and results return ranked with anomaly flags — streamed over SSE so the work is visible rather than hidden behind a spinner. An optional **Family Health & Resilience** preset applies a fixed, published weight profile for health-sensitive households (`src/lib/presets.js`, `backend/app/main.py`).
+
+**Locality detail.** Seven tabs covering Overview, Affordability, Safety, Commute, Essentials & Lifestyle, Air Quality and Community Insights. Each pillar shows its sub-score alongside the evidence behind it: source, freshness, geographic scope and limitation (`src/pages/neighborhood/detailTabs.jsx`).
+
+**Compare.** Side-by-side comparison of saved localities across every pillar, with shared values collapsed so genuine differences stand out (`src/pages/Compare.jsx`).
+
+**Saved and Alerts.** A watchlist of localities with live air-quality signals, plus grounded civic alerts filtered to moderate-or-higher severity, and a city-wide pulse view. Alerts never manufacture events; an unreachable source is reported as unavailable rather than as "nothing happening" (`src/pages/Alerts.jsx`, `src/lib/watchlistPulse.js`).
+
+**Ask NestIQ.** Cross-locality questions are translated into real BigQuery SQL, executed against the locality warehouse, and answered from the returned rows — with the generated query shown to the user (`backend/app/main.py`, `backend/app/gemini.py`).
+
+**Rent verification.** On demand, NestIQ runs a grounded search for current market rent and presents cited observations beside the baseline estimate, broken down by home size so the two are actually comparable (`backend/app/gemini.py`).
 
 ---
 
@@ -46,200 +78,221 @@ It is not a search filter with sliders. It is a **parallel multi-agent system** 
 
 | Capability | What is behind it |
 |---|---|
-| **Zero hallucination, everything sourced** | FitScores are derived strictly from live Google Maps and Air Quality APIs. NL questions become real BigQuery SQL, and the generated query is shown to the user next to the cited answer. |
-| **Conversational analytics (NL → SQL)** | Ask a cross-locality question ("Where is rent under ₹25k and AQI under 150?") and Gemini writes a real **BigQuery SQL** query, runs it against the locality warehouse, and answers grounded in the returned rows — with the SQL shown to you. |
-| **Self-building dataset + our own ML forecast** | Every search snapshots live features into BigQuery (`india_localities`) and appends hourly AQI (`india_aqi_history`). A **BigQuery ML ARIMA_PLUS** model trained on that accumulating history produces our own AQI forecast, with confidence intervals, alongside Google's. |
-| **Anomaly detection** | NestIQ automatically flags localities that break the city pattern — a cross-sectional outlier (a metric ≥ 1.5σ from the city mean, e.g. *"unusually polluted"*, *"unusually affordable"*) and a temporal AQI spike versus a locality's own 24-hour history. Directly answers the PS requirement to "identify patterns, trends, and anomalies." |
-| **Explainable FitScore, never a black box** | A 0–100 match across five pillars, weighted by *your own words*. A published methodology panel shows every pillar's weight, why it carries that weight, and its live data source. Weights re-tune live with sliders. |
-| **Real Google ADK agents, not narration** | A **Google ADK** Planner coordinates Live Signals, Analytics and Civic Intelligence specialists, then a Validator checks the scored output for contradictions before an Explainer summarises it. Every agent performs actual work and reports what it really did — streamed over **SSE**. A legacy path takes over automatically if ADK ever fails, so search never breaks. |
-| **Air quality that cannot flatter itself** | Air is scored on **absolute CPCB health bands**, never relative ranking. AQI 500 can never score 96 because it happens to be the least-polluted option. If every locality is Severe, they all read Severe, and the "least polluted" claim is only made when raw values actually differ. |
-| **Honest missing data** | A failed live call is never dressed up as a reading. Signals return an explicit unavailable state, the FitScore is labelled **provisional** with its coverage percentage, and the affected pillar is excluded rather than guessed. |
-| **Air quality as a first-class pillar** | Live **CPCB AQI** per locality via the Google Air Quality API — current reading, 24-hour history, and 24-hour forecast — weighted into every recommendation. Built for the reality of Indian cities. |
-| **Cited resident sentiment** | Grounded retrieval: Gemini + Google Search surfaces what residents say online, summarized with clickable source citations, cached for 24 hours. |
-| **13 cities, Tier-1 to Tier-3** | Delhi NCR, Mumbai, Bengaluru, Kolkata, Hyderabad, Chennai, Pune, **Patna**, **Ranchi**, and newly onboarded **Ahmedabad**, **Jaipur**, **Lucknow** and **Kochi** — decision intelligence is not just for the metros. |
-| **Scales by validation, not by copy-paste** | Air, commute, amenities, scoring and BigQuery history extend to a new city for the cost of its coordinates. Every city passes a validation gate — centroids inside India, no duplicate ids, all three Google signals resolving, scoring invariants intact — run by an offline CLI that publishes a coverage report. The four newest metros ship with air, commute and amenities live while rent and safety are **openly absent**: their FitScore is labelled provisional at 60% coverage rather than padded with invented numbers. |
+| **Every number is sourced or marked absent** | A ten-field provenance envelope per pillar, distinguishing live, grounded, curated and unavailable data. Enforced in `backend/app/evidence.py`, rendered beside every figure |
+| **Air quality cannot flatter itself** | Absolute CPCB health bands, not relative ranking. AQI 500 cannot score 96 by being the least-polluted option (`backend/app/air_quality.py`) |
+| **Real ADK agents, not narration** | A planner coordinating three specialists, a validator checking for contradictions, and an automatic fallback if ADK fails — every message generated from actual tool output (`backend/app/adk_orchestration.py`) |
+| **The model never does arithmetic** | Gemini parses intent and explains; scoring is deterministic Python, so identical inputs always produce an identical score (`backend/app/fitscore.py`, `backend/app/maps.py`) |
+| **Conversational analytics with a real guard** | NL to BigQuery SQL, constrained by a table allowlist and a dry-run byte cap, with the generated query shown to the user (`backend/app/sql_guard.py`, `backend/app/bq_india.py`) |
+| **Self-building dataset and its own forecast** | Every search snapshots features into BigQuery; an ARIMA_PLUS model trained on that accumulating history forecasts AQI alongside Google's (`backend/app/bq_india.py`) |
+| **Anomaly detection at no extra cost** | Cross-sectional outliers at 1.5σ and temporal AQI spikes, computed from metrics already fetched (`backend/app/maps.py`) |
+| **13 cities, Tier-1 to Tier-3** | Delhi NCR through Patna, Ranchi, Lucknow and Kochi — decision intelligence beyond the metros (`backend/app/india.py`) |
 
 ---
 
-## <img src="assets/readme/architecture.svg" height="22" align="center" alt="" /> &nbsp;How it works
+## <img src="assets/readme/trust.svg" height="22" align="center" alt="" /> &nbsp;Trust and evidence architecture
 
-```text
-                        "clean air, safe, under ₹25,000"
-                                        │
-                                        ▼
-                           ┌─────────────────────────┐
-                           │      Planner Agent      │   Gemini extracts a budget and a
-                           │    natural language →   │   weight per pillar from your words
-                           │     weights + budget    │
-                           └────────────┬────────────┘
-                                        │
-                                        ▼
-                           ┌─────────────────────────┐
-                           │   Data Collector Agent  │   Live fan-out to Google Maps
-                           │   live Google signals   │   Platform · 30-min SWR cache
-                           └────────────┬────────────┘
-                                        │
-                                        ▼
-   ┌──────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
-   │ Air Quality  │ Commute      │ Safety       │ Lifestyle    │ Affordability│
-   │ Agent        │ Agent        │ Agent        │ Agent        │ Agent        │
-   │ • CPCB AQI   │ • Traffic    │ • Locality   │ • Places     │ • Rent vs    │
-   │ • 24h trend  │   Matrix     │   profile    │   ≤ 1.5 km   │   budget     │
-   │ • BQML fcast │ • Drive to   │ • Env.       │ • Amenity    │ • Min-max    │
-   │              │   work hub   │   health     │   density    │   normalized │
-   └──────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
-                                        │
-                                        ▼
-                           ┌─────────────────────────┐
-                           │       Orchestrator      │   Combines pillar sub-scores
-                           │    weighted FitScore    │   with your extracted weights
-                           └────────────┬────────────┘
-                                        │
-                                        ▼
-                Ranked FitScores + anomaly flags, streamed to the
-                 UI over SSE, then explained by Gemini on the detail page
-```
+This is the part of NestIQ that took the most work, and the part most worth reviewing. The hard problem in a scoring product is not computing a score — it is refusing to display one you cannot defend.
 
-**The flow.** Your sentence goes to Gemini, which extracts a budget and a weight for each pillar. Live AQI, amenity, and commute data is fetched per locality (cached 30 minutes). Each pillar agent normalizes its metric across the city, the orchestrator combines them with your weights into FitScores, and results stream back with anomaly flags and explanations. Every search also snapshots the features into BigQuery, so the warehouse — and the ARIMA_PLUS forecast trained on it — grows with use.
+### The provenance envelope
 
----
+Every pillar emits a structured evidence record alongside its value (`backend/app/evidence.py`). The envelope carries ten fields: `metric`, `value`, `unit`, `source`, `sourceType`, `status`, `fetchedAt`, `geographicScope`, `confidence` and `limitation`. The UI renders it directly beside the number (`src/pages/neighborhood/detailTabs.jsx`), so a user can always see what a figure is and is not.
 
-## <img src="assets/readme/fitscore.svg" height="22" align="center" alt="" /> &nbsp;The FitScore
+`sourceType` distinguishes four kinds of data, and the distinction is enforced rather than decorative:
 
-```text
-FitScore = Σ (pillar_subscore × your_weight) / Σ weights
-```
+| Source type | Meaning | Example |
+|---|---|---|
+| `live_google` | Fetched now from a Google API | CPCB AQI, Places counts, drive time |
+| `grounded_market_evidence` | Published marketplace evidence with citations | Rent for cities onboarded under the validation workflow (`backend/app/market_data.py`) |
+| `curated_market_estimate` / `curated_proxy` | An indicative baseline where no open dataset exists | Rent and safety for the original catalog |
+| `unavailable` | Nothing was sourced, and nothing is claimed | Safety in newly onboarded cities |
 
-| Pillar | Signal | Source | Default weight |
-|---|---|---|---|
-| **Air Quality** | Live CPCB AQI (lower is cleaner) | Google Air Quality API | 25% |
-| **Affordability** | Median monthly rent vs. your budget | Curated market estimate (labeled in-app) | 20% |
-| **Safety** | Locality safety index blended with live environmental health | Curated baseline (labeled — open locality-level crime data does not exist for India) | 20% |
-| **Commute** | Live drive time with traffic to the city's work hub | Google Distance Matrix | 20% |
-| **Essentials & Lifestyle** | Amenities within 1.5 km (restaurants, cafes, gyms, parks, markets) | Google Places (New) | 15% |
+A locality with no safety data does not silently inherit the curated label. `evidence.py` switches `source`, `sourceType`, `status`, `confidence` and `limitation` together on presence, so an absent value reports *"No locality-level safety source available"* rather than naming a source that was never consulted.
 
-Sub-scores are **min-max normalized within the selected city**, so a 90 in Patna means "best in Patna," not "as clean as Zurich." Air Quality carries the highest default weight because, across Indian cities, it is the most health-critical signal and the one that varies most between localities. **The weights are yours** — parsed from your query by Gemini and adjustable live with sliders. The detail page publishes the full rubric so the score is explainable, never a black box.
+### Air quality is absolute, never graded on a curve
 
----
+Rent, commute and amenity sub-scores are min-max normalized within a city, which is appropriate for preference ranking. Applying the same treatment to air quality produced a real defect: the least-polluted locality in a uniformly polluted city scored near-perfect.
 
-## <img src="assets/readme/trust.svg" height="22" align="center" alt="" /> &nbsp;Trust model — how a number earns its place
+**Before:** a locality reading AQI 500 could score 96/100 for air, because it was marginally cleaner than its neighbours.
 
-The hardest problem in a scoring product is not computing a score. It is refusing to show one you cannot defend.
-
-**Air quality is absolute, never graded on a curve.** Sub-scores for rent, commute and amenities are min-max normalized within a city, which is fine for preferences. Applying that to air would be dangerous: it would let the least-polluted locality in a Severe city score near-perfect. Air is therefore scored on **absolute CPCB health bands**, and relative rank is reported separately.
+**After:** air is scored against absolute CPCB health bands (`backend/app/air_quality.py`), and relative rank is reported separately.
 
 | CPCB band | AQI | Air sub-score |
 |---|---|---|
-| Good | 0-50 | 90-100 |
-| Satisfactory | 51-100 | 75-89 |
-| Moderate | 101-200 | 55-74 |
-| Poor | 201-300 | 35-54 |
-| Very Poor | 301-400 | 15-34 |
-| Severe | 401+ | 0-14 |
+| Good | 0–50 | 90–100 |
+| Satisfactory | 51–100 | 75–89 |
+| Moderate | 101–200 | 55–74 |
+| Poor | 201–300 | 35–54 |
+| Very Poor | 301–400 | 15–34 |
+| Severe | 401+ | 0–14 |
 
-A locality can rank better than its neighbours **within** a band, but never escape it. AQI 500 cannot score 96. If every locality reads Severe, every locality shows Severe, and "least polluted" is only claimed when the raw values genuinely differ.
+A locality can rank better than its neighbours *within* a band but can never escape it. If every locality reads Severe, every locality shows Severe, and "least polluted" is only claimed when the raw values genuinely differ.
 
-**Every metric carries its provenance.** Each pillar ships an evidence envelope (value, source, source type, fetch time, geographic scope, confidence, limitation) rendered in the UI beside the number:
+### A second example: absence rendered as fact
 
-| Label | Meaning |
-|---|---|
-| Live Google signal | Fetched now from a Google API |
-| Government historical evidence | Official published record |
-| Market estimate | Indicative, not a quoted offer |
-| Curated locality proxy | A stand-in where no open dataset exists (rent, safety) |
-| Temporarily unavailable | The call failed, and we say so |
+A city onboarded without sourced rent exposed the same class of bug one layer up. The City Snapshot averaged rent with a helper that returned `0` for an empty list, so a city with no rent data displayed **"Avg. median rent ₹0/mo"** — a fabricated price presented as a measurement. The averaging now returns `null` when nothing is present, and the row renders "Not available" (`src/lib/citySnapshot.js`, covered by `src/lib/citySnapshot.test.js`).
 
-**Missing data is stated, not invented.** A failed call returns an explicit unavailable state, keeping the original timestamp if a stale reading exists. The pillar is excluded from the FitScore, the score is labelled **provisional** with its coverage percentage, and nothing is back-filled with a plausible-looking default.
+The same review found the Safety tab describing *"a curated locality safety profile"* for a city that had none. Each claim now branches on whether the value actually exists.
+
+### Missing data is stated, not inferred
+
+When a live call fails, the last good reading is served with its **original** timestamp and an explicit `stale` marker, or an honest `temporarily_unavailable` state — never a fresh-looking default (`backend/app/maps.py`). The affected pillar is excluded from the FitScore, which is then labelled **provisional** with its coverage percentage. Newly onboarded cities without safety data run at 80% coverage and say so.
 
 ---
 
-## <img src="assets/readme/agents.svg" height="22" align="center" alt="" /> &nbsp;Google ADK agent system
+## <img src="assets/readme/agents.svg" height="22" align="center" alt="" /> &nbsp;Agent architecture
 
-The agent layer is real orchestration, not a progress animation. It is built on the **Google Agent Development Kit**, coordinated by a Planner and streamed to the browser over SSE.
+Orchestration is built on the **Google Agent Development Kit** (`backend/app/adk_orchestration.py`), coordinated by a planner and streamed to the browser over Server-Sent Events.
 
 ```text
-                    NestIQ Planner  (ADK coordinator)
+                    nestiq_planner  (ADK coordinator)
                     parses the request, selects tools
                                  |
         +------------------------+------------------------+
         v                        v                        v
-  Live Signals            Analytics                Civic Intelligence
-  AQI - Places            snapshots -              citation-locked
-  commute - photos        anomalies - BQML         civic retrieval
+  live_signals_agent      analytics_agent        civic_intelligence_agent
+  AQI, Places,            snapshots,             scoped civic retrieval
+  commute, imagery        anomalies, BQML        with citations
         +------------------------+------------------------+
                                  v
-                    FitScore Engine  (deterministic)
+                    FitScore engine  (deterministic)
                  arithmetic is never delegated to an LLM
                                  |
                                  v
                      Validator  ->  Explainer
-             contradiction and        plain-language summary
-             coverage checks          from validated evidence only
+             contradiction and        summary drawn only from
+             coverage checks          validated evidence
 ```
 
-Two rules make this trustworthy rather than theatrical:
+**What each agent actually does.** `live_signals_agent` invokes the ranking path, which fetches live AQI, Places and commute data and computes the deterministic FitScore. `analytics_agent` reports what the scoring engine found — locality count, statistical anomalies, and how many results are provisional due to incomplete signals. `civic_intelligence_agent` performs citation-locked retrieval scoped to the top locality and reports the true number of documents matched, including zero. The Validator then checks the scored output for contradictions — specifically that no locality in the Severe band carries a high air sub-score — and reports how many results are provisional. The Explainer produces a summary from validated structured evidence only.
 
-- **The model never does arithmetic.** Gemini extracts intent and explains results. Scoring is a deterministic Python engine, so identical inputs always produce an identical score.
-- **Agents report what they actually did.** Messages are generated from real tool output ("Analyzed 8 locality snapshots; 4 anomalies", "Retrieved 3 scoped civic documents", "no scoped document matched; none invented"), never a scripted "done". If ADK fails for any reason a legacy path takes over automatically, so search never breaks.
+Two rules keep this honest rather than theatrical:
 
----
+- **The model never does arithmetic.** Gemini extracts intent and explains results; scoring is deterministic Python, so identical inputs always produce an identical score.
+- **Agents report real work.** Messages are generated from actual tool output — for example *"No scoped official civic document matched; none invented"* — never a scripted completion notice.
 
-## <img src="assets/readme/rag.svg" height="22" align="center" alt="" /> &nbsp;Civic evidence (RAG)
-
-Retrieval is used where it genuinely closes an evidence gap: **official civic documents** such as development plans, water-quality and pollution-control reports, transport plans and environmental notices.
-
-It is deliberately **not** used for anything live. AQI, commute, amenities and current listings come from APIs, because a stale PDF must never answer a question about right now.
-
-Every passage keeps its document title, issuing authority, publication date, geographic scope and **page number**, and links back to the original source. Retrieval is pre-filtered by city and locality, and prompt-injection attempts inside retrieved documents are detected. When nothing relevant exists, NestIQ says so, rather than generating evidence to avoid an empty state.
+**Fallback behavior.** ADK runs behind the `USE_ADK_ORCHESTRATION` flag. If the coordinator raises for any reason, `backend/app/main.py` catches it, logs `[adk] orchestration failed, using legacy stream`, and falls through to the legacy narrated stream, which emits the same SSE contract. Search does not break; it degrades.
 
 ---
 
-## <img src="assets/readme/pulse.svg" height="22" align="center" alt="" /> &nbsp;Locality Pulse and Alerts
+## <img src="assets/readme/security.svg" height="22" align="center" alt="" /> &nbsp;Security and reliability
 
-One grounded pipeline powers three surfaces: Community Insights (locality), Alerts City Pulse (city-wide), and watchlist warnings for saved localities. There is no second event pipeline.
+Each choice below is stated with its reasoning, because the reasoning is the part that generalizes.
 
-Each event carries a headline, grounded summary, category (environment, mobility, civic, safety, development), severity, geographic scope, publication time, publisher, and a link to the original source. Events are deduplicated, official sources are preferred, and the default window is 30 days.
+**CORS fails closed** (`backend/app/main.py`). Allowed origins come from configuration; when unset, only loopback development origins are permitted, and a literal `*` is filtered out even if configured. A deploy that forgets the variable breaks the frontend loudly instead of silently serving every origin on the internet. The blast radius of failing closed here is one origin being blocked — small, and immediately visible.
 
-**Temporary events never move a FitScore.** They are evidence shown beside the score, never folded into it. The empty states are also kept distinct: "no verified updates" is a different claim from "the source could not be reached", and the UI never shows the first when it means the second.
+**Secret Manager support fails safe** (`backend/app/secrets.py`, flag-gated) — deliberately the opposite choice. A missing secret or a fetch error keeps the existing environment value, because blanking a working credential takes the entire service down. The failure mode being guarded against is total outage, so the safe direction is inverted relative to CORS. The module logs only a secret's name and an exception type, never a value and never an exception message, since a message can echo the payload back into logs.
+
+**Maps key separation** (`backend/app/main.py`). `/api/config` returns only the browser key. The server key used for Air Quality, Places and Distance Matrix is never returned by any endpoint, and if the browser key is unset the response is an empty string rather than a fallback to the server key — which would reopen the exact leak the separation exists to close.
+
+**NL→SQL runs against an allowlist, not a blocklist** (`backend/app/sql_guard.py`). The prepended CTE supplies the only legitimate table reference, so any other table in a generated query is by definition an escape attempt. Enforced: single statement, must begin with `SELECT`, no backticks, every `FROM`/`JOIN` target must be the allowed CTE or a locally-defined alias, comments rejected, and DDL/DML rejected on word boundaries. The word-boundary detail matters — a substring blocklist rejected the legitimate literal `'Updated Colony'` because it contains "update". Implicit comma joins required a parenthesis-aware scanner rather than a regex, because splitting on commas breaks on subqueries that contain them.
+
+**Query cost is capped by bytes, not rows** (`backend/app/bq_india.py`). Every generated query is dry-run for a byte estimate, rejected above `MAX_QUERY_BYTES` (100 MB), then executed with `maximum_bytes_billed`. A row limit caps what is returned, never what is scanned, so it was never cost control.
+
+**Request limiting** (`backend/app/rate_limit.py`). A per-instance fixed window of 20 requests per 60 seconds on `/api/ask`, the endpoint that costs both a Gemini call and a BigQuery job, returning 429 with `Retry-After`.
+
+**Bounded model calls.** The Vertex client is constructed with an explicit timeout so a hung generation cannot hold a Cloud Run request open indefinitely (`backend/app/gemini.py`, `backend/app/config.py`).
+
+**Graceful degradation.** Locality data is cached with stale-while-revalidate semantics, concurrent requests for the same city share a single build rather than each calling Google, and a failed grounding attempt is recorded briefly so the UI reaches an honest unavailable state instead of loading forever (`backend/app/maps.py`, `backend/app/main.py`).
 
 ---
 
-## <img src="assets/readme/family.svg" height="22" align="center" alt="" /> &nbsp;Family Health and Resilience
+## <img src="assets/readme/evaluation.svg" height="22" align="center" alt="" /> &nbsp;Responsible AI practices
 
-An optional preset for the household this product is really for: someone with an asthmatic child or an elderly parent, who cannot treat air quality as a nice-to-have.
+`backend/app/evaluation.py` runs a deterministic scorecard with **zero billable calls**, so it can execute in CI without touching Vertex. Current result: **7 of 7 cases passing across 4 dimensions**.
 
-> *"Find a neighbourhood under 25,000 for my asthmatic child and elderly mother, with cleaner air, a hospital and school nearby, and under 30 minutes to work."*
+| Case | Dimension | What it asserts |
+|---|---|---|
+| `air-severe-absolute` | health_scoring | AQI 500 scores ≤ 14, bands as Severe, and raises a critical risk |
+| `missing-air-provisional` | missing_data_honesty | An absent AQI produces a provisional score, not a substituted value |
+| `missing-commute-not-fabricated` | missing_data_honesty | An absent commute is excluded rather than defaulted |
+| `pulse-unsupported-source-rejected` | groundedness | A pulse item whose source is not in the citation ledger is dropped |
+| `rent-without-citations-rejected` | groundedness | Rent evidence without citations is not surfaced |
+| `nl-sql-write-rejected` | security | A write statement is refused before reaching BigQuery |
+| `civic-rag-citations-controlled` | groundedness | Retrieved passages keep controlled, verifiable citations |
 
-Selecting it applies a fixed, published weight profile (**Air 35 - Safety 28 - Commute 20 - Affordability 12 - Essentials 5**) resolved server-side from an allowlisted preset id. The browser can never inject its own weights, and the "Prioritized for family health" badge appears only when those weights were genuinely applied.
-
-Alongside it, **Essential Services** proximity (hospitals, doctors, pharmacies, schools, universities) is surfaced per locality from Google Places, captioned *"shown for context, not part of the FitScore."* It is deliberately excluded from scoring until the weighting is validated, and that exclusion is enforced in code, not just in copy.
+The scorecard tests the properties that matter for trust — that the system refuses to fabricate — rather than asserting exact LLM prose, which would be brittle and would not measure honesty.
 
 ---
 
-## <img src="assets/readme/security.svg" height="22" align="center" alt="" /> &nbsp;Security and cost control
+## <img src="assets/readme/scale.svg" height="22" align="center" alt="" /> &nbsp;Scalability: city onboarding
 
-| Control | Implementation |
-|---|---|
-| **CORS allowlist** | Origins come from configuration and fail **closed**: unset means loopback only, so a misconfigured deploy breaks loudly instead of silently serving the world |
-| **Key separation** | The browser receives a referrer-restricted Maps key only; the server key used for Air Quality, Places and Distance Matrix is never returned by any endpoint |
-| **NL to SQL allowlist** | Model SQL may read exactly one table. Backticked or qualified references, comma joins, UNIONs to other tables, comments and stacked statements are rejected before BigQuery is touched |
-| **Query cost ceiling** | Every generated query is dry-run for a byte estimate, rejected above the cap, then executed with `maximum_bytes_billed`. Row limits alone were never cost control |
-| **Request limiting** | Fixed-window limiter on the expensive Gemini and BigQuery path, returning 429 with `Retry-After` |
-| **Bounded model calls** | The Vertex client is built with an explicit timeout so a hung generation cannot hold a request open |
-| **Secret Manager ready** | Optional, flag-gated backing that fails safe to environment values and never logs secret material |
+New cities are added through a validation workflow rather than by hand-editing a catalog (`backend/tools/validate_city.py`). The tool is a standalone CLI that imports application modules but is never imported by them, so it cannot leak into a request path.
 
-Scope is stated honestly: the limiter is **per instance**, so a genuinely global cap needs edge enforcement (Cloud Armor or API Gateway). Key restriction and rotation are deployment-time operations, handled outside the codebase.
+```bash
+cd backend
+python -m tools.validate_city                          # structural pass, free, no model calls
+python -m tools.validate_city --rent-check --limit 10  # grounded rent cross-check, resumable
+```
+
+**What it checks.** Required keys per locality, globally unique ids, centroids inside India's bounding box, complete city anchors, plausible rent ranges, live-signal resolution against Google APIs, and scoring validity. It writes a coverage report to `backend/data/city_coverage_report.md`.
+
+**What it blocks, and why.** Structural errors block publication; warnings do not, because a value outside an expected range is a judgment call rather than a defect. On the grounded rent cross-check the tool is **flag-only** — it never rewrites the catalog. A disagreement is reported only when it clears **both** a delta threshold and a minimum sample size; a real delta backed by too few observations is downgraded to `insufficient_sample` and shown with its citations rather than dropped. Auto-correcting curated values from a quota-limited search would be exactly the kind of silent change the rest of the system is built to prevent.
+
+**Current state.** `python -m tools.validate_city` across all 13 cities reports **0 structural errors and 0 flagged rent disagreements**. The four most recently onboarded cities (Ahmedabad, Jaipur, Lucknow, Kochi) carry source-backed rent baselines with citation URLs (`backend/app/market_data.py`) and no safety data, so they score provisional at 80% coverage.
+
+---
+## <img src="assets/readme/fitscore.svg" height="22" align="center" alt="" /> &nbsp;The FitScore
+
+```text
+FitScore = Σ (pillar_subscore × your_weight) / Σ weights   (over available pillars only)
+```
+
+| Pillar | Signal | Source | Default weight |
+|---|---|---|---|
+| **Air Quality** | Live CPCB AQI, scored on absolute health bands | Google Air Quality API | 25 |
+| **Affordability** | Median monthly rent against your budget | Grounded market evidence or a labelled curated estimate | 20 |
+| **Safety** | Locality safety index | Curated proxy where available; openly absent otherwise | 20 |
+| **Commute** | Live drive time with traffic to the city work hub | Google Distance Matrix | 20 |
+| **Essentials & Lifestyle** | Amenities within 1.5 km | Google Places (New) | 15 |
+
+Weights come from the user's own words via Gemini and are adjustable live with sliders. Defaults live in one place (`backend/app/india.py`) and are imported by both the query parser and the scoring engine, so the two cannot disagree.
+
+**Missing pillars are renormalized, never zeroed.** A pillar with no data is dropped from both numerator and denominator, and the result is labelled provisional with its coverage percentage (`backend/app/maps.py`). A locality missing safety scores across the remaining four pillars at 80% coverage — it is not penalised for a gap in our data.
+
+**Essential services are collected but not scored.** Hospitals, doctors, pharmacies, schools and universities are fetched separately from the lifestyle amenity list and surfaced for context, gated behind `ESSENTIALS_IN_LIFESTYLE_SCORE` (default off) so the separation is enforced in code rather than in copy (`backend/app/maps.py`, `src/lib/essentials.js`).
 
 ---
 
 ## <img src="assets/readme/anomaly.svg" height="22" align="center" alt="" /> &nbsp;Anomaly detection
 
-NestIQ automatically surfaces localities that break the pattern — free of extra API calls, reusing metrics already fetched:
+Two detectors run over metrics already fetched, adding no API calls (`backend/app/maps.py`):
 
-- **Cross-sectional outliers.** For each metric, a locality flagged when its value sits **≥ 1.5σ from the city mean** — for example *"Unusually polluted — AQI 251, 1.7σ above the city average"* or *"Unusually affordable — ₹17,000/mo, 1.5σ below."* Shown as an "Anomalies detected" panel on results and as flag chips on the detail page.
-- **Temporal AQI spikes.** On the Air Quality tab, the current reading is compared to the locality's own 24-hour history; a genuine spike (≥ 1.5σ from its rolling mean) is flagged, so a pollution event is caught the moment it happens.
+- **Cross-sectional outliers.** A locality is flagged when a metric sits ≥ 1.5σ from the city mean — for example *"Unusually affordable — ₹17,000/mo, 1.5σ below the city average"*.
+- **Temporal AQI spikes.** The current reading is compared against the locality's own 24-hour history, so a pollution event is caught as it happens rather than averaged away.
 
-Guardrails keep it honest: a minimum-sample floor and a two-flags-per-locality cap prevent false positives on thin data.
+Guardrails keep it honest: a minimum-sample floor, a two-flags-per-locality cap, and a skip when any value in the series is missing — so an absent metric never produces a spurious flag.
+
+---
+
+## <img src="assets/readme/rag.svg" height="22" align="center" alt="" /> &nbsp;Civic evidence retrieval
+
+Retrieval is scoped to where it closes a genuine evidence gap: **official civic documents** — development plans, water quality and pollution control reports, transport plans and environmental notices (`backend/app/civic_rag.py`).
+
+It is deliberately **not** used for anything live. AQI, commute, amenities and current listings come from APIs, because a stale document must never answer a question about current conditions.
+
+Passages retain document title, issuing authority, publication date, geographic scope and **page number**, and link to the original source. Retrieval is pre-filtered by city and locality. When nothing relevant exists, the response says so rather than generating evidence to avoid an empty state — asserted by the `civic-rag-citations-controlled` scorecard case.
+
+---
+
+## <img src="assets/readme/pulse.svg" height="22" align="center" alt="" /> &nbsp;Locality Pulse and Alerts
+
+One grounded pipeline powers three surfaces — locality pulse, city-wide pulse, and watchlist alerts for saved localities (`backend/app/gemini.py`, `backend/app/main.py`). There is no second event pipeline.
+
+Each event carries a headline, grounded summary, category, severity, geographic scope, publication time, publisher and a link to the source. Items are validated against the actual citation ledger: an event whose source is not among the returned citations is discarded rather than shown.
+
+**Temporary events never move a FitScore.** They are evidence displayed beside the score, never folded into it.
+
+**Empty states are kept distinct.** *"No verified updates"* and *"the source could not be reached"* are different claims, and the UI never substitutes one for the other. Watchlist aggregation only reports "no alerts" when a source positively confirmed it; anything unknown degrades to unavailable (`src/lib/watchlistPulse.js`).
+
+---
+
+## <img src="assets/readme/family.svg" height="22" align="center" alt="" /> &nbsp;Family Health and Resilience
+
+An optional preset for households where air quality is not negotiable — someone with an asthmatic child or an elderly parent.
+
+Selecting it applies a fixed, published weight profile — **Air 35, Safety 28, Commute 20, Affordability 12, Essentials 5** — resolved server-side from an allowlist (`backend/app/main.py`). The browser sends only a preset id and can never inject weights; an unrecognised id is rejected with HTTP 422 rather than silently ignored. The "Prioritized for family health" indicator renders only when the server confirms the profile was applied.
+
+Alongside it, essential-services proximity is surfaced per locality and captioned as context that is not part of the FitScore.
 
 ---
 
@@ -247,86 +300,53 @@ Guardrails keep it honest: a minimum-sample floor and a two-flags-per-locality c
 
 | Layer | Technology |
 |---|---|
-| **AI / LLM** | **Gemini 2.5 Flash on Vertex AI** — structured output (Pydantic schemas), NL → weights, NL → SQL, grounded Q&A, explanations, Google-Search-grounded web reviews |
-| **Data warehouse & ML** | **BigQuery** (locality snapshots + hourly AQI history) · **BigQuery ML ARIMA_PLUS** (AQI forecasting with confidence intervals) · **BigQuery public datasets** (NYC 311, NYPD collisions) for the reference pipeline |
+| **AI / LLM** | **Gemini 2.5 Flash on Vertex AI** — structured output via Pydantic schemas, NL→weights, NL→SQL, grounded Q&A, explanations, Google Search grounding |
+| **Agent orchestration** | **Google Agent Development Kit (ADK)** — coordinator with three specialist agents, deterministic tools, SSE event streaming |
+| **Data warehouse & ML** | **BigQuery** (locality snapshots, hourly AQI history) · **BigQuery ML ARIMA_PLUS** (AQI forecasting with confidence intervals) |
 | **Live data** | **Google Maps Platform** — Air Quality API (CPCB), Places API (New), Distance Matrix, Maps JavaScript SDK, Place Photos |
-| **Backend** | **FastAPI** (Python) · Server-Sent Events streaming · self-healing Vertex client · read-only SQL guards |
-| **Frontend** | **React 18 + Vite** · Tailwind CSS · Recharts · lucide-react · **Google Identity Services** (OAuth sign-in) + guest mode |
-| **Auth & state** | Client-side **Google sign-in** (Google Identity Services, JWT decode) · localStorage watchlist, saved localities, and recent questions |
-| **Deployment & CI** | **Cloud Run** (backend, containerized by **Cloud Build** and stored in **Artifact Registry**) · **Firebase Hosting** (frontend) |
-
-> **Google Cloud footprint.** Vertex AI (Gemini 2.5 Flash) · Google Search grounding · BigQuery · BigQuery ML (ARIMA_PLUS) · BigQuery public datasets · Google Maps Platform (Air Quality, Places New, Distance Matrix, Maps JS SDK, Place Photos) · Google Identity Services (OAuth sign-in) · Cloud Run · Cloud Build · Artifact Registry · Firebase Hosting.
+| **Backend** | **FastAPI** (Python) · Server-Sent Events · SQL allowlist guard · per-instance rate limiting · optional Secret Manager |
+| **Frontend** | **React 18 + Vite** · Tailwind CSS · Recharts · lucide-react · Google Identity Services with guest mode |
+| **Deployment** | **Cloud Run** (backend, built by **Cloud Build**, stored in **Artifact Registry**) · **Firebase Hosting** (frontend) |
 
 ---
 
-## <img src="assets/readme/data.svg" height="22" align="center" alt="" /> &nbsp;Data sources & honesty
+## <img src="assets/readme/testing.svg" height="22" align="center" alt="" /> &nbsp;Verification
 
-Being explicit about provenance is a feature, not a footnote:
+All figures below were produced by running the suites in this repository, not carried over from a previous revision.
 
-- **Live** — CPCB AQI (via Google), amenity counts, commute times, and locality photos are fetched in real time and cached for 30 minutes.
-- **Estimated & labeled** — median rents and safety baselines are curated market estimates; open locality-level data for these does not exist in India, and the UI says so wherever they appear.
-- **Accumulating** — BigQuery tables grow with every search, and the ARIMA_PLUS forecast model improves as history builds up.
-- **Reference pipeline** — the repo also contains a complete NYC pipeline (Zillow ZORI + NYC 311 + NYPD collisions in BigQuery, rent forecasting with ARIMA_PLUS) that validated the architecture on fully open public data.
+| Gate | Result |
+|---|---|
+| Backend tests | **322 passed** across 31 test modules |
+| Frontend tests | **59 passed** across 8 test files |
+| Production build | **Passing** |
+| Evaluation scorecard | **7 / 7**, 0 billable calls |
+| City validator | **0 structural errors**, 0 flagged rent disagreements, 13 cities |
 
----
+Reproduce:
 
-## <img src="assets/readme/resilience.svg" height="22" align="center" alt="" /> &nbsp;Resilience & production
+```bash
+cd backend && python -m pytest -q          # 322 passed
+python -m tools.validate_city              # 0 structural errors
 
-Production-class safety nets so the platform stays up under demo conditions:
-
-- **NL to SQL runs against an allowlist** — model-written SQL may read exactly one table. Qualified/backticked references, comma joins, UNIONs to other tables, comments and stacked statements are rejected *before* any BigQuery client is constructed. See [Security](#-security--cost-control).
-- **Stale-while-revalidate caching** — locality base metrics cached 30 minutes; Gemini explanations, detail payloads, and web reviews cached up to 24 hours, so responses are instant and LLM cost stays low.
-- **Parallel fan-out** — the five pillar agents and all Google calls run concurrently, keeping a full search to roughly 2–3 seconds cold and about 10 ms warm.
-- **Concurrent-build de-duplication** — simultaneous requests for the same city share one live build instead of each hammering Google.
-- **Graceful fallbacks** — if the Air Quality API is cold or rate-limited, the system falls back to BigQuery snapshots or clearly labeled samples rather than failing.
-- **Non-blocking logging** — BigQuery snapshot writes happen off the request thread and only when data actually changed.
-- **Evidence prefetched on intent** — hovering or tapping a locality card starts the slow grounded fetches (civic pulse, essential services, resident sentiment, rent evidence) before the click lands, so the detail page opens with data already in flight instead of from cold. Guarded per locality so repeated hovers never re-fire.
-- **Interaction polish** — a branded cursor set (arrow, pointer, text, grab/grabbing) drawn in the product's own gradient, plus a soft trailing halo. The native cursor stays pixel-accurate so clicking never feels laggy; the halo is decorative, `pointer-events: none`, and disables itself under `prefers-reduced-motion`.
-
----
-
-## <img src="assets/readme/structure.svg" height="22" align="center" alt="" /> &nbsp;Project structure
-
-```text
-NestIQ/
-├── src/                         React frontend (Vite)
-│   ├── pages/                   Home · Results · NeighborhoodDetail (7 tabs) · Compare · Saved · Alerts · Ask · SignIn
-│   ├── components/              result cards · agent progress (SSE) · pulse events · filters · maps · gauges · layout
-│   └── lib/                     API client · presets · essentials · fitscore · watchlist pulse · city store · auth · adapters
-├── backend/
-│   ├── app/
-│   │   ├── main.py              FastAPI endpoints, CORS allowlist, search presets, rate limiting
-│   │   ├── adk_orchestration.py Google ADK coordinator + specialist agents, Validator, Explainer
-│   │   ├── gemini.py            NL → weights, NL → SQL, explanations, grounded reviews / pulse / rent
-│   │   ├── maps.py              Air Quality · Places · Distance Matrix · India scoring · anomalies
-│   │   ├── air_quality.py       Absolute CPCB bands, health scoring, critical-risk flags
-│   │   ├── evidence.py          Provenance envelopes for every pillar
-│   │   ├── civic_rag.py         Citation-locked civic document retrieval
-│   │   ├── sql_guard.py         NL → SQL table allowlist and row cap
-│   │   ├── rate_limit.py        Per-instance request limiting
-│   │   ├── secrets.py           Optional Secret Manager backing (default off)
-│   │   ├── bq_india.py          BigQuery snapshots, AQI history, ARIMA_PLUS, cost caps
-│   │   ├── india.py             13 cities · 73 localities · default weights
-│   │   └── fitscore.py          Normalization + weighted scoring engine
-│   └── tests/                   253 backend tests across 25 modules (fully offline)
-├── assets/readme/               themed section icons
-└── README.md
+cd .. && npm test                          # 59 passed
+npm run build                              # production build
 ```
 
----
+The backend suite runs fully offline — Vertex, BigQuery and Maps are stubbed — so it is deterministic and safe to run in CI.
 
-## <img src="assets/readme/setup.svg" height="22" align="center" alt="" /> &nbsp;Setup & local development
+Coverage is weighted toward the properties that are easy to get wrong: absolute CPCB bands at category boundaries, equal and all-Severe AQI, provenance envelopes for live/curated/grounded/absent data, SQL guard escapes including comma joins and UNION attempts, dry-run cost enforcement, CORS failing closed, secrets failing safe without logging material, and honest failure states in place of indefinite loading.
 
-**Prerequisites:** Node 18+, Python 3.12+, and a GCP project with **BigQuery, Vertex AI, Air Quality, Places (New), and Distance Matrix** APIs enabled, plus `gcloud auth application-default login`.
+## <img src="assets/readme/setup.svg" height="22" align="center" alt="" /> &nbsp;Setup and local development
 
-**1. Backend (FastAPI)**
+**Prerequisites:** Node 18+, Python 3.12+, and a GCP project with BigQuery, Vertex AI, Air Quality, Places (New) and Distance Matrix enabled, plus `gcloud auth application-default login`.
+
+**Backend**
 
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env                                    # fill in the values below
-python seed_bq_india.py delhi-ncr                       # optional: seed BigQuery from live data
 python -m uvicorn app.main:app --port 8080
 ```
 
@@ -343,20 +363,22 @@ MAPS_API_KEY=your-server-maps-key
 # Public key served to the browser for the Maps JS SDK.
 # Restrict this one by HTTP referrer in the Google Cloud console.
 MAPS_BROWSER_KEY=your-browser-maps-key
-# CORS allowlist. UNSET = localhost only, so a misconfigured deploy fails loudly.
+# CORS allowlist. UNSET means localhost only, so a misconfigured deploy fails loudly.
 ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-**2. Frontend (React + Vite)**
+There is no `--reload`; restart the server after editing any `backend/app/*.py`.
+
+**Frontend**
 
 ```bash
 npm install
 npm run dev                                             # http://localhost:5173
 ```
 
-Optional: set `VITE_GOOGLE_CLIENT_ID` in a root `.env` to enable "Continue with Google" (guest mode works without it).
+Optional: set `VITE_GOOGLE_CLIENT_ID` in a root `.env` to enable Google sign-in. Guest mode works without it.
 
-> **Security:** `.env` files are gitignored. Restrict your Maps key (HTTP referrers + only the APIs above) before any public deployment.
+> `.env` files are gitignored. Restrict the browser Maps key by HTTP referrer, and the server key by API, before any public deployment.
 
 ---
 
@@ -364,85 +386,46 @@ Optional: set `VITE_GOOGLE_CLIENT_ID` in a root `.env` to enable "Continue with 
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/search` | NL query to weighted FitScore ranking. Optional `preset` (allowlisted server-side) applies a published weight profile |
-| `GET` | `/api/search/stream` | Same, streamed as SSE ADK agent events (Planner, Live Signals, Analytics, Civic Intelligence, Validator, Explainer) |
-| `GET` | `/api/neighborhoods` | All localities for a city, ranked on default weights |
-| `GET` | `/api/neighborhood/{id}` | Full detail: sub-scores, evidence envelopes, anomalies, AQI history, Google forecast and BQML forecast |
-| `GET` | `/api/neighborhood/{id}/essentials` | Essential-services proximity (hospitals, doctors, pharmacies, schools, universities). Context only, never scored |
-| `GET` | `/api/neighborhood/{id}/reviews` | Cited resident sentiment (Gemini + Google Search grounding) |
+| `POST` | `/api/search` | NL query to weighted FitScore ranking. Optional allowlisted `preset` |
+| `GET` | `/api/search/stream` | The same search, streamed as SSE ADK agent events |
+| `GET` | `/api/neighborhoods` | All localities for a city on default weights |
+| `GET` | `/api/neighborhood/{id}` | Detail: sub-scores, evidence envelopes, anomalies, AQI history, Google and BQML forecasts |
+| `GET` | `/api/neighborhood/{id}/essentials` | Essential-services proximity. Context only, never scored |
+| `GET` | `/api/neighborhood/{id}/reviews` | Cited resident sentiment |
 | `GET` | `/api/neighborhood/{id}/pulse` | Grounded civic events for a locality |
-| `GET` | `/api/neighborhood/{id}/rent-verification` | On-demand grounded rent evidence beside the curated estimate |
-| `GET` | `/api/neighborhood/{id}/civic-knowledge` | Citation-locked civic document retrieval (title, authority, page) |
-| `GET` | `/api/city/{city}/pulse` | City-wide civic pulse, same pipeline as locality pulse |
-| `GET` | `/api/cities` | Supported cities |
-| `GET` | `/api/config` | Browser-safe config only. Never returns the server Maps key |
-| `GET` | `/api/health` | Liveness and configured cities |
+| `GET` | `/api/neighborhood/{id}/rent-verification` | On-demand grounded rent evidence with citations |
+| `GET` | `/api/neighborhood/{id}/civic-knowledge` | Citation-locked civic document retrieval |
+| `GET` | `/api/city/{city}/pulse` | City-wide civic pulse, same pipeline |
+| `GET` | `/api/cities` · `/api/config` · `/api/health` | Supported cities · browser-safe config · liveness |
 
-Unknown `preset` or `lang` values are rejected with `422` rather than silently ignored, so a
-client can never quietly get a different ranking than the one it asked for.
+An unrecognised `preset` returns `422` rather than being silently ignored, so a client can never receive a different ranking than the one it requested.
 
-## <img src="assets/readme/testing.svg" height="22" align="center" alt="" /> &nbsp;Testing & quality
-
-**369 automated tests** (317 backend across 31 modules + 52 frontend) run fully offline. Every external
-service is stubbed, so the suite is deterministic and CI-safe.
-
-| Suite | Focus |
-|---|---|
-| `test_air_quality.py`, `test_air_provenance.py` | Absolute CPCB bands: equal AQI, all-Severe, category boundaries, missing readings, ranking monotonicity, and that a Severe reading can never score outside its band |
-| `test_fitscore.py` | Normalization, weight-driven re-ranking, provisional scoring with coverage, anomaly flags, match labels |
-| `test_evidence.py`, `test_safety_rent.py` | Provenance envelopes per pillar, curated-vs-live labelling, stale timestamps, grounded rent verification |
-| `test_sql_guard.py` | NL to SQL allowlist: comma joins, qualified/backticked tables, UNION escapes, nested subqueries, comments, stacked statements, plus legitimate queries that must still pass |
-| `test_analytics_query_guard.py` | Nothing invalid reaches BigQuery; dry run precedes execution; `maximum_bytes_billed` is set; city filter is parameterised |
-| `test_security_config.py`, `test_rate_limit.py`, `test_secrets.py` | CORS fails closed, server key never leaves the server, per-instance limiting and 429s, Secret Manager fails safe and never logs secret material |
-| `test_presets.py`, `test_essentials.py`, `test_essentials_flag.py` | Family-health preset weights and 422 on unknown ids; essential services stay separate from lifestyle scoring |
-| `test_civic_rag.py`, `test_city_pulse.py`, `test_pulse_failure_state.py` | Citation-locked retrieval, shared pulse pipeline, and honest failure states instead of endless loading |
-| `test_api.py`, `test_maps_cache.py`, `test_efficiency.py` | Full API contract, ADK stream contract with legacy fallback, stale-while-revalidate cache, parallel fan-out, concurrent-build de-dup |
-| `src/lib/*.test.js` | Indian-notation formatting, FitScore re-weighting, city detection, presets, essentials, and watchlist aggregation honesty rules |
-
-```bash
-cd backend && python -m pytest -q     # 253 passed
-npm test                              # 52 passed
-npm run build                         # production build
-```
+---
 
 ## <img src="assets/readme/demo.svg" height="22" align="center" alt="" /> &nbsp;Demo flow
 
-1. **The persona.** A family relocating to Delhi NCR, with an asthmatic child and an elderly parent.
-2. **The preset.** Use **Family Health & Resilience** on the home page. The published weight profile
-   (Air 35, Safety 28, Commute 20, Affordability 12, Essentials 5) is applied server-side, and the
-   results header confirms it was genuinely applied.
-3. **The agents.** Watch the ADK Planner, Live Signals, Analytics, Civic Intelligence, Validator and
-   Explainer stream real findings over SSE.
-4. **The honesty proof.** Open the top match. The FitScore panel publishes every pillar weight and its
-   source. Any missing signal is labelled unavailable and the score is marked provisional with its
-   coverage percentage, rather than quietly guessed.
-5. **Absolute air.** Open Air Quality. The CPCB band is absolute, so a polluted locality cannot look
-   healthy merely by being the best of a bad set. The BigQuery ML ARIMA_PLUS forecast runs beside
-   Google's own forecast.
-6. **Essential services.** On Essentials & Lifestyle, hospitals, doctors, pharmacies, schools and
-   universities are shown for context and explicitly excluded from the score.
-7. **Civic evidence.** Community Insights carries grounded resident sentiment, current Locality Pulse
-   events, and official civic documents with authority, date and page number.
-8. **Conversational analytics.** In Ask NestIQ, ask a cross-locality question and watch Gemini write
-   real BigQuery SQL, guarded by a table allowlist and a dry-run cost check, with the query shown.
+1. **Search.** Use the **Family Health & Resilience** preset on the home page. The published weight profile is applied server-side and the results header confirms it was genuinely applied.
+2. **Agents.** Watch the ADK planner, Live Signals, Analytics, Civic Intelligence, Validator and Explainer stream real findings over SSE.
+3. **Provenance.** Open the top match. Every pillar publishes its weight and source; any missing signal is marked unavailable and the score is labelled provisional with coverage.
+4. **Absolute air.** On the Air Quality tab the CPCB band is absolute, so a polluted locality cannot appear healthy by being the best of a bad set. The BQML ARIMA_PLUS forecast runs alongside Google's.
+5. **Honest absence.** Switch to Lucknow or Kochi. Safety reads *"No curated safety profile exists"* and the FitScore runs provisional at 80% — the system declines to invent a number.
+6. **Conversational analytics.** In Ask NestIQ, ask a cross-locality question and watch Gemini write real BigQuery SQL, guarded by the table allowlist and a dry-run cost check, with the query shown.
+
+---
 
 ## <img src="assets/readme/roadmap.svg" height="22" align="center" alt="" /> &nbsp;Roadmap
 
-- Rotate to a referrer-restricted browser Maps key and move secrets into Secret Manager
-  (code support is already in place)
-- Global rate limiting at the edge (Cloud Armor or API Gateway) rather than per instance
-- Real rent ingestion (city rent indices) into BigQuery to replace the curated estimate
-- Scheduled watchlist alerts on AQI threshold crossings via Cloud Scheduler
 - Route-level code splitting to bring the initial bundle under the 500 KB budget
-- Hindi and regional-language interface
-- Publish the four validated candidate metros once their rent evidence is sourced
+- Global rate limiting at the edge (Cloud Armor or API Gateway) rather than per instance
+- Provision Secret Manager and enable the existing code path
+- A sourced, citable safety signal for cities without a curated proxy
+- Scheduled watchlist alerts on AQI threshold crossings via Cloud Scheduler
+- Multilingual interface
 
 ---
 
 <div align="center">
 
-**Built by Amaan Khan** · Team WebHackers
-
-Built for better living and smarter communities · Powered by Google Cloud & Gemini
+Built for better living and smarter communities · Powered by Google Cloud and Gemini
 
 </div>
