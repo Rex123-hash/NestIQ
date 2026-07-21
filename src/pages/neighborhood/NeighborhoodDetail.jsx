@@ -48,12 +48,15 @@ export default function NeighborhoodDetail() {
   const saved = useSaved().some((x) => x.id === id)
 
   useEffect(() => {
-    // Warm slow, evidence-only sources as soon as a locality opens. Rent stays
-    // hidden because prefetch results are not persisted or rendered until the
-    // user explicitly selects Verify current rent.
+    // Start slow evidence only after this locality actually opens. A small
+    // stagger avoids one synchronized burst while still warming every tab.
     apiReviews(id, city)
-    apiRentVerification(id, city, false, false)
-    apiLocalityPulse(id, city)
+    const pulseTimer = setTimeout(() => apiLocalityPulse(id, city), 300)
+    const rentTimer = setTimeout(() => apiRentVerification(id, city, false, false), 900)
+    return () => {
+      clearTimeout(pulseTimer)
+      clearTimeout(rentTimer)
+    }
   }, [id, city])
 
   useEffect(() => {

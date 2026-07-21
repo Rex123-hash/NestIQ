@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { AffordabilityTab, ReviewsPanel } from './detailTabs.jsx'
 import { apiRentVerification, apiReviews } from '../../lib/api.js'
 
@@ -40,8 +40,16 @@ describe('Community Reviews', () => {
   })
 })
 
+const RENT_NEIGHBORHOOD = {
+  id: 'sector-18', cityId: 'delhi-ncr', name: 'Sector 18', short: 'Sector 18',
+  rentDisplay: '\u20B924,000', subscores: { affordability: 80 },
+  insights: { rent: { rank: 1, total: 1 }, peers: [{ id: 'sector-18', name: 'Sector 18', rent: 24000 }] },
+  evidence: { affordability: { status: 'curated', source: 'NestIQ market dataset', sourceType: 'curated_market' } },
+}
+
 describe('Rent verification', () => {
   it('shows honest background progress after Verify current rent', async () => {
+    vi.useFakeTimers()
     apiRentVerification.mockResolvedValue({ status: 'pending', refreshStatus: 'refreshing' })
     const n = {
       id: 'sector-18', cityId: 'delhi-ncr', name: 'Sector 18', short: 'Sector 18',
@@ -51,7 +59,40 @@ describe('Rent verification', () => {
     }
     render(<AffordabilityTab n={n} />)
     fireEvent.click(screen.getByRole('button', { name: /verify current rent/i }))
-    await waitFor(() => expect(screen.getByText(/running in the background/i)).toBeTruthy())
-    expect(apiRentVerification).toHaveBeenCalledWith('sector-18', 'delhi-ncr', false)
+    expect(screen.getByText(/preparing grounded rent evidence/i)).toBeTruthy()
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(screen.getByText(/running in the background/i)).toBeTruthy()
+    expect(apiRentVerification.mock.calls[0].slice(0, 3)).toEqual(['sector-18', 'delhi-ncr', false])
+  })
+
+  it('keeps stale verified rent visible when a refresh fails', async () => {
+    vi.useFakeTimers()
+    apiRentVerification.mockResolvedValueOnce({
+      status: 'pending', refreshStatus: 'refreshing',
+    })
+    apiRentVerification.mockResolvedValueOnce({
+      status: 'available', refreshStatus: 'failed', cacheStatus: 'stale',
+      medianRent: 21000, rangeLow: 19000, rangeHigh: 23000,
+      sampleSize: 4, sourceCount: 2, citations: [], confidence: 'medium', confidenceScore: 65,
+      limitation: 'Showing previously verified rent evidence because the latest refresh did not complete.',
+    })
+    render(<AffordabilityTab n={RENT_NEIGHBORHOOD} />)
+    fireEvent.click(screen.getByRole('button', { name: /verify current rent/i }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+    expect(screen.getAllByText(/showing previously verified rent evidence/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/21,000 median/i)).toBeTruthy()
+  })
+
+  it('stops client polling after the bounded wait window', async () => {
+    vi.useFakeTimers()
+    apiRentVerification.mockResolvedValue({ status: 'pending', refreshStatus: 'refreshing' })
+    render(<AffordabilityTab n={RENT_NEIGHBORHOOD} />)
+    fireEvent.click(screen.getByRole('button', { name: /verify current rent/i }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(80000) })
+    expect(screen.getByText(/still running on the server/i)).toBeTruthy()
+    expect(apiRentVerification.mock.calls.length).toBeGreaterThan(1)
+    expect(apiRentVerification.mock.calls.length).toBeLessThanOrEqual(21)
   })
 })

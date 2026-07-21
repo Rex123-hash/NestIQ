@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   LineChart,
@@ -38,6 +38,7 @@ import { SUBSCORES, WEIGHTS, SOURCE_CHIPS, RUBRIC, METHOD_NOTE } from '../../dat
 import { ordinal } from '../../lib/adapt.js'
 import { apiReviews, apiRentVerification, apiLocalityPulse, apiCivicKnowledge, getCachedRentVerification } from '../../lib/api.js'
 import LocalityMap from '../../components/LocalityMap.jsx'
+import { pollPulse } from '../../lib/watchlistPulse.js'
 import { essentialCards, essentialsSummary } from '../../lib/essentials.js'
 
 const SUB_COLOR = {
@@ -400,6 +401,10 @@ export function OverviewTab({ n }) {
 }
 
 /* ------------------------------ Affordability ----------------------------- */
+const RENT_PREPARING_MS = 2000
+const RENT_POLL_INTERVAL_MS = 4000
+const RENT_POLL_DEADLINE_MS = 74000
+
 export function AffordabilityTab({ n }) {
   const aff = n.subscores.affordability
   const ins = n.insights || { peers: [] }
@@ -408,6 +413,7 @@ export function AffordabilityTab({ n }) {
   const [verifying, setVerifying] = useState(false)
   const [backgroundPending, setBackgroundPending] = useState(false)
   const [verificationNotice, setVerificationNotice] = useState('')
+  const verificationRequestRef = useRef(null)
 
   // Verified evidence spans several home sizes; the listed estimate states no
   // size at all. Showing the per-size medians is what makes the two comparable,
@@ -424,50 +430,76 @@ export function AffordabilityTab({ n }) {
   })()
 
   useEffect(() => {
+    verificationRequestRef.current?.abort()
     setVerification(getCachedRentVerification(n.id, n.cityId))
     setRentRevealed(false)
     setVerifying(false)
     setBackgroundPending(false)
     setVerificationNotice('')
+    return () => verificationRequestRef.current?.abort()
   }, [n.id, n.cityId])
 
   useEffect(() => {
     if (!backgroundPending) return undefined
     let alive = true
-    let attempts = 0
+    let timer
+    const controller = new AbortController()
+    const startedAt = Date.now()
     const poll = async () => {
-      attempts += 1
-      const result = await apiRentVerification(n.id, n.cityId, false)
+      const result = await apiRentVerification(n.id, n.cityId, false, true, controller.signal)
       if (!alive) return
-      if (result?.status === 'available' && result?.refreshStatus !== 'refreshing') {
-        setVerification(result)
+      const stillRunning = result?.status === 'pending' || result?.refreshStatus === 'refreshing'
+      if (result?.status === 'available') setVerification(result)
+      if (!stillRunning) {
+        if (result?.status !== 'available') setVerification(result)
         setBackgroundPending(false)
-        setVerificationNotice('Verification updated from grounded sources.')
-      } else if (result?.status !== 'pending' && result?.refreshStatus !== 'refreshing') {
-        setVerification(result)
-        setBackgroundPending(false)
-        setVerificationNotice(result?.limitation || 'Verification could not complete. The curated estimate remains unchanged.')
-      } else if (attempts >= 30) {
-        setBackgroundPending(false)
-        setVerificationNotice('Verification is still running. You can continue browsing and select Check status later.')
+        setVerificationNotice(result?.status === 'available'
+          ? (result?.refreshStatus === 'failed'
+            ? (result?.limitation || 'Showing the last verified rent evidence because refresh failed.')
+            : 'Verification updated from grounded sources.')
+          : (result?.limitation || 'Verification could not complete. The curated estimate remains unchanged.'))
+        return
       }
+      if (result?.pollable === false || Date.now() - startedAt >= RENT_POLL_DEADLINE_MS) {
+        setBackgroundPending(false)
+        setVerificationNotice(result?.pollable === false
+          ? (result?.limitation || 'The source check is continuing. Select Check status shortly.')
+          : 'Verification is still running on the server. You can continue browsing and select Check status later.')
+        return
+      }
+      timer = setTimeout(poll, RENT_POLL_INTERVAL_MS)
     }
-    const timer = setInterval(poll, 4000)
-    return () => { alive = false; clearInterval(timer) }
+    timer = setTimeout(poll, RENT_POLL_INTERVAL_MS)
+    return () => {
+      alive = false
+      controller.abort()
+      clearTimeout(timer)
+    }
   }, [backgroundPending, n.id, n.cityId])
 
   const verifyRent = async (refresh = false) => {
+    verificationRequestRef.current?.abort()
+    const controller = new AbortController()
+    verificationRequestRef.current = controller
     setRentRevealed(true)
     setVerifying(true)
-    setVerificationNotice(refresh ? 'Refreshing sources in the background. Your current verification remains visible.' : '')
+    setVerificationNotice(refresh
+      ? 'Refreshing sources in the background. Your current verification remains visible.'
+      : 'Preparing grounded rent evidence...')
+    const startedAt = Date.now()
     try {
-      const result = await apiRentVerification(n.id, n.cityId, refresh)
+      const result = await apiRentVerification(n.id, n.cityId, refresh, true, controller.signal)
+      const remainingPreparation = RENT_PREPARING_MS - (Date.now() - startedAt)
+      if (remainingPreparation > 0) {
+        await new Promise((resolve) => setTimeout(resolve, remainingPreparation))
+      }
+      if (controller.signal.aborted) return
       if (result?.status === 'pending' || result?.refreshStatus === 'refreshing') {
         if (result?.status === 'available' || verification?.status !== 'available') setVerification(result)
         const canPoll = result?.pollable !== false
         setBackgroundPending(canPoll)
         setVerificationNotice(canPoll
-          ? 'Grounded verification is running in the background and usually takes up to a minute, since sources are searched and each observation is validated. You can continue browsing while NestIQ checks sources.'
+          ? 'Grounded verification is running in the background. You can continue browsing while NestIQ checks and validates sources.'
           : (result?.limitation || 'The source check is continuing. You can keep browsing and check again shortly.'))
       } else {
         setVerification(result || {
@@ -478,7 +510,10 @@ export function AffordabilityTab({ n }) {
         setBackgroundPending(false)
       }
     } finally {
-      setVerifying(false)
+      if (verificationRequestRef.current === controller) {
+        verificationRequestRef.current = null
+        if (!controller.signal.aborted) setVerifying(false)
+      }
     }
   }
   const handleRentAction = () => {
@@ -1130,21 +1165,26 @@ function LocalityPulse({ n }) {
   const [pulse, setPulse] = useState(null)
   const [retryKey, setRetryKey] = useState(0)
   useEffect(() => {
-    let alive = true
-    let timer
-    let attempts = 0
+    const controller = new AbortController()
     const load = async () => {
-      const result = await apiLocalityPulse(n.id, n.cityId, retryKey > 0 && attempts === 0)
-      if (!alive) return
-      setPulse(result)
-      if ((result?.status === 'pending' || result?.refreshStatus === 'refreshing') && attempts < 30) {
-        attempts += 1
-        timer = setTimeout(load, 4000)
+      const result = await pollPulse(
+        (refresh) => apiLocalityPulse(n.id, n.cityId, refresh, controller.signal),
+        {
+          signal: controller.signal,
+          refresh: retryKey > 0,
+          onUpdate: (next) => { if (!controller.signal.aborted) setPulse(next) },
+        },
+      )
+      if (!controller.signal.aborted && result.status === 'client_wait_expired') {
+        setPulse({
+          status: 'temporarily_unavailable', items: [], citations: [],
+          limitation: 'The civic source check exceeded the client wait window. You can retry without reloading the page.',
+        })
       }
     }
     setPulse(null)
     load()
-    return () => { alive = false; clearTimeout(timer) }
+    return () => controller.abort()
   }, [n.id, n.cityId, retryKey])
   const live = pulse?.status === 'available' && pulse.items?.length > 0
   const noEvidence = pulse?.status === 'no_evidence'
@@ -1152,6 +1192,9 @@ function LocalityPulse({ n }) {
   const severityStyle = { low: 'bg-emerald-50 text-emerald-700', informational: 'bg-blue-50 text-blue-700', moderate: 'bg-amber-50 text-amber-700', high: 'bg-red-50 text-red-700' }
   return <Panel title={<span className="flex flex-wrap items-center gap-1.5"><Radio size={15} className="text-trend" /> Locality Pulse <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${live ? 'bg-emerald-50 text-emerald-700' : pending || noEvidence ? 'bg-gray-100 text-muted' : 'bg-amber-50 text-amber-700'}`}>{live ? 'Verified recent updates' : pending ? 'Checking sources…' : noEvidence ? 'No recent updates' : 'Evidence unavailable'}</span></span>} className="lg:col-span-3">
     <p className="mb-3 text-xs text-muted">Recent verified updates affecting {n.short || n.name}. Evidence only; this does not change FitScore.</p>
+    {pulse?.cacheStatus === 'stale' && <p className="mb-3 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-700">
+      {pulse?.refreshStatus === 'failed' ? 'Showing previous verified civic evidence because refresh failed.' : 'Showing previous verified civic evidence while fresh sources are checked.'}
+    </p>}
     {pulse === null || pulse.status === 'pending' ? <div className="h-20 animate-pulse rounded-xl bg-gray-100" /> : pulse.status === 'temporarily_unavailable' ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-sm text-amber-800">Recent civic evidence is temporarily unavailable. This does not mean nothing is happening.</p><button type="button" onClick={() => setRetryKey((v) => v + 1)} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800">Try again</button></div> : live ? <div className="overflow-hidden rounded-xl border border-line">{pulse.items.map((item, i) => <article key={`${item.headline}-${i}`} className="grid gap-3 border-b border-line p-3 last:border-b-0 lg:grid-cols-[185px_minmax(0,1fr)_150px_105px_180px] lg:items-center"><div className="flex min-w-0 flex-wrap items-center gap-2"><span className="capitalize text-xs font-semibold text-ink-soft">{item.category}</span><span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${severityStyle[item.severity] || severityStyle.informational}`}>{item.severity}</span></div><div className="min-w-0"><h4 className="text-sm font-semibold text-ink">{item.headline}</h4><p className="mt-0.5 text-xs leading-relaxed text-muted">{item.summary}</p></div><span className="flex min-w-0 items-center gap-1 text-xs text-muted"><MapPin size={12} className="shrink-0" /><span className="truncate">{item.affectedArea}</span></span><span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted"><Clock3 size={12} /> {item.freshness}</span><a href={item.sourceUrl} target="_blank" rel="noreferrer" className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-brand-200 px-2.5 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50"><span className="truncate">{item.source}</span><ExternalLink size={12} className="shrink-0" /></a></article>)}</div> : <p className="rounded-xl border border-line bg-[#F7F8FB] p-3 text-sm text-muted">No verified civic updates from the last 30 days were found. This is different from a source failure.</p>}
   </Panel>
 }

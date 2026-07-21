@@ -4,7 +4,7 @@ import { Heart, ArrowLeftRight, Trash2, Search, RefreshCw, MapPin } from 'lucide
 import ScoreGauge from '../components/ui/ScoreGauge.jsx'
 import CityPicker from '../components/layout/CityPicker.jsx'
 import { useSaved, removeSaved, getSaved, refreshSaved, isOutdated } from '../lib/saved.js'
-import { apiNeighborhoods, prefetchLocality } from '../lib/api.js'
+import { apiNeighborhoods } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
 import { useMapsKey, placesPhotoUrl } from '../lib/gmaps.js'
 
@@ -158,10 +158,6 @@ export default function Saved() {
 
                   <div className="flex flex-col gap-2">
                     <Link to={`/neighborhood/${n.id}`}
-                      onMouseEnter={() => prefetchLocality(n.id, n.city || 'delhi-ncr')}
-                      onFocus={() => prefetchLocality(n.id, n.city || 'delhi-ncr')}
-                      onTouchStart={() => prefetchLocality(n.id, n.city || 'delhi-ncr')}
-                      onClick={() => prefetchLocality(n.id, n.city || 'delhi-ncr')}
                       className="btn-primary py-2 text-xs">View Details</Link>
                     <Link to="/compare" className="btn-ghost py-2 text-xs"><ArrowLeftRight size={14} /> Compare</Link>
                     <button onClick={() => removeSaved(n.id)} className="btn-ghost py-2 text-xs text-ink-soft"><Trash2 size={14} /> Remove</button>

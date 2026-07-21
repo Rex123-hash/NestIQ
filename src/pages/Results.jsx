@@ -7,7 +7,7 @@ import ResultsMap from '../components/results/ResultsMap.jsx'
 import FiltersPanel from '../components/results/FiltersPanel.jsx'
 import AgentProgress from '../components/results/AgentProgress.jsx'
 import { preferences as defaultPrefs, WEIGHTS as INDIA_DEFAULT, SUBSCORES } from '../data/neighborhoods.js'
-import { streamSearch, apiNeighborhoods, prefetchLocality } from '../lib/api.js'
+import { streamSearch, apiNeighborhoods } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
 import { reweight } from '../lib/fitscore.js'
 import { citySnapshot } from '../lib/citySnapshot.js'
@@ -455,9 +455,6 @@ export default function Results() {
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {anomalyItems.map(({ id, name, flags }) => (
                 <Link key={id} to={`/neighborhood/${id}`}
-                  onMouseEnter={() => prefetchLocality(id, searchCity)}
-                  onFocus={() => prefetchLocality(id, searchCity)}
-                  onTouchStart={() => prefetchLocality(id, searchCity)}
                   className="rounded-xl border border-line p-3 transition hover:border-brand-200">
                   <p className="text-sm font-semibold text-ink">{name}</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -504,8 +501,6 @@ export default function Results() {
             </ul>
             {top && (
               <Link to={`/neighborhood/${top.id}`}
-                onMouseEnter={() => prefetchLocality(top.id, searchCity)}
-                onFocus={() => prefetchLocality(top.id, searchCity)}
                 className="mt-4 inline-block text-sm font-medium text-brand-700">
                 View Full Explanation →
               </Link>
@@ -554,8 +549,6 @@ export default function Results() {
             </ul>
             {top && (
               <Link to={`/neighborhood/${top.id}`}
-                onMouseEnter={() => prefetchLocality(top.id, searchCity)}
-                onFocus={() => prefetchLocality(top.id, searchCity)}
                 className="mt-4 inline-block text-sm font-medium text-brand-700">
                 See sources in detail →
               </Link>

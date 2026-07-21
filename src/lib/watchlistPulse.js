@@ -35,7 +35,8 @@ export async function pollPulse(fetchPulse, {
     first = false
     if (signal?.aborted) return PULSE_WAIT_EXPIRED
     onUpdate(data)
-    if (data?.status !== 'pending') return data
+    const stillRefreshing = data?.status === 'pending' || data?.refreshStatus === 'refreshing'
+    if (!stillRefreshing) return data
     if (now() - started >= deadline) return PULSE_WAIT_EXPIRED
     await delay(signal, interval)
   }

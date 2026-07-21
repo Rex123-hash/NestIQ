@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Bell, Wind, Home as HomeIcon, Car, ChevronRight, Info, Radio } from 'lucide-react'
 import { useSaved } from '../lib/saved.js'
-import { apiNeighborhoods, apiLocalityPulse, apiCityPulse, prefetchLocality } from '../lib/api.js'
+import { apiNeighborhoods, apiLocalityPulse, apiCityPulse } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
 import { useCity } from '../lib/cityStore.jsx'
 import CityPicker from '../components/layout/CityPicker.jsx'
@@ -209,9 +209,6 @@ function WatchlistView({ saved, isLive, events, retryEvents, pendingLabel }) {
           const [desc, sev, color] = aqiSignal(n.aqi)
           return (
             <Link key={n.id} to={`/neighborhood/${n.id}`}
-              onMouseEnter={() => prefetchLocality(n.id, n.city)}
-              onFocus={() => prefetchLocality(n.id, n.city)}
-              onTouchStart={() => prefetchLocality(n.id, n.city)}
               className="flex items-center gap-3 rounded-xl border border-line bg-white p-4 transition hover:border-brand-200">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ backgroundColor: `${color}1a`, color }}>
                 <Wind size={18} />

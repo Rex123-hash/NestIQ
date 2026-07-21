@@ -224,23 +224,20 @@ export async function apiCivicKnowledge(id, city, question) {
   }
 }
 
-export async function apiRentVerification(id, city, refresh = false, persist = true) {
+export async function apiRentVerification(id, city, refresh = false, persist = true, signal) {
   const cacheKey = `nestiq:rent-verification:${city}:${id}`
   const path = `/api/neighborhood/${id}/rent-verification?city=${encodeURIComponent(city)}${refresh ? '&refresh=true' : ''}`
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), EVIDENCE_TIMEOUT)
   try {
-    const r = await fetch(REVIEWS_BASE + path, { signal: controller.signal })
-    if (r.status === 404) return {
-      status: 'deployment_required',
-      limitation: 'The Rent Verification Agent is ready locally but is not available on the deployed backend yet.',
-    }
-    if (!r.ok) throw new Error(`GET ${path} ${r.status}`)
-    let result = await r.json()
-    if (persist && result.status === 'available' && typeof localStorage !== 'undefined') remember(localStorage, cacheKey, result)
+    const result = await timedJson(REVIEWS_BASE, path, EVIDENCE_TIMEOUT, signal)
+    const freshAvailable = result.status === 'available' && !result.refreshStatus
+    if (persist && freshAvailable && typeof localStorage !== 'undefined') remember(localStorage, cacheKey, result)
     return result
   } catch (e) {
     console.warn('[api] rent verification fallback:', e.message)
+    if (e.status === 404) return {
+      status: 'deployment_required',
+      limitation: 'The Rent Verification Agent is ready locally but is not available on the deployed backend yet.',
+    }
     if (e.name === 'AbortError') return {
       status: 'pending',
       pollable: false,
@@ -250,8 +247,6 @@ export async function apiRentVerification(id, city, refresh = false, persist = t
       status: 'temporarily_unavailable',
       limitation: 'The verification service could not be reached. The previous evidence remains available.',
     }
-  } finally {
-    clearTimeout(timer)
   }
 }
 
@@ -259,32 +254,6 @@ export function getCachedRentVerification(id, city) {
   return typeof localStorage === 'undefined' ? null : stored(localStorage, `nestiq:rent-verification:${city}:${id}`, RENT_TTL)
 }
 
-// Warm a locality's slow, evidence-only endpoints the moment the user shows intent
-// (hovering or clicking a card), so the detail page opens with data already in flight
-// instead of starting cold. The grounded pulse is the slow one: it kicks off a
-// background source check on the server, and starting that early is most of the win.
-//
-// Every call below already fails soft and is cached (sessionStorage for the detail
-// payload, in-flight de-dup for reviews, server-side caches for the rest), so a
-// prefetch that is never used costs nothing beyond one warm request.
-const prefetched = new Map()
-const PREFETCH_TTL = 60 * 1000
-
-export function prefetchLocality(id, city) {
-  if (!id || !city) return
-  const key = `${city}:${id}`
-  const last = prefetched.get(key)
-  // Do not re-fire on every mousemove over the same card.
-  if (last && Date.now() - last < PREFETCH_TTL) return
-  prefetched.set(key, Date.now())
-
-  // Fire and forget. Errors are handled inside each helper.
-  apiNeighborhood(id, city)
-  apiLocalityPulse(id, city)
-  apiEssentials(id, city)
-  apiReviews(id, city)
-  apiRentVerification(id, city, false, false)
-}
 
 export async function apiAsk(question, neighborhoodId, city, history = []) {
   try {

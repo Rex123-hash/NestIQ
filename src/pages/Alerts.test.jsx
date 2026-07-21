@@ -10,7 +10,6 @@ vi.mock('../lib/api.js', () => ({
   apiNeighborhoods: vi.fn().mockResolvedValue([]),
   apiLocalityPulse: vi.fn(),
   apiCityPulse: vi.fn(),
-  prefetchLocality: vi.fn(),
 }))
 vi.mock('../lib/saved.js', () => {
   const emptySaved = []

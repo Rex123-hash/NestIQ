@@ -5,7 +5,6 @@ import ScoreGauge from '../ui/ScoreGauge.jsx'
 import { useMapsKey, placesPhotoUrl } from '../../lib/gmaps.js'
 import { useCity } from '../../lib/cityStore.jsx'
 import { useSaved, toggleSaved } from '../../lib/saved.js'
-import { prefetchLocality } from '../../lib/api.js'
 
 const scoreColor = (s) => (s >= 85 ? 'text-brand-700' : s >= 75 ? 'text-aff' : 'text-trend')
 
@@ -29,12 +28,6 @@ export default function NeighborhoodCard({ n, rank }) {
   return (
     <Link
       to={`/neighborhood/${n.id}`}
-      // Start the slow evidence fetches on intent (hover/focus/tap), so the detail
-      // page opens with data already loading rather than from cold.
-      onMouseEnter={() => prefetchLocality(n.id, city)}
-      onFocus={() => prefetchLocality(n.id, city)}
-      onTouchStart={() => prefetchLocality(n.id, city)}
-      onClick={() => prefetchLocality(n.id, city)}
       className="block rounded-2xl border border-line bg-white p-4 shadow-card transition hover:border-brand-200"
     >
       <div className="flex gap-4">

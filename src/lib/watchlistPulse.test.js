@@ -119,6 +119,16 @@ describe('pollPulse', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps polling while stale evidence refreshes', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ status: 'available', cacheStatus: 'stale', refreshStatus: 'refreshing', items: [] })
+      .mockResolvedValueOnce({ status: 'available', items: [{ headline: 'fresh' }] })
+    const result = await pollPulse(fetch, { delay: noWait })
+    expect(result.items[0].headline).toBe('fresh')
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+
   it.each(['no_evidence', 'temporarily_unavailable'])('stops immediately on %s', async (status) => {
     const fetch = vi.fn().mockResolvedValue({ status, items: [] })
     expect((await pollPulse(fetch, { delay: noWait })).status).toBe(status)

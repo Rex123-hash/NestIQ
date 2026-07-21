@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import NeighborhoodDetail from './NeighborhoodDetail.jsx'
-import { apiNeighborhood } from '../../lib/api.js'
+import { apiLocalityPulse, apiNeighborhood, apiRentVerification, apiReviews } from '../../lib/api.js'
 
 vi.mock('../../lib/api.js', () => ({
   apiNeighborhood: vi.fn(),
@@ -25,6 +25,7 @@ vi.mock('./detailTabs.jsx', () => ({
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 
 function renderDetail(path = '/neighborhood/missing') {
@@ -50,5 +51,23 @@ describe('NeighborhoodDetail failure states', () => {
     expect(screen.getByText(/does not mean the locality has no data/i)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /try again/i }))
     await waitFor(() => expect(apiNeighborhood).toHaveBeenCalledTimes(2))
+  })
+
+  it('starts evidence only after opening and staggers expensive jobs', async () => {
+    vi.useFakeTimers()
+    apiNeighborhood.mockResolvedValue({ __error: 'not_found' })
+
+    renderDetail('/neighborhood/opened')
+
+    expect(apiReviews).toHaveBeenCalledWith('opened', 'delhi-ncr')
+    expect(apiLocalityPulse).not.toHaveBeenCalled()
+    expect(apiRentVerification).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(300)
+    expect(apiLocalityPulse).toHaveBeenCalledWith('opened', 'delhi-ncr')
+    expect(apiRentVerification).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(600)
+    expect(apiRentVerification).toHaveBeenCalledWith('opened', 'delhi-ncr', false, false)
   })
 })
