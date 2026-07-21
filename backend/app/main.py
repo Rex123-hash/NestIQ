@@ -303,59 +303,147 @@ def _serve_pulse(key: tuple[str, str], name: str, city_name: str, refresh: bool,
                         jobId=claim.document.get("jobId"), status=response.get("status"))
     return response
 
-# Rent verification is intentionally on-demand: a judge/user asks for fresh
-# evidence, then the grounded result is reused for 24 hours. Empty or failed
-# searches never replace the curated market estimate and are not cached.
-_rent_verification_cache: dict[tuple[str, str], tuple[float, dict]] = {}
-_RENT_VERIFICATION_TTL = 86400
-_rent_refreshing: set[tuple[str, str]] = set()
-_rent_refresh_lock = threading.Lock()
-_rent_failure_cache: dict[tuple[str, str], tuple[float, dict]] = {}
-_RENT_FAILURE_TTL = 60
+# Rent verification shares Pulse's cross-instance, generation-safe job protocol,
+# in a separate Firestore collection. Verified evidence remains visible on refresh.
+_RENT_VERIFICATION_TTL = settings.rent_verification_ttl_seconds
+_RENT_FAILURE_TTL = settings.rent_failure_ttl_seconds
+_RENT_DEADLINE = settings.rent_job_deadline_seconds
+_rent_store: pulse_store.PulseStore | None = None
+
+RENT_UNAVAILABLE = {
+    "status": "temporarily_unavailable",
+    "limitation": "Grounded rent sources could not be reached just now. The curated market estimate remains available.",
+    "scoreImpact": "none",
+}
 
 
-def _refresh_rent_in_background(key: tuple[str, str], name: str, city_name: str, curated_rent,
-                                request_id: str | None = None) -> None:
-    """Refresh grounded rent evidence once while callers keep seeing cached data."""
-    started = time.perf_counter()
-    telemetry.event("evidence_job_started", request_id=request_id, evidenceType="rent_verification",
-                    city=key[0], locality=key[1], cacheState="miss")
+def _get_rent_store() -> pulse_store.PulseStore:
+    return _rent_store or pulse_store.production_store(
+        settings.gcp_project, settings.firestore_database,
+        ttl_seconds=_RENT_VERIFICATION_TTL, lease_seconds=_RENT_DEADLINE,
+        failure_ttl_seconds=_RENT_FAILURE_TTL, collection=pulse_store.RENT_COLLECTION,
+    )
+
+
+def _rent_failure_category(data: dict) -> str:
+    code = str(data.get("errorCode") or "")
+    if "timeout" in code.lower():
+        return "timeout"
+    return "grounding_unavailable" if code else "unusable_grounding"
+
+
+def _expire_rent_job(store: pulse_store.PulseStore, key: tuple[str, str], job_id: str,
+                     request_id: str | None, started: float) -> None:
     try:
-        data = gemini.verify_rent(name, city_name)
+        written = store.fail(key[0], key[1], job_id, "timeout", "deadline_exceeded")
+        telemetry.event("rent_job_timed_out" if written else "rent_late_result_discarded",
+                        request_id=request_id, city=key[0], locality=key[1], jobId=job_id,
+                        status="temporarily_unavailable", validatorResult="deadline_exceeded",
+                        latencyMs=telemetry.elapsed_ms(started))
+    except Exception as error:  # noqa: BLE001
+        telemetry.event("rent_store_write_failed", request_id=request_id, city=key[0],
+                        locality=key[1], jobId=job_id, errorType=type(error).__name__)
+
+
+def _refresh_rent_in_background(store: pulse_store.PulseStore, key: tuple[str, str],
+                                job_id: str, name: str, city_name: str, curated_rent,
+                                request_id: str | None = None) -> None:
+    """Write one validated rent generation; late generations are discarded."""
+    started = time.perf_counter()
+    deadline = threading.Timer(
+        _RENT_DEADLINE,
+        lambda: _expire_rent_job(store, key, job_id, request_id, started),
+    )
+    deadline.daemon = True
+    deadline.start()
+    telemetry.event("evidence_job_started", request_id=request_id, evidenceType="rent_verification",
+                    city=key[0], locality=key[1], jobId=job_id, cacheState="miss")
+    try:
+        data = dict(gemini.verify_rent(name, city_name) or {})
         data["curatedMedianRent"] = curated_rent
         data["scoreImpact"] = "none"
-        if data.get("status") == "available" and data.get("sampleSize", 0) >= 2:
-            _rent_verification_cache[key] = (time.time(), data)
-            _rent_failure_cache.pop(key, None)
-            telemetry.event(
-                "evidence_job_completed", request_id=request_id, evidenceType="rent_verification",
-                city=key[0], locality=key[1], status="available", fallbackUsed=False,
-                sourceType="grounded_web", retrievalCount=data.get("sourceCount", 0),
-                validatorResult="passed", latencyMs=telemetry.elapsed_ms(started),
-            )
+        status = data.get("status")
+        valid_available = status == "available" and data.get("sampleSize", 0) >= 2
+        if valid_available or status == "no_evidence":
+            validator = "passed" if valid_available else "no_qualifying_evidence"
+            written = store.complete(key[0], key[1], job_id, data, validator)
+            telemetry.event("rent_job_completed" if written else "rent_late_result_discarded",
+                            request_id=request_id, evidenceType="rent_verification", city=key[0],
+                            locality=key[1], jobId=job_id, status=status,
+                            fallbackUsed=not valid_available, sourceType="grounded_web",
+                            retrievalCount=data.get("sourceCount", 0), validatorResult=validator,
+                            latencyMs=telemetry.elapsed_ms(started))
         else:
-            _rent_failure_cache[key] = (time.time(), data)
-            telemetry.event(
-                "evidence_job_completed", request_id=request_id, evidenceType="rent_verification",
-                city=key[0], locality=key[1], status=data.get("status", "no_evidence"), fallbackUsed=True,
-                sourceType="grounded_web", retrievalCount=data.get("sourceCount", 0),
-                validatorResult="insufficient_evidence", latencyMs=telemetry.elapsed_ms(started),
-            )
+            category = _rent_failure_category(data)
+            written = store.fail(key[0], key[1], job_id, category, "failed")
+            telemetry.event("rent_job_failed" if written else "rent_late_result_discarded",
+                            request_id=request_id, evidenceType="rent_verification", city=key[0],
+                            locality=key[1], jobId=job_id, status="temporarily_unavailable",
+                            errorType=category, fallbackUsed=True, validatorResult="failed",
+                            latencyMs=telemetry.elapsed_ms(started))
     except Exception as error:  # noqa: BLE001
-        _rent_failure_cache[key] = (time.time(), {
-            "status": "temporarily_unavailable",
-            "limitation": f"Grounded verification could not complete: {type(error).__name__}.",
-            "curatedMedianRent": curated_rent,
-            "scoreImpact": "none",
-        })
-        telemetry.event(
-            "evidence_job_failed", request_id=request_id, evidenceType="rent_verification",
-            city=key[0], locality=key[1], errorType=type(error).__name__, fallbackUsed=True,
-            validatorResult="failed", latencyMs=telemetry.elapsed_ms(started),
-        )
+        category = "timeout" if "timeout" in type(error).__name__.lower() else "service_error"
+        try:
+            written = store.fail(key[0], key[1], job_id, category, "failed")
+        except Exception as store_error:  # noqa: BLE001
+            telemetry.event("rent_store_write_failed", request_id=request_id, city=key[0],
+                            locality=key[1], jobId=job_id, errorType=type(store_error).__name__)
+            return
+        telemetry.event("rent_job_failed" if written else "rent_late_result_discarded",
+                        request_id=request_id, evidenceType="rent_verification", city=key[0],
+                        locality=key[1], jobId=job_id, errorType=type(error).__name__,
+                        fallbackUsed=True, validatorResult="failed",
+                        latencyMs=telemetry.elapsed_ms(started))
     finally:
-        with _rent_refresh_lock:
-            _rent_refreshing.discard(key)
+        deadline.cancel()
+
+
+def _rent_response(doc: dict, curated_rent) -> dict:
+    status = doc.get("status")
+    payload = dict(doc.get("payload") or {})
+    stale_available = payload.get("status") == "available" and doc.get("lastSuccessAt") is not None
+    if status in {"available", "no_evidence"} and payload:
+        response = payload
+    elif stale_available and status in {"pending", "temporarily_unavailable"}:
+        response = {**payload, "cacheStatus": "stale",
+                    "refreshStatus": "refreshing" if status == "pending" else "failed"}
+        if status == "temporarily_unavailable":
+            response["limitation"] = "Showing previously verified rent evidence because the latest refresh did not complete."
+    elif status == "pending":
+        response = {"status": "pending", "refreshStatus": "refreshing",
+                    "limitation": "Grounded rent sources are being checked in the background. You can continue browsing."}
+    else:
+        response = dict(RENT_UNAVAILABLE)
+    response.setdefault("curatedMedianRent", curated_rent)
+    response["scoreImpact"] = "none"
+    return response
+
+
+def _serve_rent(key: tuple[str, str], name: str, city_name: str, curated_rent,
+                refresh: bool) -> dict:
+    try:
+        store = _get_rent_store()
+        claim = store.claim(key[0], key[1], force=refresh)
+    except Exception as error:  # noqa: BLE001
+        telemetry.event("rent_store_read_failed", city=key[0], locality=key[1],
+                        errorType=type(error).__name__)
+        return {**RENT_UNAVAILABLE, "curatedMedianRent": curated_rent}
+    if claim.launch and claim.job_id:
+        telemetry.event("rent_lease_reclaimed" if claim.reclaimed else "rent_job_claimed",
+                        city=key[0], locality=key[1], jobId=claim.job_id,
+                        status="pending", attemptCount=claim.document.get("attemptCount"))
+        threading.Thread(target=_refresh_rent_in_background,
+                         args=(store, key, claim.job_id, name, city_name, curated_rent,
+                               telemetry.current_request_id()), daemon=True).start()
+    else:
+        event_name = "rent_job_deduplicated" if claim.document.get("status") == "pending" else "rent_shared_cache_hit"
+        telemetry.event(event_name, cache="rent_verification", city=key[0], locality=key[1],
+                        jobId=claim.document.get("jobId"), status=claim.document.get("status"))
+    response = _rent_response(claim.document, curated_rent)
+    if response.get("cacheStatus") == "stale":
+        telemetry.event("rent_stale_evidence_served", cache="rent_verification",
+                        city=key[0], locality=key[1], jobId=claim.document.get("jobId"))
+    return response
 
 
 def maybe_log_snapshot(city: str, results: list[dict]) -> None:
@@ -695,51 +783,9 @@ def neighborhood_rent_verification(nid: str, city: str = DEFAULT_CITY, refresh: 
         raise HTTPException(404, "neighborhood not found")
 
     key = (city, nid)
-    cached = _rent_verification_cache.get(key)
     city_obj = get_city(city)
     city_name = city_obj["name"] if city_obj else city
-    if refresh and cached:
-        with _rent_refresh_lock:
-            if key not in _rent_refreshing:
-                _rent_refreshing.add(key)
-                threading.Thread(
-                    target=_refresh_rent_in_background,
-                    args=(key, match["name"], city_name, match.get("median_rent"),
-                          telemetry.current_request_id()),
-                    daemon=True,
-                ).start()
-        telemetry.event("cache_access", cache="rent_verification", city=city, locality=nid,
-                        cacheState="stale", refreshStarted=True)
-        return {**cached[1], "refreshStatus": "refreshing"}
-    if not refresh and cached and time.time() - cached[0] < _RENT_VERIFICATION_TTL:
-        with _rent_refresh_lock:
-            refreshing = key in _rent_refreshing
-        telemetry.event("cache_access", cache="rent_verification", city=city, locality=nid,
-                        cacheState="hit", refreshRunning=refreshing)
-        return {**cached[1], **({"refreshStatus": "refreshing"} if refreshing else {})}
-    failed = _rent_failure_cache.get(key)
-    if failed and time.time() - failed[0] < _RENT_FAILURE_TTL:
-        telemetry.event("cache_access", cache="rent_verification", city=city, locality=nid,
-                        cacheState="failure_hit", fallbackUsed=True)
-        return failed[1]
-    with _rent_refresh_lock:
-        if key not in _rent_refreshing:
-            _rent_refreshing.add(key)
-            threading.Thread(
-                target=_refresh_rent_in_background,
-                args=(key, match["name"], city_name, match.get("median_rent"),
-                      telemetry.current_request_id()),
-                daemon=True,
-            ).start()
-    telemetry.event("cache_access", cache="rent_verification", city=city, locality=nid,
-                    cacheState="miss", refreshStarted=True)
-    return {
-        "status": "pending",
-        "refreshStatus": "refreshing",
-        "curatedMedianRent": match.get("median_rent"),
-        "scoreImpact": "none",
-        "limitation": "Grounded sources are being checked in the background. You can continue browsing.",
-    }
+    return _serve_rent(key, match["name"], city_name, match.get("median_rent"), refresh)
 
 
 # Only the fields useful to the assistant — keeps the Gemini prompt small and

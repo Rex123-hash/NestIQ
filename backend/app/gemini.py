@@ -332,7 +332,8 @@ def locality_pulse(name: str, city: str) -> dict:
             "Only include items published or verified in the last 30 days. "
             "Prefer official civic notices and reputable local reporting. Do not invent items; if no reliable "
             "recent evidence exists, say that plainly. Categories: civic, mobility, environment, safety, "
-            "development, utilities. Severities: low, informational, moderate, high."
+            "development, utilities. Severities: low, informational, moderate, high. "
+            "Output only evidence-ledger lines, with no prose or markdown."
         )
         resp = _generate(model=settings.gemini_model, contents=search_prompt, config=types.GenerateContentConfig(
             tools=[types.Tool(google_search=types.GoogleSearch())], temperature=0.2,
@@ -344,21 +345,14 @@ def locality_pulse(name: str, city: str) -> dict:
         local_items = analyze_pulse_items(_parse_pulse_ledger(ledger), citations)
         if local_items:
             return {"status": "available", "items": local_items, "citations": citations}
-        source_titles = "\n".join(f"- {c['title']}" for c in citations)
-        extract_prompt = (
-            "Extract at most 4 civic updates from the grounded ledger as JSON. Copy facts, dates and source titles "
-            "only from the ledger. Use sourceTitle exactly as written in the allowed source-title list. Exclude any "
-            "item without a YYYY-MM-DD date or a matching allowed source.\n\n"
-            f"ALLOWED SOURCE TITLES:\n{source_titles}\n\nGROUNDED EVIDENCE LEDGER:\n{ledger}"
-        )
-        extracted = _generate(model=settings.gemini_model, contents=extract_prompt, config=types.GenerateContentConfig(
-            response_mime_type="application/json", response_schema=PulseExtraction, temperature=0,
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-        ))
-        parsed = extracted.parsed
-        raw = parsed.model_dump() if hasattr(parsed, "model_dump") else _json_object(extracted.text)
-        items = analyze_pulse_items(raw, citations)
-        return {"status": "available" if items else "no_evidence", "items": items, "citations": citations}
+        # Do not chain a second model call when the ledger is malformed. This is
+        # an unusable grounding response, not evidence that no events exist.
+        return {
+            "status": "temporarily_unavailable",
+            "items": [],
+            "citations": citations,
+            "errorCode": "unusable_grounding",
+        }
     except Exception as e:  # noqa: BLE001
         telemetry.event("tool_fallback", tool="gemini_locality_pulse", fallbackUsed=True,
                         errorType=type(e).__name__)
@@ -564,79 +558,35 @@ def verify_rent(name: str, city: str) -> dict:
     """
     try:
         from google.genai import types
-        # Start broad and stop as soon as the ledger has enough diverse
-        # evidence. A second pass is a fallback, not an unconditional delay.
-        search_passes = [
-            "Search across 99acres, MagicBricks, Housing.com, NoBroker, SquareYards and other current Indian rental pages; use multiple independent domains.",
-            "Fill any remaining evidence gaps using different current rental or locality-market pages, avoiding sources already represented.",
-        ]
-        ledger_parts, citations, seen_uris, search_errors = [], [], set(), []
-        for focus in search_passes:
-            search_prompt = (
-                f"Use Google Search to find current Indian rental evidence for {name}, {city}. {focus} Find explicit "
-                "monthly rents for unfurnished or semi-furnished residential homes across the common sizes "
-                "(1 BHK, 2 BHK and 3 BHK), not one size only. Produce an evidence ledger with one observation per "
-                "line in this form: INR monthly rent | visible YYYY-MM-DD date or unknown | source page title | "
-                "bedroom count as shown (for example 2 BHK), or unknown. Include up to 8 distinct observations "
-                "spanning more than one size where the sources support it, and cite the web sources. Exclude sale "
-                "prices, deposits, daily rates, PG beds, hostels, shared rooms and any value not explicitly shown by "
-                "a source. Never infer a bedroom count that a source does not state. Do not calculate a median and "
-                "do not guess missing prices or dates."
-            )
-            try:
-                grounded = _generate(
-                    model=settings.gemini_model,
-                    contents=search_prompt,
-                    config=types.GenerateContentConfig(
-                        tools=[types.Tool(google_search=types.GoogleSearch())],
-                        temperature=0.1,
-                    ),
-                )
-                text = (grounded.text or "").strip()
-                if text:
-                    ledger_parts.append(text)
-                for citation in _grounding_citations(grounded, 8):
-                    if citation["uri"] not in seen_uris:
-                        seen_uris.add(citation["uri"])
-                        citations.append(citation)
-                parsed_so_far = _parse_rent_ledger("\n".join(ledger_parts))
-                if len(citations) >= 3 and len(parsed_so_far["observations"]) >= 6:
-                    break
-            except Exception as search_error:  # noqa: BLE001
-                search_errors.append(search_error)
-        grounded_text = "\n\n".join(ledger_parts)
-        if not grounded_text or not citations:
-            if search_errors and not grounded_text:
-                raise search_errors[-1]
-            return analyze_rent_observations({}, citations)
-
-        # The requested ledger is deliberately machine-readable. Parse it
-        # locally first, avoiding another slow/billable model call. Retain the
-        # structured extractor only as a fallback for malformed ledgers.
-        locally_parsed = _parse_rent_ledger(grounded_text)
-        if len(locally_parsed["observations"]) >= 2:
-            return analyze_rent_observations(locally_parsed, citations)
-
-        extract_prompt = (
-            "Extract at most 12 distinct rent observations from the evidence ledgers below. Copy only explicit monthly INR "
-            "amounts for residential homes of any size. Copy the bedroom count exactly as the ledger states it (for "
-            "example '2 BHK') and leave bedrooms empty when it is not stated. Use an empty observedOn when the date "
-            "is unknown. Never add a number, date, bedroom count or source title that is not present in the ledger.\n\n"
-            f"GROUNDED EVIDENCE LEDGER:\n{grounded_text}"
+        # One broad grounded request replaces the former two-pass search plus
+        # optional extraction call. The returned ledger is validated locally;
+        # malformed or insufficient evidence fails honestly instead of adding
+        # another minute-long model request.
+        search_prompt = (
+            f"Use Google Search to find current Indian rental evidence for {name}, {city}. Search across 99acres, "
+            "MagicBricks, Housing.com, NoBroker, SquareYards and other current Indian rental pages, using multiple "
+            "independent domains. Find explicit monthly rents for unfurnished or semi-furnished residential homes "
+            "across the common sizes (1 BHK, 2 BHK and 3 BHK), not one size only. Produce an evidence ledger with "
+            "one observation per line in this exact form: INR monthly rent | visible YYYY-MM-DD date or unknown | "
+            "source page title | bedroom count as shown (for example 2 BHK), or unknown. Include up to 10 distinct "
+            "observations spanning more than one size where sources support it, and cite the web sources. Exclude "
+            "sale prices, deposits, daily rates, PG beds, hostels, shared rooms and any value not explicitly shown by "
+            "a source. Never infer a bedroom count that a source does not state. Do not calculate a median or guess "
+            "missing prices or dates. Output only ledger lines."
         )
-        extracted = _generate(
+        grounded = _generate(
             model=settings.gemini_model,
-            contents=extract_prompt,
+            contents=search_prompt,
             config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=RentExtraction,
-                temperature=0,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.1,
             ),
         )
-        parsed = extracted.parsed
-        raw = parsed.model_dump() if hasattr(parsed, "model_dump") else _json_object(extracted.text)
-        return analyze_rent_observations(raw, citations)
+        grounded_text = (grounded.text or "").strip()
+        citations = _grounding_citations(grounded, 10)
+        if not grounded_text or not citations:
+            return analyze_rent_observations({}, citations)
+        return analyze_rent_observations(_parse_rent_ledger(grounded_text), citations)
     except Exception as e:  # noqa: BLE001
         telemetry.event("tool_fallback", tool="gemini_verify_rent", fallbackUsed=True,
                         errorType=type(e).__name__)

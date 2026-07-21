@@ -16,6 +16,8 @@ from typing import Any, Callable, Protocol
 
 SCHEMA_VERSION = 1
 COLLECTION = "pulse_jobs"
+RENT_COLLECTION = "rent_verification_jobs"
+_ALLOWED_COLLECTIONS = frozenset({COLLECTION, RENT_COLLECTION})
 RETENTION = timedelta(days=30)
 
 
@@ -110,6 +112,11 @@ class _StateMachine:
             "updatedAt": now,
             "completedAt": now,
             "expiresAt": now + self.ttl,
+            # Preserve the complete validated envelope. Pulse continues to expose
+            # items/citations below for backward compatibility, while other
+            # evidence jobs (for example rent verification) can share the same
+            # generation-safe state machine without losing their typed fields.
+            "payload": dict(result),
             "leaseExpiresAt": None,
             "lastErrorCategory": None,
             "validatorResult": validator_result,
@@ -176,15 +183,19 @@ class InMemoryPulseStore(_StateMachine):
 
 class FirestorePulseStore(_StateMachine):
     def __init__(self, project: str, database: str, *, ttl_seconds: int = 21600,
-                 lease_seconds: int = 65, failure_ttl_seconds: int = 60):
+                 lease_seconds: int = 65, failure_ttl_seconds: int = 60,
+                 collection: str = COLLECTION):
         super().__init__(ttl_seconds=ttl_seconds, lease_seconds=lease_seconds,
                          failure_ttl_seconds=failure_ttl_seconds)
+        if collection not in _ALLOWED_COLLECTIONS:
+            raise ValueError("Unsupported evidence-job collection")
         from google.cloud import firestore
         self._firestore = firestore
         self._client = firestore.Client(project=project or None, database=database)
+        self._collection = collection
 
     def _ref(self, city: str, locality: str):
-        return self._client.collection(COLLECTION).document(document_id(city, locality))
+        return self._client.collection(self._collection).document(document_id(city, locality))
 
     def claim(self, city: str, locality: str, *, force: bool = False) -> Claim:
         transaction = self._client.transaction()
@@ -227,16 +238,17 @@ class FirestorePulseStore(_StateMachine):
             current, job_id, category, validator_result))
 
 
-_production_store: FirestorePulseStore | None = None
+_production_stores: dict[tuple[str, str, str], FirestorePulseStore] = {}
 _production_lock = threading.Lock()
 
 
 def production_store(project: str, database: str, *, ttl_seconds: int,
-                     lease_seconds: int, failure_ttl_seconds: int) -> FirestorePulseStore:
-    global _production_store
+                     lease_seconds: int, failure_ttl_seconds: int,
+                     collection: str = COLLECTION) -> FirestorePulseStore:
     with _production_lock:
-        if _production_store is None:
-            _production_store = FirestorePulseStore(
+        key = (project, database, collection)
+        if key not in _production_stores:
+            _production_stores[key] = FirestorePulseStore(
                 project, database, ttl_seconds=ttl_seconds, lease_seconds=lease_seconds,
-                failure_ttl_seconds=failure_ttl_seconds)
-        return _production_store
+                failure_ttl_seconds=failure_ttl_seconds, collection=collection)
+        return _production_stores[key]

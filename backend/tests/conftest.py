@@ -23,6 +23,17 @@ def isolated_pulse_store(monkeypatch):
     return store
 
 
+@pytest.fixture(autouse=True)
+def isolated_rent_store(monkeypatch):
+    """Rent jobs use their own offline collection-equivalent store in tests."""
+    store = pulse_store.InMemoryPulseStore(
+        ttl_seconds=main._RENT_VERIFICATION_TTL, lease_seconds=main._RENT_DEADLINE,
+        failure_ttl_seconds=main._RENT_FAILURE_TTL)
+    monkeypatch.setattr(main, "_rent_store", store)
+    return store
+
+
+
 def fake_features():
     """Three localities with clearly distinct metrics (best/mid/worst)."""
     base = {"aqi_category": "Moderate air quality", "aqi_pollutant": "pm25", "photo": ""}

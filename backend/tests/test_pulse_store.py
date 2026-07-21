@@ -32,6 +32,7 @@ def test_completed_evidence_is_observed_by_another_instance():
     result = {"status": "available", "items": [{"headline": "x"}], "citations": []}
     assert shared.complete("delhi-ncr", "__city__", claim.job_id, result, "passed")
     observed = shared.claim("delhi-ncr", "__city__")
+    assert observed.document["payload"] == result
     assert not observed.launch and observed.document["items"] == result["items"]
 
 

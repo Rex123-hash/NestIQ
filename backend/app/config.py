@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # keep a small coordination margin while remaining firmly bounded.
     pulse_job_deadline_seconds: int = 70
     pulse_failure_ttl_seconds: int = 60
+    # Grounded rent evidence shares the cross-instance job protocol with Pulse.
+    rent_verification_ttl_seconds: int = 86_400
+    rent_job_deadline_seconds: int = 70
+    rent_failure_ttl_seconds: int = 60
+
     # SERVER-ONLY key: Air Quality, Places, Distance Matrix. Never returned to a browser.
     maps_api_key: str = ""
     # Browser-exposed key, served by /api/config for the Maps JS SDK. MUST be

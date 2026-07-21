@@ -108,6 +108,26 @@ def test_verify_rent_uses_grounded_search_then_structured_extraction(monkeypatch
     assert calls["n"] == 1
 
 
+def test_verify_rent_does_not_chain_an_extraction_call_for_malformed_evidence(monkeypatch):
+    chunks = [
+        SimpleNamespace(web=SimpleNamespace(uri="https://source.example/rent", title="Source")),
+    ]
+    grounded = SimpleNamespace(
+        text="Current rental information exists, but not in the required evidence-ledger format.",
+        candidates=[SimpleNamespace(grounding_metadata=SimpleNamespace(grounding_chunks=chunks))],
+    )
+    calls = {"n": 0}
+
+    def generate(**kwargs):
+        calls["n"] += 1
+        return grounded
+
+    monkeypatch.setattr(gemini, "_generate", generate)
+    result = gemini.verify_rent("Sector 62, Noida", "Delhi NCR")
+    assert result["status"] == "no_evidence"
+    assert calls["n"] == 1
+
+
 def test_rent_ledger_parser_rejects_non_rent_lines():
     parsed = gemini._parse_rent_ledger("""
     INR 22,000 | 2026-07-10 | Listing A
@@ -119,7 +139,7 @@ def test_rent_ledger_parser_rejects_non_rent_lines():
     assert [item["monthlyRent"] for item in parsed["observations"]] == [22000, 24000]
 
 
-def test_rent_verification_endpoint_is_cached_without_changing_score(client, monkeypatch):
+def test_rent_verification_endpoint_is_cached_without_changing_score(client, monkeypatch, isolated_rent_store):
     calls = {"n": 0}
 
     def verify(name, city):
@@ -131,16 +151,13 @@ def test_rent_verification_endpoint_is_cached_without_changing_score(client, mon
         }
 
     monkeypatch.setattr(gemini, "verify_rent", verify)
-    main._rent_verification_cache.clear()
-    main._rent_failure_cache.clear()
-    main._rent_refreshing.clear()
     first = client.get("/api/neighborhood/clean-cheap/rent-verification?city=delhi-ncr")
     assert first.status_code == 200
     assert first.json()["status"] == "pending"
     assert first.json()["refreshStatus"] == "refreshing"
 
     for _ in range(100):
-        if ("delhi-ncr", "clean-cheap") not in main._rent_refreshing:
+        if isolated_rent_store.claim("delhi-ncr", "clean-cheap").document["status"] != "pending":
             break
         Event().wait(0.01)
     second = client.get("/api/neighborhood/clean-cheap/rent-verification?city=delhi-ncr")
@@ -152,14 +169,12 @@ def test_rent_verification_endpoint_is_cached_without_changing_score(client, mon
     assert second.json()["scoreImpact"] == "none"
 
 
-def test_first_rent_verification_returns_immediately_while_work_continues(client, monkeypatch):
+def test_first_rent_verification_returns_immediately_while_work_continues(client, monkeypatch, isolated_rent_store):
     started, release = Event(), Event()
-    key = ("delhi-ncr", "clean-cheap")
-    main._rent_verification_cache.clear()
-    main._rent_failure_cache.clear()
-    main._rent_refreshing.clear()
+    calls = {"n": 0}
 
     def slow_verify(name, city):
+        calls["n"] += 1
         started.set()
         release.wait(2)
         return {
@@ -174,25 +189,27 @@ def test_first_rent_verification_returns_immediately_while_work_continues(client
     assert response.status_code == 200
     assert response.json()["status"] == "pending"
     assert started.wait(1)
-    assert key in main._rent_refreshing
+    assert isolated_rent_store.claim("delhi-ncr", "clean-cheap").document["status"] == "pending"
+    duplicate = client.get("/api/neighborhood/clean-cheap/rent-verification?city=delhi-ncr")
+    assert duplicate.json()["status"] == "pending"
+    assert calls["n"] == 1
     release.set()
     for _ in range(100):
-        if key not in main._rent_refreshing:
+        if isolated_rent_store.claim("delhi-ncr", "clean-cheap").document["status"] != "pending":
             break
         Event().wait(0.01)
     assert client.get("/api/neighborhood/clean-cheap/rent-verification?city=delhi-ncr").json()["status"] == "available"
 
 
-def test_rent_reverification_returns_cached_result_while_refreshing(client, monkeypatch):
+def test_rent_reverification_returns_cached_result_while_refreshing(client, monkeypatch, isolated_rent_store):
     started, release, finished = Event(), Event(), Event()
-    key = ("delhi-ncr", "clean-cheap")
     old = {
         "status": "available", "medianRent": 20000, "rangeLow": 18000, "rangeHigh": 22000,
         "sampleSize": 4, "sourceCount": 2, "citations": [], "scoreImpact": "none",
     }
-    main._rent_verification_cache[key] = (0, old)
-    main._rent_failure_cache.clear()
-    main._rent_refreshing.clear()
+    seeded = isolated_rent_store.claim("delhi-ncr", "clean-cheap")
+    assert isolated_rent_store.complete(
+        "delhi-ncr", "clean-cheap", seeded.job_id, old, "passed")
 
     def slow_refresh(name, city):
         started.set()
@@ -210,9 +227,38 @@ def test_rent_reverification_returns_cached_result_while_refreshing(client, monk
     release.set()
     assert finished.wait(1)
     for _ in range(100):
-        if key not in main._rent_refreshing:
+        if isolated_rent_store.claim("delhi-ncr", "clean-cheap").document["status"] != "pending":
             break
         release.wait(0.01)
     updated = client.get("/api/neighborhood/clean-cheap/rent-verification?city=delhi-ncr").json()
     assert updated["medianRent"] == 21000
     assert "refreshStatus" not in updated
+def test_failed_rent_refresh_preserves_previous_verified_evidence(client, monkeypatch, isolated_rent_store):
+    old = {
+        "status": "available", "medianRent": 20000, "rangeLow": 18000, "rangeHigh": 22000,
+        "sampleSize": 4, "sourceCount": 2, "citations": [], "scoreImpact": "none",
+    }
+    seeded = isolated_rent_store.claim("delhi-ncr", "clean-cheap")
+    assert isolated_rent_store.complete(
+        "delhi-ncr", "clean-cheap", seeded.job_id, old, "passed")
+
+    monkeypatch.setattr(gemini, "verify_rent", lambda name, city: {
+        "status": "temporarily_unavailable", "errorCode": "grounding_unavailable",
+    })
+    started = client.get(
+        "/api/neighborhood/clean-cheap/rent-verification?city=delhi-ncr&refresh=true")
+    assert started.status_code == 200
+    assert started.json()["medianRent"] == 20000
+
+    for _ in range(100):
+        doc = isolated_rent_store.claim("delhi-ncr", "clean-cheap").document
+        if doc["status"] != "pending":
+            break
+        Event().wait(0.01)
+
+    stale = client.get(
+        "/api/neighborhood/clean-cheap/rent-verification?city=delhi-ncr").json()
+    assert stale["status"] == "available"
+    assert stale["medianRent"] == 20000
+    assert stale["cacheStatus"] == "stale"
+    assert stale["refreshStatus"] == "failed"

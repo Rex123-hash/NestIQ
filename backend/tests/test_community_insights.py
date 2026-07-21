@@ -89,6 +89,26 @@ def test_pulse_uses_one_grounded_call_when_ledger_is_machine_readable(monkeypatc
     assert calls["n"] == 1
 
 
+def test_pulse_does_not_chain_a_second_model_call_for_malformed_ledger(monkeypatch):
+    chunks = [SimpleNamespace(web=SimpleNamespace(
+        uri="https://authority.example/notice", title="Noida Authority",
+    ))]
+    response = SimpleNamespace(
+        text="A current notice exists, but this is not a valid evidence ledger.",
+        candidates=[SimpleNamespace(grounding_metadata=SimpleNamespace(grounding_chunks=chunks))],
+    )
+    calls = {"n": 0}
+
+    def generate(**kwargs):
+        calls["n"] += 1
+        return response
+
+    monkeypatch.setattr(gemini, "_generate", generate)
+    result = gemini.locality_pulse("Sector 62, Noida", "Delhi NCR")
+    assert result["status"] == "temporarily_unavailable"
+    assert result["errorCode"] == "unusable_grounding"
+    assert calls["n"] == 1
+
 def test_pulse_endpoint_returns_pending_without_duplicate_jobs(client, monkeypatch,
                                                                isolated_pulse_store):
     started, release = Event(), Event()
