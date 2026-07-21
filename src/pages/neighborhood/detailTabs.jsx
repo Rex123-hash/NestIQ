@@ -996,22 +996,44 @@ export function AirQualityTab({ n }) {
 /* --------------------------- Community: reviews + ranks ------------------- */
 function ReviewsPanel({ n }) {
   const [reviews, setReviews] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [phase, setPhase] = useState('preparing')
   const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let alive = true
-    setLoading(true)
+    let pollTimer
+    let twoSecondTimer
+    let fiveSecondTimer
+    const startedAt = Date.now()
+    setPhase('preparing')
     setReviews(null)
-    apiReviews(n.id, n.cityId, retryKey > 0).then((d) => {
+    twoSecondTimer = setTimeout(() => {
+      if (alive) setPhase((current) => current === 'ready' ? 'visible' : current)
+    }, 2000)
+    fiveSecondTimer = setTimeout(() => {
+      if (alive) setPhase((current) => current === 'preparing' ? 'checking' : current)
+    }, 5000)
+
+    const load = async (refresh = false) => {
+      const d = await apiReviews(n.id, n.cityId, refresh)
       if (!alive) return
+      if (d?.status === 'pending') {
+        pollTimer = setTimeout(() => load(false), 2000)
+        return
+      }
       setReviews(d)
-      setLoading(false)
-    })
+      setPhase(Date.now() - startedAt >= 2000 ? 'visible' : 'ready')
+    }
+    load(retryKey > 0)
     return () => {
       alive = false
+      clearTimeout(pollTimer)
+      clearTimeout(twoSecondTimer)
+      clearTimeout(fiveSecondTimer)
     }
   }, [n.id, n.cityId, retryKey])
+
+  const waiting = phase !== 'visible'
 
   return (
     <Panel
@@ -1022,12 +1044,16 @@ function ReviewsPanel({ n }) {
       }
       className="lg:col-span-2"
     >
-      {loading ? (
+      {waiting ? (
         <div className="space-y-2">
           <div className="h-3 w-full animate-pulse rounded bg-gray-100" />
           <div className="h-3 w-11/12 animate-pulse rounded bg-gray-100" />
           <div className="h-3 w-4/5 animate-pulse rounded bg-gray-100" />
-          <p className="pt-1 text-xs text-muted">Searching the web with Gemini…</p>
+          <p className="pt-1 text-xs font-medium text-brand-700">
+            {phase === 'checking'
+              ? 'Still checking verified sources—you can continue browsing.'
+              : 'Preparing community evidence…'}
+          </p>
         </div>
       ) : reviews?.status === 'temporarily_unavailable' ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">

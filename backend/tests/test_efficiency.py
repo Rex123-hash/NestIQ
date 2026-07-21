@@ -1,6 +1,24 @@
 """Part-2 efficiency guarantees: amenity differentiation, detail caching,
 and deduplicated BigQuery snapshot logging."""
+import time
+
 from app import maps, main, gemini
+
+
+def _clear_reviews_state():
+    main._reviews_cache.clear()
+    main._reviews_failure_cache.clear()
+    main._reviews_refreshing.clear()
+
+
+def _wait_for_reviews(client, path, terminal=("available", "temporarily_unavailable", "no_evidence")):
+    deadline = time.time() + 2
+    while time.time() < deadline:
+        body = client.get(path).json()
+        if body.get("status") in terminal or body.get("summary"):
+            return body
+        time.sleep(0.01)
+    raise AssertionError("reviews background job did not finish")
 
 
 def test_amenity_profile_sums_per_category(monkeypatch):
@@ -32,10 +50,12 @@ def test_detail_payload_is_cached(client, monkeypatch):
 
 
 def test_reviews_endpoint_returns_summary_and_citations(client):
-    main._reviews_cache.clear()
-    r = client.get("/api/neighborhood/clean-cheap/reviews?city=delhi-ncr")
+    _clear_reviews_state()
+    path = "/api/neighborhood/clean-cheap/reviews?city=delhi-ncr"
+    r = client.get(path)
     assert r.status_code == 200
-    body = r.json()
+    assert r.json()["status"] == "pending"
+    body = _wait_for_reviews(client, path)
     assert body["summary"]
     assert body["citations"][0]["uri"].startswith("http")
 
@@ -48,9 +68,11 @@ def test_reviews_endpoint_caches(client, monkeypatch):
         return {"summary": "cached", "citations": []}
 
     monkeypatch.setattr(gemini, "web_reviews", reviews)
-    main._reviews_cache.clear()
-    client.get("/api/neighborhood/middle/reviews?city=delhi-ncr")
-    client.get("/api/neighborhood/middle/reviews?city=delhi-ncr")
+    _clear_reviews_state()
+    path = "/api/neighborhood/middle/reviews?city=delhi-ncr"
+    client.get(path)
+    _wait_for_reviews(client, path)
+    client.get(path)
     assert calls["n"] == 1, "grounded review call must be cached, not repeated"
 
 
@@ -63,13 +85,16 @@ def test_reviews_endpoint_does_not_cache_service_failure(client, monkeypatch):
                 "errorCode": "vertex_permission_denied"}
 
     monkeypatch.setattr(gemini, "web_reviews", unavailable)
-    main._reviews_cache.clear()
-    r1 = client.get("/api/neighborhood/middle/reviews?city=delhi-ncr")
-    r2 = client.get("/api/neighborhood/middle/reviews?city=delhi-ncr")
+    _clear_reviews_state()
+    path = "/api/neighborhood/middle/reviews?city=delhi-ncr"
+    r1 = client.get(path)
+    body = _wait_for_reviews(client, path)
+    r2 = client.get(path)
 
     assert r1.status_code == 200 and r2.status_code == 200
-    assert r1.json()["status"] == "temporarily_unavailable"
-    assert calls["n"] == 2, "retryable grounding failures must not be cached for 24 hours"
+    assert r1.json()["status"] == "pending"
+    assert body["status"] == r2.json()["status"] == "temporarily_unavailable"
+    assert calls["n"] == 1, "a short failure TTL must prevent an immediate retry storm"
 
 
 def test_reviews_endpoint_does_not_cache_empty_no_evidence(client, monkeypatch):
@@ -80,10 +105,13 @@ def test_reviews_endpoint_does_not_cache_empty_no_evidence(client, monkeypatch):
         return {"summary": "", "citations": [], "status": "no_evidence"}
 
     monkeypatch.setattr(gemini, "web_reviews", empty)
-    main._reviews_cache.clear()
-    client.get("/api/neighborhood/middle/reviews?city=delhi-ncr")
-    client.get("/api/neighborhood/middle/reviews?city=delhi-ncr")
-    assert calls["n"] == 2, "an empty grounding response must not poison the 24-hour cache"
+    _clear_reviews_state()
+    path = "/api/neighborhood/middle/reviews?city=delhi-ncr"
+    client.get(path)
+    body = _wait_for_reviews(client, path)
+    client.get(path)
+    assert body["status"] == "no_evidence"
+    assert calls["n"] == 1, "empty grounding should be briefly remembered, not retried in a loop"
 
 
 def test_reviews_refresh_bypasses_a_cached_summary(client, monkeypatch):
@@ -94,16 +122,21 @@ def test_reviews_refresh_bypasses_a_cached_summary(client, monkeypatch):
         return {"summary": f"version {calls['n']}", "citations": [], "status": "available"}
 
     monkeypatch.setattr(gemini, "web_reviews", reviews)
-    main._reviews_cache.clear()
-    first = client.get("/api/neighborhood/middle/reviews?city=delhi-ncr").json()
-    cached = client.get("/api/neighborhood/middle/reviews?city=delhi-ncr").json()
-    refreshed = client.get("/api/neighborhood/middle/reviews?city=delhi-ncr&refresh=true").json()
-    assert first["summary"] == cached["summary"] == "version 1"
-    assert refreshed["summary"] == "version 2"
+    _clear_reviews_state()
+    path = "/api/neighborhood/middle/reviews?city=delhi-ncr"
+    client.get(path)
+    first = _wait_for_reviews(client, path)
+    cached = client.get(path).json()
+    refreshing = client.get(path + "&refresh=true").json()
+    assert first["summary"] == cached["summary"] == refreshing["summary"] == "version 1"
+    deadline = time.time() + 2
+    while time.time() < deadline and main._reviews_cache.get(("delhi-ncr", "middle"), (0, {}))[1].get("summary") != "version 2":
+        time.sleep(0.01)
+    assert client.get(path).json()["summary"] == "version 2"
 
 
 def test_reviews_endpoint_404_for_unknown(client):
-    main._reviews_cache.clear()
+    _clear_reviews_state()
     r = client.get("/api/neighborhood/nope/reviews?city=delhi-ncr")
     assert r.status_code == 404
 

@@ -148,7 +148,12 @@ export async function apiReviews(id, city, refresh = false) {
     }
   })()
   if (!refresh) reviewRequests.set(key, request)
-  return request
+  try {
+    return await request
+  } finally {
+    // De-duplicate only the active HTTP request; pending must remain pollable.
+    if (reviewRequests.get(key) === request) reviewRequests.delete(key)
+  }
 }
 
 export async function apiLocalityPulse(id, city, refresh = false) {

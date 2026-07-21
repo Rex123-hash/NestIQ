@@ -64,6 +64,17 @@ _DETAIL_TTL = 1800
 # so we make at most one such (billable) call per locality per day.
 _reviews_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 _REVIEWS_TTL = 86400
+_reviews_refreshing: set[tuple[str, str]] = set()
+_reviews_refresh_lock = threading.Lock()
+_reviews_failure_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+_REVIEWS_FAILURE_TTL = 60
+
+REVIEWS_UNAVAILABLE = {
+    "status": "temporarily_unavailable",
+    "summary": "",
+    "citations": [],
+    "limitation": "Verified community sources could not be reached just now.",
+}
 _PULSE_TTL = 21600
 _pulse_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 _pulse_refreshing: set[tuple[str, str]] = set()
@@ -89,6 +100,29 @@ def _fresh_pulse_failure(key: tuple[str, str]) -> dict | None:
     if failed and time.time() - failed[0] < _PULSE_FAILURE_TTL:
         return failed[1]
     return None
+
+
+def _fresh_reviews_failure(key: tuple[str, str]) -> dict | None:
+    failed = _reviews_failure_cache.get(key)
+    if failed and time.time() - failed[0] < _REVIEWS_FAILURE_TTL:
+        return failed[1]
+    return None
+
+
+def _refresh_reviews_in_background(key: tuple[str, str], name: str, city_name: str) -> None:
+    try:
+        data = gemini.web_reviews(name, city_name)
+        if data.get("summary") and data.get("status") != "temporarily_unavailable":
+            _reviews_cache[key] = (time.time(), data)
+            _reviews_failure_cache.pop(key, None)
+        else:
+            _reviews_failure_cache[key] = (time.time(), data or dict(REVIEWS_UNAVAILABLE))
+    except Exception as error:  # noqa: BLE001
+        print(f"[reviews] refresh failed for {key}: {type(error).__name__}")
+        _reviews_failure_cache[key] = (time.time(), dict(REVIEWS_UNAVAILABLE))
+    finally:
+        with _reviews_refresh_lock:
+            _reviews_refreshing.discard(key)
 
 
 def _refresh_pulse_in_background(key: tuple[str, str], name: str, city_name: str) -> None:
@@ -397,7 +431,7 @@ def neighborhood_essentials(nid: str, city: str = DEFAULT_CITY):
 
 @app.get("/api/neighborhood/{nid}/reviews")
 def neighborhood_reviews(nid: str, city: str = DEFAULT_CITY, refresh: bool = False):
-    """What residents say online (Gemini + Google Search grounding, cited)."""
+    """Start grounded community evidence asynchronously and return immediately."""
     ranked = rank(city, default_weights(city), None)
     match = next((r for r in ranked if r["id"] == nid), None)
     if not match:
@@ -407,14 +441,26 @@ def neighborhood_reviews(nid: str, city: str = DEFAULT_CITY, refresh: bool = Fal
     cached = _reviews_cache.get(key)
     if not refresh and cached and time.time() - cached[0] < _REVIEWS_TTL:
         return cached[1]
-
     city_obj = get_city(city)
-    data = gemini.web_reviews(match["name"], city_obj["name"] if city_obj else city)
-    # Cache only a grounded summary. An empty model response can be transient,
-    # so it must never poison this locality's entry for 24 hours.
-    if data.get("summary") and data.get("status") != "temporarily_unavailable":
-        _reviews_cache[key] = (time.time(), data)
-    return data
+    if not refresh and not cached:
+        failed = _fresh_reviews_failure(key)
+        if failed:
+            return dict(failed)
+    with _reviews_refresh_lock:
+        if key not in _reviews_refreshing:
+            _reviews_refreshing.add(key)
+            threading.Thread(
+                target=_refresh_reviews_in_background,
+                args=(key, match["name"], city_obj["name"] if city_obj else city),
+                daemon=True,
+            ).start()
+    if cached:
+        return {**cached[1], "refreshStatus": "refreshing"}
+    return {
+        "status": "pending", "summary": "", "citations": [],
+        "refreshStatus": "refreshing",
+        "limitation": "Verified community sources are being checked in the background.",
+    }
 
 
 @app.get("/api/neighborhood/{nid}/pulse")
