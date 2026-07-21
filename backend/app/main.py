@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import bq, gemini, maps, bq_india, civic_rag, copilot, rate_limit, telemetry, transcription
+from . import bq, gemini, maps, bq_india, civic_rag, copilot, image_analysis, rate_limit, telemetry, transcription
 from .config import settings
 from .fitscore import score_neighborhoods, DEFAULT_WEIGHTS
 from .india import city_list, get_city
@@ -800,6 +800,38 @@ async def transcribe_voice(
         raise HTTPException(
             status_code=503,
             detail="Voice transcription is temporarily unavailable. You can continue typing.",
+        ) from error
+
+
+@app.post("/api/copilot/analyze-image")
+async def analyze_copilot_image(
+    request: Request,
+    city: str = DEFAULT_CITY,
+    question: str = "",
+):
+    """Analyze one memory-only image with Gemini; no upload is persisted."""
+    rate_limit.check(
+        "copilot_image", rate_limit.client_id(request), limit=6, window=60,
+    )
+    content_type = request.headers.get("content-type", "")
+    declared_size = request.headers.get("content-length")
+    if declared_size and int(declared_size) > image_analysis.MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="The image is larger than 8 MB.")
+
+    image = bytearray()
+    async for chunk in request.stream():
+        image.extend(chunk)
+        if len(image) > image_analysis.MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="The image is larger than 8 MB.")
+    try:
+        city_name = next((item["name"] for item in city_list() if item["id"] == city), city)
+        return image_analysis.analyze(bytes(image), content_type, question, city_name)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except image_analysis.ImageAnalysisUnavailable as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Image analysis is temporarily unavailable. You can continue without the image.",
         ) from error
 
 

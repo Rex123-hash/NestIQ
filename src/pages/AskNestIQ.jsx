@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Sparkles, Send, ShieldCheck, Home, Train, TreePine, ShoppingCart, DollarSign, Building2, TrendingUp, MessageSquare, Trash2, Database, X, LoaderCircle, CircleCheck, ArrowRight, ChevronDown, MessageSquarePlus, Mic, MicOff } from 'lucide-react'
-import { apiAsk, apiNeighborhoods, apiTranscribe } from '../lib/api.js'
+import { Sparkles, Send, ShieldCheck, Home, Train, TreePine, ShoppingCart, DollarSign, Building2, TrendingUp, MessageSquare, Trash2, Database, X, LoaderCircle, CircleCheck, ArrowRight, ChevronDown, MessageSquarePlus, Mic, MicOff, ImagePlus } from 'lucide-react'
+import { apiAnalyzeImage, apiAsk, apiNeighborhoods, apiTranscribe } from '../lib/api.js'
 import { useCity } from '../lib/cityStore.jsx'
 import { useRecent, pushRecent, removeRecent, clearRecent, relativeTime } from '../lib/recent.js'
 import CityPicker from '../components/layout/CityPicker.jsx'
@@ -33,6 +33,7 @@ const MODE_LABELS = {
   city_analytics: 'City data analysis',
   city_evidence: 'City evidence',
   locality_evidence: 'Locality evidence',
+  image_evidence: 'Image evidence',
 }
 
 function CopilotAnswer({ answer, onFollowUp }) {
@@ -156,7 +157,11 @@ export default function AskNestIQ() {
   const [listening, setListening] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [voiceError, setVoiceError] = useState('')
+  const [image, setImage] = useState(null)
+  const [imagePreview, setImagePreview] = useState('')
+  const [imageError, setImageError] = useState('')
   const composerRef = useRef(null)
+  const imageInputRef = useRef(null)
   const recorderRef = useRef(null)
   const voiceStreamRef = useRef(null)
   const voiceTimerRef = useRef(null)
@@ -171,6 +176,8 @@ export default function AskNestIQ() {
   useEffect(() => {
     setMessages([])
     setQ('')
+    setImage(null)
+    setImageError('')
   }, [city])
 
   useEffect(() => () => {
@@ -179,6 +186,16 @@ export default function AskNestIQ() {
     if (recorderRef.current?.state !== 'inactive') recorderRef.current?.stop()
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
   }, [])
+
+  useEffect(() => {
+    if (!image) {
+      setImagePreview('')
+      return undefined
+    }
+    const preview = URL.createObjectURL(image)
+    setImagePreview(preview)
+    return () => URL.revokeObjectURL(preview)
+  }, [image])
 
   // Build genuinely personalized suggestions from the current city's live data.
   useEffect(() => {
@@ -213,19 +230,25 @@ export default function AskNestIQ() {
   async function submit(text) {
     if (loading) return
     const question = (text ?? q).trim()
-    if (!question) return
+    if (!question && !image) return
     const history = messages
       .map((message) => ({
         role: message.role,
         content: message.role === 'assistant' ? message.response.answer : message.content,
       }))
       .slice(-6)
+    const attachedImage = image
+    const visibleQuestion = question || 'Analyze this neighborhood image.'
     setQ('')
+    setImage(null)
+    setImageError('')
     if (composerRef.current) composerRef.current.style.height = 'auto'
-    pushRecent(question)
-    setMessages((current) => [...current, { role: 'user', content: question }])
+    pushRecent(visibleQuestion)
+    setMessages((current) => [...current, { role: 'user', content: visibleQuestion, imageName: attachedImage?.name }])
     setLoading(true)
-    const res = await apiAsk(question, null, city, history)
+    const res = attachedImage
+      ? await apiAnalyzeImage(attachedImage, visibleQuestion, city)
+      : await apiAsk(visibleQuestion, null, city, history)
     setLoading(false)
     const response = res || { answer: "I couldn't reach the assistant just now. Please try again.", sources: [] }
     setMessages((current) => [...current, { role: 'assistant', response }])
@@ -237,12 +260,31 @@ export default function AskNestIQ() {
     setListening(false)
     setTranscribing(false)
     setVoiceError('')
+    setImage(null)
+    setImageError('')
     setMessages([])
     setQ('')
     if (composerRef.current) {
       composerRef.current.style.height = 'auto'
       composerRef.current.focus()
     }
+  }
+
+  function selectImage(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setImageError('Choose a JPG, PNG, or WebP image.')
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setImageError('Choose an image smaller than 8 MB.')
+      return
+    }
+    setImage(file)
+    setImageError('')
+    composerRef.current?.focus()
   }
 
   function clearComposer() {
@@ -357,6 +399,18 @@ export default function AskNestIQ() {
       {/* Copilot composer: focus is calm; the animated aura is reserved for real work. */}
       <div className={`copilot-composer mt-5 ${loading || listening || transcribing ? 'copilot-composer--working' : ''}`}>
         <div className="relative rounded-[21px] bg-white p-3">
+          {image && (
+            <div className="mb-3 flex items-center gap-3 rounded-xl border border-brand-100 bg-brand-50/50 p-2.5">
+              {imagePreview
+                ? <img src={imagePreview} alt="Selected upload preview" className="h-14 w-14 rounded-lg object-cover" />
+                : <span className="grid h-14 w-14 place-items-center rounded-lg bg-brand-100 text-brand-700"><ImagePlus size={20} /></span>}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-semibold text-ink">{image.name}</p>
+                <p className="text-[11px] text-muted">Gemini will inspect this image in memory</p>
+              </div>
+              <button type="button" onClick={() => setImage(null)} className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-white hover:text-brand-700" aria-label="Remove attached image"><X size={15} /></button>
+            </div>
+          )}
           <div className="flex items-start gap-3">
             <span className={`mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 ${loading ? 'animate-pulse' : ''}`}>
               {loading ? <LoaderCircle size={18} className="animate-spin" /> : <Sparkles size={18} />}
@@ -372,6 +426,17 @@ export default function AskNestIQ() {
               aria-label="Ask NestIQ Copilot"
             />
             <div className="flex shrink-0 items-center gap-2">
+              <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={selectImage} className="sr-only" aria-label="Choose an image" />
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                disabled={loading || transcribing || listening}
+                className="grid h-9 w-9 place-items-center rounded-xl border border-line bg-white text-muted transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Attach image"
+                title="Attach a neighborhood photo"
+              >
+                <ImagePlus size={16} />
+              </button>
               <button
                 type="button"
                 onClick={toggleVoice}
@@ -401,7 +466,7 @@ export default function AskNestIQ() {
               <button
                 type="button"
                 onClick={() => submit()}
-                disabled={!q.trim() || loading || listening || transcribing}
+                disabled={(!q.trim() && !image) || loading || listening || transcribing}
                 className="grid h-9 w-9 place-items-center rounded-xl bg-brand-600 text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-brand-200 disabled:shadow-none"
                 aria-label={loading ? 'NestIQ is working' : 'Send question'}
               >
@@ -424,9 +489,9 @@ export default function AskNestIQ() {
           </div>
         </div>
       </div>
-      {(voiceError || listening || transcribing) && (
-        <p className={`mt-2 px-1 text-xs ${voiceError ? 'text-red-700' : 'text-muted'}`} role={voiceError ? 'alert' : 'status'}>
-          {voiceError || (listening
+      {(voiceError || imageError || listening || transcribing) && (
+        <p className={`mt-2 px-1 text-xs ${voiceError || imageError ? 'text-red-700' : 'text-muted'}`} role={voiceError || imageError ? 'alert' : 'status'}>
+          {voiceError || imageError || (listening
             ? 'Recording locally. It will be sent for transcription only when you stop.'
             : 'Google Speech-to-Text is processing this clip in memory. Raw audio is not saved.')}
         </p>
@@ -450,6 +515,7 @@ export default function AskNestIQ() {
               <div key={`user:${index}`} className="flex justify-end">
                 <div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-sm leading-6 text-white shadow-sm">
                   {message.content}
+                  {message.imageName && <span className="mt-1 block text-[11px] text-white/75">Image: {message.imageName}</span>}
                 </div>
               </div>
             ) : (

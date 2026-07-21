@@ -313,3 +313,26 @@ export async function apiTranscribe(audioBlob, durationMs, languageCode = 'en-IN
     }
   }
 }
+
+export async function apiAnalyzeImage(imageFile, question, city) {
+  try {
+    const path = `/api/copilot/analyze-image?city=${encodeURIComponent(city)}&question=${encodeURIComponent(question || '')}`
+    const response = await fetch(BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': imageFile.type },
+      body: imageFile,
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}))
+      throw new Error(body.detail || `Image analysis failed (${response.status})`)
+    }
+    return await response.json()
+  } catch (error) {
+    console.warn('[api] image analysis unavailable:', error.message)
+    return {
+      answer: '',
+      status: 'temporarily_unavailable',
+      limitation: error.message || 'Image analysis is temporarily unavailable.',
+    }
+  }
+}

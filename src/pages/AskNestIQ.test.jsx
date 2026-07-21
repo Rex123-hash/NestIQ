@@ -5,10 +5,12 @@ import { MemoryRouter } from 'react-router-dom'
 
 const apiAsk = vi.fn()
 const apiTranscribe = vi.fn()
+const apiAnalyzeImage = vi.fn()
 
 vi.mock('../lib/api.js', () => ({
   apiAsk: (...args) => apiAsk(...args),
   apiTranscribe: (...args) => apiTranscribe(...args),
+  apiAnalyzeImage: (...args) => apiAnalyzeImage(...args),
   apiNeighborhoods: vi.fn().mockResolvedValue([]),
 }))
 
@@ -24,6 +26,8 @@ beforeEach(() => {
   apiAsk.mockResolvedValue({ answer: 'Grounded answer', sources: ['Test source'] })
   apiTranscribe.mockReset()
   apiTranscribe.mockResolvedValue({ transcript: 'compare clean air localities', audioStored: false })
+  apiAnalyzeImage.mockReset()
+  apiAnalyzeImage.mockResolvedValue({ answer: 'Visible greenery.', mode: 'image_evidence', imageStored: false })
 })
 
 afterEach(cleanup)
@@ -136,5 +140,21 @@ describe('NestIQ Copilot composer', () => {
       delete window.MediaRecorder
       delete navigator.mediaDevices
     }
+  })
+
+  it('previews and analyzes an attached image without persisting it', async () => {
+    const createObjectURL = vi.fn(() => 'blob:preview')
+    const revokeObjectURL = vi.fn()
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL })
+    render(<MemoryRouter><AskNestIQ /></MemoryRouter>)
+    const file = new File(['image'], 'street.png', { type: 'image/png' })
+    fireEvent.change(screen.getByLabelText('Choose an image'), { target: { files: [file] } })
+    expect(await screen.findByAltText('Selected upload preview')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Ask NestIQ Copilot'), { target: { value: 'Is this street walkable?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+    await waitFor(() => expect(apiAnalyzeImage).toHaveBeenCalledWith(file, 'Is this street walkable?', 'delhi-ncr'))
+    expect(await screen.findByText('Image evidence')).toBeTruthy()
+    expect(screen.getByText('Image: street.png')).toBeTruthy()
   })
 })
