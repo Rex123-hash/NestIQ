@@ -152,23 +152,36 @@ When a live call fails, the last good reading is served with its **original** ti
 Orchestration is built on the **Google Agent Development Kit** (`backend/app/adk_orchestration.py`), coordinated by a planner and streamed to the browser over Server-Sent Events.
 
 ```text
-                    nestiq_planner  (ADK coordinator)
-                    parses the request, selects tools
-                                 |
-        +------------------------+------------------------+
-        v                        v                        v
-  live_signals_agent      analytics_agent        civic_intelligence_agent
-  AQI, Places,            snapshots,             scoped civic retrieval
-  commute, imagery        anomalies, BQML        with citations
-        +------------------------+------------------------+
-                                 v
-                    FitScore engine  (deterministic)
-                 arithmetic is never delegated to an LLM
-                                 |
-                                 v
-                     Validator  ->  Explainer
-             contradiction and        summary drawn only from
-             coverage checks          validated evidence
+                         ┌────────────────────────────────────┐
+                         │          NESTIQ PLANNER            │
+                         │  ADK coordinator · selects tools   │
+                         └─────────────────┬──────────────────┘
+                                           │
+                    ┌──────────────────────┼──────────────────────┐
+                    ▼                      ▼                      ▼
+       ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
+       │ LIVE SIGNALS AGENT  │ │  ANALYTICS AGENT    │ │ CIVIC INTELLIGENCE  │
+       │ AQI · Places        │ │ snapshots · BQML    │ │ scoped retrieval    │
+       │ commute · imagery   │ │ anomalies · coverage│ │ citations retained  │
+       └──────────┬──────────┘ └──────────┬──────────┘ └──────────┬──────────┘
+                  └───────────────────────┼───────────────────────┘
+                                          ▼
+                         ┌────────────────────────────────────┐
+                         │     DETERMINISTIC FITSCORE         │
+                         │  arithmetic never goes to an LLM   │
+                         └─────────────────┬──────────────────┘
+                                           ▼
+                         ┌────────────────────────────────────┐
+                         │             VALIDATOR              │
+                         │ contradictions · missing coverage  │
+                         └─────────────────┬──────────────────┘
+                                           ▼
+                         ┌────────────────────────────────────┐
+                         │             EXPLAINER              │
+                         │ summary from validated evidence    │
+                         └─────────────────┬──────────────────┘
+                                           ▼
+                              Ranked results streamed by SSE
 ```
 
 **What each agent actually does.** `live_signals_agent` invokes the ranking path, which fetches live AQI, Places and commute data and computes the deterministic FitScore. `analytics_agent` reports what the scoring engine found — locality count, statistical anomalies, and how many results are provisional due to incomplete signals. `civic_intelligence_agent` performs citation-locked retrieval scoped to the top locality and reports the true number of documents matched, including zero. The Validator then checks the scored output for contradictions — specifically that no locality in the Severe band carries a high air sub-score — and reports how many results are provisional. The Explainer produces a summary from validated structured evidence only.
@@ -188,73 +201,63 @@ End-to-end request flow. The agent hierarchy is in the section above; this is wh
 data comes from, what is cached, and what is written back.
 
 ```text
-                    "clean air, safe, under Rs 25,000"
-                                    |
-                                    v
-   +---------------------------------------------------------------+
-   |  Intent parsing                       backend/app/gemini.py    |
-   |  Gemini 2.5 Flash -> Pydantic Criteria: budget + 5 weights     |
-   |  An allowlisted preset overrides the weights server-side       |
-   +------------------------------+--------------------------------+
-                                  |
-                                  v
-   +---------------------------------------------------------------+
-   |  ADK orchestration           backend/app/adk_orchestration.py  |
-   |  planner -> live_signals | analytics | civic_intelligence      |
-   |  falls back to the legacy narrated stream on any ADK error     |
-   +------------------------------+--------------------------------+
-                                  |
-                                  v
-   +---------------------------------------------------------------+
-   |  Live signal fan-out                    backend/app/maps.py    |
-   |  parallel per locality, 30-min stale-while-revalidate cache,   |
-   |  concurrent requests for one city share a single build         |
-   +---------------------------------------------------------------+
-     |               |               |               |
-     v               v               v               v
-  Air Quality     Places (New)   Distance Matrix   Place Photos
-  CPCB AQI +      amenities and  drive time with   locality imagery
-  24h history     essentials     live traffic
-     |               |               |               |
-     +---------------+-------+-------+---------------+
-                             |
-                             v
-   +---------------------------------------------------------------+
-   |  Deterministic scoring    backend/app/fitscore.py, maps.py     |
-   |  air scored on ABSOLUTE CPCB bands (air_quality.py);           |
-   |  other pillars min-max normalized within the city;             |
-   |  missing pillars excluded and renormalized, never zeroed       |
-   +------------------------------+--------------------------------+
-                                  |
-                    +-------------+-------------+
-                    v                           v
-   +-------------------------------+  +----------------------------+
-   |  Evidence envelopes           |  |  Anomaly detection         |
-   |  backend/app/evidence.py      |  |  1.5 sigma cross-sectional |
-   |  source, status, scope,       |  |  + temporal AQI spikes     |
-   |  confidence, limitation       |  |  backend/app/maps.py       |
-   +---------------+---------------+  +-------------+--------------+
-                   |                                |
-                   +----------------+---------------+
-                                    |
-                                    v
-   +---------------------------------------------------------------+
-   |  Validator -> Explainer                                        |
-   |  contradiction and coverage checks, then a summary drawn       |
-   |  only from validated evidence                                  |
-   +------------------------------+--------------------------------+
-                                  |
-              +-------------------+-------------------+
-              v                                       v
-   +------------------------+            +----------------------------+
-   |  SSE to the browser    |            |  BigQuery snapshot         |
-   |  agent events, then    |            |  backend/app/bq_india.py   |
-   |  ranked final results  |            |  feeds ARIMA_PLUS forecast |
-   +------------------------+            +----------------------------+
-                                                     |
-                                                     v
-                                          the warehouse and the
-                                          forecast grow with use
+                         "clean air, safe, under ₹25,000"
+                                         │
+                                         ▼
+              ┌──────────────────────────────────────────────────────┐
+              │  1 · INTENT PARSING                 gemini.py        │
+              │  Gemini → Pydantic criteria: budget + five weights   │
+              │  Allowlisted presets are resolved on the server      │
+              └──────────────────────────┬───────────────────────────┘
+                                         ▼
+              ┌──────────────────────────────────────────────────────┐
+              │  2 · ADK ORCHESTRATION       adk_orchestration.py    │
+              │  planner → live signals · analytics · civic intel    │
+              │  coordinator failure → compatible fallback stream    │
+              └──────────────────────────┬───────────────────────────┘
+                                         ▼
+              ┌──────────────────────────────────────────────────────┐
+              │  3 · PARALLEL SIGNAL FAN-OUT          maps.py        │
+              │  30-minute stale-while-revalidate · single flight    │
+              └──────────────────────────┬───────────────────────────┘
+                                         │
+          ┌──────────────────┬───────────┴───────────┬──────────────────┐
+          ▼                  ▼                       ▼                  ▼
+ ┌────────────────┐ ┌────────────────┐     ┌────────────────┐ ┌────────────────┐
+ │  AIR QUALITY   │ │  PLACES (NEW)  │     │ DISTANCE MATRIX│ │  PLACE PHOTOS  │
+ │ CPCB + history │ │ amenities +    │     │ drive time +   │ │ locality       │
+ │                │ │ essentials     │     │ live traffic   │ │ imagery        │
+ └───────┬────────┘ └───────┬────────┘     └───────┬────────┘ └───────┬────────┘
+         └──────────────────┴───────────────┬───────┴──────────────────┘
+                                            ▼
+              ┌──────────────────────────────────────────────────────┐
+              │  4 · DETERMINISTIC SCORING       fitscore.py         │
+              │  absolute CPCB bands · relative preference pillars   │
+              │  missing pillars excluded, then weights renormalized │
+              └──────────────────────────┬───────────────────────────┘
+                                         │
+                         ┌───────────────┴───────────────┐
+                         ▼                               ▼
+        ┌────────────────────────────┐   ┌────────────────────────────┐
+        │  EVIDENCE ENVELOPES        │   │  ANOMALY DETECTION         │
+        │  source · status · scope   │   │  1.5σ city outliers        │
+        │  confidence · limitation   │   │  temporal AQI spikes       │
+        │  evidence.py              │   │  maps.py                    │
+        └─────────────┬──────────────┘   └─────────────┬──────────────┘
+                      └──────────────────┬──────────────┘
+                                         ▼
+              ┌──────────────────────────────────────────────────────┐
+              │  5 · VALIDATE → EXPLAIN                              │
+              │  contradiction + coverage checks before explanation  │
+              └──────────────────────────┬───────────────────────────┘
+                                         │
+                         ┌───────────────┴───────────────┐
+                         ▼                               ▼
+        ┌────────────────────────────┐   ┌────────────────────────────┐
+        │  BROWSER                   │   │  BIGQUERY                  │
+        │  SSE agent events +        │   │  non-blocking snapshot +   │
+        │  ranked final results      │   │  ARIMA_PLUS history        │
+        └────────────────────────────┘   └────────────────────────────┘
 ```
 
 **On the detail page**, three further evidence sources load independently and never block
