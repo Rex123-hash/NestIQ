@@ -36,6 +36,13 @@ const MODE_LABELS = {
   image_evidence: 'Image evidence',
 }
 
+function RichText({ children }) {
+  const parts = String(children || '').split(/(\*\*[^*]+\*\*)/g)
+  return parts.map((part, index) => part.startsWith('**') && part.endsWith('**')
+    ? <strong key={index} className="font-semibold text-ink">{part.slice(2, -2)}</strong>
+    : <span key={index}>{part}</span>)
+}
+
 function CopilotAnswer({ answer, onFollowUp }) {
   const modeLabel = MODE_LABELS[answer.mode] || 'Grounded answer'
   const tools = Array.isArray(answer.tools) ? answer.tools : []
@@ -53,7 +60,7 @@ function CopilotAnswer({ answer, onFollowUp }) {
       </header>
 
       <div className="p-5">
-        <p className="text-sm leading-7 text-ink-soft">{answer.answer}</p>
+        <p className="whitespace-pre-line text-sm leading-7 text-ink-soft"><RichText>{answer.answer}</RichText></p>
 
         {tools.length > 0 && (
           <section className="mt-4 rounded-xl border border-line bg-band/35 p-3.5" aria-label="Tools used for this answer">
@@ -365,8 +372,8 @@ export default function AskNestIQ() {
         if (voiceCancelledRef.current) return
         if (result?.transcript) {
           const prefix = voicePrefixRef.current
-          setQ(`${prefix}${prefix ? ' ' : ''}${result.transcript}`)
-          requestAnimationFrame(() => composerRef.current?.focus())
+          const voiceQuestion = `${prefix}${prefix ? ' ' : ''}${result.transcript}`
+          await submit(voiceQuestion)
         } else {
           setVoiceError(result?.limitation || 'Voice transcription is temporarily unavailable. You can continue typing.')
         }
@@ -535,22 +542,7 @@ export default function AskNestIQ() {
       <div className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         {/* popular questions */}
         <div>
-          <h3 className="text-sm font-semibold text-ink">Popular Questions</h3>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {POPULAR.map(([q, d, Icon, color]) => (
-              <button key={q} onClick={() => submit(q)} className="flex items-start gap-3 rounded-xl border border-line bg-white p-4 text-left transition hover:border-brand-200">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ backgroundColor: `${color}1a`, color }}>
-                  <Icon size={18} />
-                </span>
-                <div>
-                  <p className="text-sm font-semibold text-ink">{q}</p>
-                  <p className="mt-0.5 text-xs text-muted">{d}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          <h3 className="mt-6 flex items-center justify-between text-sm font-semibold text-ink">
+          <h3 className="flex items-center justify-between text-sm font-semibold text-ink">
             Recent Questions
             {recent.length > 0 && (
               <button onClick={clearRecent} className="text-xs font-medium text-brand-700 hover:text-brand-800">Clear all</button>
@@ -576,6 +568,21 @@ export default function AskNestIQ() {
                 </div>
               ))
             )}
+          </div>
+
+          <h3 className="mt-6 text-sm font-semibold text-ink">Popular Questions</h3>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {POPULAR.map(([q, d, Icon, color]) => (
+              <button key={q} onClick={() => submit(q)} className="flex items-start gap-3 rounded-xl border border-line bg-white p-4 text-left transition hover:border-brand-200">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ backgroundColor: `${color}1a`, color }}>
+                  <Icon size={18} />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-ink">{q}</p>
+                  <p className="mt-0.5 text-xs text-muted">{d}</p>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
 

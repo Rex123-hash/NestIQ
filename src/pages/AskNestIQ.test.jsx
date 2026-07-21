@@ -99,7 +99,7 @@ describe('NestIQ Copilot composer', () => {
     expect(screen.getByText('Where is rent affordable?')).toBeTruthy()
   })
 
-  it('places a Google Speech transcript into the editable composer without submitting', async () => {
+  it('submits a Google Speech transcript automatically after recording stops', async () => {
     let recorder
     class MockMediaRecorder {
       static isTypeSupported() {
@@ -132,14 +132,31 @@ describe('NestIQ Copilot composer', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: 'Stop voice input' })).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: 'Stop voice input' }))
       await waitFor(() => expect(apiTranscribe).toHaveBeenCalled())
-      expect(screen.getByLabelText('Ask NestIQ Copilot').value).toBe('compare clean air localities')
-      expect(apiAsk).not.toHaveBeenCalled()
+      await waitFor(() => expect(apiAsk).toHaveBeenCalledWith('compare clean air localities', null, 'delhi-ncr', []))
+      expect(screen.getByLabelText('Ask NestIQ Copilot').value).toBe('')
       expect(stopTrack).toHaveBeenCalled()
       await waitFor(() => expect(screen.getByRole('button', { name: 'Start voice input' })).toBeTruthy())
     } finally {
       delete window.MediaRecorder
       delete navigator.mediaDevices
     }
+  })
+
+  it('renders Gemini bold markers as semantic bold text', async () => {
+    apiAsk.mockResolvedValue({ answer: 'This is **Chota Imambara** in Lucknow.', mode: 'city_evidence' })
+    render(<MemoryRouter><AskNestIQ /></MemoryRouter>)
+    fireEvent.change(screen.getByLabelText('Ask NestIQ Copilot'), { target: { value: 'What is this?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+    const bold = await screen.findByText('Chota Imambara')
+    expect(bold.tagName).toBe('STRONG')
+    expect(screen.queryByText(/\*\*Chota Imambara\*\*/)).toBeNull()
+  })
+
+  it('places Recent Questions before Popular Questions', () => {
+    render(<MemoryRouter><AskNestIQ /></MemoryRouter>)
+    const recentHeading = screen.getByText('Recent Questions')
+    const popularHeading = screen.getByText('Popular Questions')
+    expect(recentHeading.compareDocumentPosition(popularHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('previews and analyzes an attached image without persisting it', async () => {
