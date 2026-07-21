@@ -625,8 +625,9 @@ export function AffordabilityTab({ n }) {
           </div>
         )}
         {rentRevealed && verification && verification.status !== 'available' && verification.status !== 'pending' && (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-            {verification.limitation || 'Not enough citation-backed observations were found. The curated estimate remains unchanged.'}
+          <div className="mt-4 rounded-xl border border-line bg-[#F7F8FB] p-3 text-xs text-muted">
+            <span className="font-semibold text-ink-soft">Published estimate remains active.</span>{' '}
+            Live verification did not add newer citation-backed observations in this check. You can retry without changing the FitScore shown above.
           </div>
         )}
         <EvidenceNote evidence={n.evidence?.affordability} />

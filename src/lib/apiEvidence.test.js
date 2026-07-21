@@ -31,9 +31,30 @@ describe('bounded evidence requests', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'indira-nagar-lko' }) }))
 
     const request = apiNeighborhood('indira-nagar-lko', 'lucknow')
-    await vi.advanceTimersByTimeAsync(300)
+    await vi.advanceTimersByTimeAsync(350)
 
     await expect(request).resolves.toEqual({ id: 'indira-nagar-lko' })
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries one transient server response, then returns the recovered response', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'indira-nagar-lko' }) }))
+
+    const request = apiNeighborhood('indira-nagar-lko', 'lucknow')
+    await vi.advanceTimersByTimeAsync(350)
+
+    await expect(request).resolves.toEqual({ id: 'indira-nagar-lko' })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry an intentionally aborted request', async () => {
+    const abortError = new DOMException('aborted', 'AbortError')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abortError))
+
+    await expect(apiNeighborhood('indira-nagar-lko', 'lucknow')).resolves.toEqual({ __error: 'temporarily_unavailable' })
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

@@ -25,6 +25,25 @@ INDIA_KEYS = list(INDIA_WEIGHTS.keys())
 
 _cache: dict[str, tuple[float, list[dict]]] = {}
 _TTL = 1800  # 30 min
+_TRANSIENT_HTTP = frozenset({408, 429, 500, 502, 503, 504})
+
+
+def _request_with_retry(call, *args, **kwargs):
+    """Retry one transient Maps transport/server failure, never permanent 4xx."""
+    last_error = None
+    for attempt in range(2):
+        try:
+            response = call(*args, **kwargs)
+            if attempt == 0 and getattr(response, "status_code", 200) in _TRANSIENT_HTTP:
+                time.sleep(0.35)
+                continue
+            return response
+        except requests.RequestException as error:
+            last_error = error
+            if attempt == 1:
+                raise
+            time.sleep(0.35)
+    raise last_error
 
 
 # --------------------------- individual Maps calls ------------------------- #
@@ -69,7 +88,7 @@ def air_quality(lat: float, lng: float) -> dict:
     key = _aqi_key(lat, lng)
     fetched = _now_iso()
     try:
-        r = requests.post(
+        r = _request_with_retry(requests.post,
             f"https://airquality.googleapis.com/v1/currentConditions:lookup?key={settings.maps_api_key}",
             json={"location": {"latitude": lat, "longitude": lng}, "extraComputations": ["LOCAL_AQI"]},
             timeout=15,
@@ -113,7 +132,7 @@ def _extract_aqi(indexes: list) -> int | None:
 def air_quality_history(lat: float, lng: float, hours: int = 24) -> list[dict]:
     """Past hourly AQI (real, Google history:lookup)."""
     try:
-        r = requests.post(
+        r = _request_with_retry(requests.post,
             f"https://airquality.googleapis.com/v1/history:lookup?key={settings.maps_api_key}",
             json={"location": {"latitude": lat, "longitude": lng}, "hours": hours, "extraComputations": ["LOCAL_AQI"]},
             timeout=20,
@@ -138,7 +157,7 @@ def air_quality_forecast(lat: float, lng: float, hours: int = 24) -> list[dict]:
     start = datetime.now(timezone.utc) + timedelta(hours=1)
     end = start + timedelta(hours=hours)
     try:
-        r = requests.post(
+        r = _request_with_retry(requests.post,
             f"https://airquality.googleapis.com/v1/forecast:lookup?key={settings.maps_api_key}",
             json={"location": {"latitude": lat, "longitude": lng},
                   "period": {"startTime": start.strftime("%Y-%m-%dT%H:00:00Z"), "endTime": end.strftime("%Y-%m-%dT%H:00:00Z")},
@@ -168,7 +187,7 @@ AMENITY_LABELS = {
 def _count_places(lat: float, lng: float, place_type: str) -> int | None:
     """Nearby count for a single amenity type within 1.5 km (capped at 20)."""
     try:
-        r = requests.post(
+        r = _request_with_retry(requests.post,
             "https://places.googleapis.com/v1/places:searchNearby",
             headers={"X-Goog-Api-Key": settings.maps_api_key, "X-Goog-FieldMask": "places.id"},
             json={
@@ -302,7 +321,7 @@ def _distance_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 def _nearby_safety_places(lat: float, lng: float, place_type: str, radius: float) -> dict | None:
     """Count and nearest straight-line distance for one emergency-service type."""
     try:
-        r = requests.post(
+        r = _request_with_retry(requests.post,
             "https://places.googleapis.com/v1/places:searchNearby",
             headers={
                 "X-Goog-Api-Key": settings.maps_api_key,
@@ -403,7 +422,7 @@ def safety_profile(lat: float, lng: float) -> dict:
 def locality_photo(query: str) -> str:
     """First Places photo resource name for a locality (used for card imagery)."""
     try:
-        r = requests.post(
+        r = _request_with_retry(requests.post,
             "https://places.googleapis.com/v1/places:searchText",
             headers={"X-Goog-Api-Key": settings.maps_api_key, "X-Goog-FieldMask": "places.photos"},
             json={"textQuery": query},
@@ -423,7 +442,7 @@ def locality_photo(query: str) -> str:
 def commute_minutes(o_lat: float, o_lng: float, d_lat: float, d_lng: float) -> int | None:
     """Driving time (with traffic) to the city work anchor."""
     try:
-        r = requests.get(
+        r = _request_with_retry(requests.get,
             "https://maps.googleapis.com/maps/api/distancematrix/json",
             params={"origins": f"{o_lat},{o_lng}", "destinations": f"{d_lat},{d_lng}",
                     "mode": "driving", "departure_time": "now", "key": settings.maps_api_key},

@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { TrainFront, DollarSign, IndianRupee, Wind, Heart } from 'lucide-react'
 import ScoreGauge from '../ui/ScoreGauge.jsx'
 import { useMapsKey, placesPhotoUrl } from '../../lib/gmaps.js'
 import { useCity } from '../../lib/cityStore.jsx'
 import { useSaved, toggleSaved } from '../../lib/saved.js'
+import { apiLocalityPulse, apiRentVerification, apiReviews } from '../../lib/api.js'
 
 const scoreColor = (s) => (s >= 85 ? 'text-brand-700' : s >= 75 ? 'text-aff' : 'text-trend')
 
@@ -25,9 +26,46 @@ export default function NeighborhoodCard({ n, rank }) {
   const photo = placesPhotoUrl(n.photo, key)
   const isRupee = (n.rentDisplay || '').includes('₹')
   const RentIcon = isRupee ? IndianRupee : DollarSign
+  const warmTimers = useRef([])
+  const warmedStages = useRef(new Set())
+
+  const clearWarmTimers = () => {
+    warmTimers.current.forEach(clearTimeout)
+    warmTimers.current = []
+  }
+
+  const warmOnce = (stage, request) => {
+    if (warmedStages.current.has(stage)) return
+    warmedStages.current.add(stage)
+    Promise.resolve(request()).catch(() => {})
+  }
+
+  const beginWarmup = () => {
+    clearWarmTimers()
+    warmOnce('rent', () => apiRentVerification(n.id, city, false, false))
+    if (!warmedStages.current.has('reviews')) {
+      warmTimers.current.push(setTimeout(
+        () => warmOnce('reviews', () => apiReviews(n.id, city)),
+        1500,
+      ))
+    }
+    if (!warmedStages.current.has('pulse')) {
+      warmTimers.current.push(setTimeout(
+        () => warmOnce('pulse', () => apiLocalityPulse(n.id, city)),
+        3000,
+      ))
+    }
+  }
+
+  useEffect(() => () => clearWarmTimers(), [])
+
   return (
     <Link
       to={`/neighborhood/${n.id}`}
+      onMouseEnter={beginWarmup}
+      onMouseLeave={clearWarmTimers}
+      onFocus={beginWarmup}
+      onBlur={clearWarmTimers}
       className="block rounded-2xl border border-line bg-white p-4 shadow-card transition hover:border-brand-200"
     >
       <div className="flex gap-4">

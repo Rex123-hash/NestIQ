@@ -12,6 +12,29 @@ const reviewRequests = new Map()
 const SNAPSHOT_TTL = 30 * 60 * 1000
 const RENT_TTL = 24 * 60 * 60 * 1000
 const EVIDENCE_TIMEOUT = 15000
+const TRANSIENT_HTTP = new Set([408, 429, 500, 502, 503, 504])
+const RETRY_DELAY_MS = 350
+
+const retryDelay = () => new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+
+async function resilientFetch(url, options = {}) {
+  let lastError
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(url, options)
+      if (attempt === 0 && TRANSIENT_HTTP.has(response.status)) {
+        await retryDelay()
+        continue
+      }
+      return response
+    } catch (error) {
+      if (error?.name === 'AbortError' || attempt === 1) throw error
+      lastError = error
+      await retryDelay()
+    }
+  }
+  throw lastError
+}
 
 function stored(storage, key, ttl) {
   try {
@@ -40,12 +63,12 @@ function rememberSession(key, value) {
 }
 
 async function jget(path) {
-  const r = await fetch(BASE + path)
+  const r = await resilientFetch(BASE + path)
   if (!r.ok) throw new Error(`GET ${path} ${r.status}`)
   return r.json()
 }
 async function jpost(path, body) {
-  const r = await fetch(BASE + path, {
+  const r = await resilientFetch(BASE + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -61,7 +84,7 @@ async function timedJson(base, path, timeout = EVIDENCE_TIMEOUT, externalSignal)
   else externalSignal?.addEventListener('abort', abort, { once: true })
   const timer = setTimeout(() => controller.abort(), timeout)
   try {
-    const response = await fetch(base + path, { signal: controller.signal })
+    const response = await resilientFetch(base + path, { signal: controller.signal })
     if (!response.ok) {
       const error = new Error(`GET ${path} ${response.status}`)
       error.status = response.status
@@ -149,19 +172,8 @@ export async function apiNeighborhood(id, city) {
   try {
     return rememberSession(key, await timedJson(BASE, path))
   } catch (e) {
-    // A brief Cloud Run/network wobble should not replace the entire detail page
-    // with an error. Retry once; a genuine 404 remains immediate and distinct.
-    if (e.status !== 404) {
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 300))
-        return rememberSession(key, await timedJson(BASE, path))
-      } catch (retryError) {
-        console.warn('[api] neighborhood retry failed:', retryError.message)
-        return { __error: retryError.status === 404 ? 'not_found' : 'temporarily_unavailable' }
-      }
-    }
-    console.warn('[api] neighborhood fallback:', e.message)
-    return { __error: 'not_found' }
+    console.warn('[api] neighborhood unavailable:', e.message)
+    return { __error: e.status === 404 ? 'not_found' : 'temporarily_unavailable' }
   }
 }
 
@@ -203,7 +215,7 @@ export async function apiLocalityPulse(id, city, refresh = false, signal) {
 export async function apiEssentials(id, city) {
   try {
     const path = `/api/neighborhood/${id}/essentials?city=${encodeURIComponent(city)}`
-    const r = await fetch(BASE + path)
+    const r = await resilientFetch(BASE + path)
     if (!r.ok) throw new Error(`GET ${path} ${r.status}`)
     return await r.json()
   } catch (e) {
@@ -227,7 +239,7 @@ export async function apiCityPulse(city, refresh = false, signal) {
 export async function apiCivicKnowledge(id, city, question) {
   try {
     const path = `/api/neighborhood/${id}/civic-knowledge?city=${encodeURIComponent(city)}&q=${encodeURIComponent(question)}`
-    const r = await fetch(BASE + path)
+    const r = await resilientFetch(BASE + path)
     if (!r.ok) throw new Error(`GET ${path} ${r.status}`)
     return await r.json()
   } catch (e) {
@@ -279,7 +291,7 @@ export async function apiAsk(question, neighborhoodId, city, history = []) {
 export async function apiTranscribe(audioBlob, durationMs, languageCode = 'en-IN') {
   try {
     const path = `/api/copilot/transcribe?durationMs=${encodeURIComponent(Math.round(durationMs))}&languageCode=${encodeURIComponent(languageCode)}`
-    const response = await fetch(BASE + path, {
+    const response = await resilientFetch(BASE + path, {
       method: 'POST',
       headers: { 'Content-Type': audioBlob.type || 'audio/webm' },
       body: audioBlob,
@@ -302,7 +314,7 @@ export async function apiTranscribe(audioBlob, durationMs, languageCode = 'en-IN
 export async function apiAnalyzeImage(imageFile, question, city) {
   try {
     const path = `/api/copilot/analyze-image?city=${encodeURIComponent(city)}&question=${encodeURIComponent(question || '')}`
-    const response = await fetch(BASE + path, {
+    const response = await resilientFetch(BASE + path, {
       method: 'POST',
       headers: { 'Content-Type': imageFile.type },
       body: imageFile,

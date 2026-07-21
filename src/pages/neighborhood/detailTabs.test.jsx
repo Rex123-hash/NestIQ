@@ -95,7 +95,8 @@ describe('Rent verification', () => {
     fireEvent.click(screen.getByRole('button', { name: /verify current rent/i }))
     await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
 
-    expect(screen.getAllByText(/grounded rent sources could not be reached/i)).toHaveLength(1)
+    expect(screen.queryByText(/grounded rent sources could not be reached/i)).toBeNull()
+    expect(screen.getByText(/published estimate remains active/i)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /verify current rent/i }))
     expect(apiRentVerification.mock.calls[1].slice(0, 3)).toEqual(['sector-18', 'delhi-ncr', true])
   })
