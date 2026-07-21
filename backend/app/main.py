@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,16 +35,35 @@ def cors_origins() -> list[str]:
     return origins or list(DEV_ORIGINS)
 
 
-app = FastAPI(title="NestIQ API", version="2.0")
+NYC = "new-york"
+DEFAULT_CITY = "delhi-ncr"
+
+
+def warm_default_city_cache() -> None:
+    """Warm slow clients without delaying Cloud Run readiness."""
+    def warm():
+        maps.build_city_features(DEFAULT_CITY)
+        try:
+            gemini.parse_query("warmup: flat with clean air")
+        except Exception as error:  # noqa: BLE001
+            print(f"[warmup] gemini skipped: {error}")
+
+    threading.Thread(target=warm, daemon=True).start()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    warm_default_city_cache()
+    yield
+
+
+app = FastAPI(title="NestIQ API", version="2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
     allow_methods=["GET", "POST"],  # the API exposes nothing else
     allow_headers=["Content-Type", "Authorization"],
 )
-
-NYC = "new-york"
-DEFAULT_CITY = "delhi-ncr"
 
 # Per-instance request budget for the expensive Ask endpoint (Gemini + BigQuery).
 # NOT a global cap: Cloud Run runs N instances, so the real ceiling is N x this.
@@ -188,20 +208,6 @@ def maybe_log_snapshot(city: str, results: list[dict]) -> None:
             return
         _last_logged[city] = ts
     bq_india.log_snapshot_safe(city, results)
-
-
-@app.on_event("startup")
-def warm_default_city_cache():
-    # Pre-fetch the default city's Google signals and spin up the Vertex client
-    # so the first user request after a (re)start doesn't pay cold-start costs.
-    def warm():
-        maps.build_city_features(DEFAULT_CITY)
-        try:
-            gemini.parse_query("warmup: flat with clean air")
-        except Exception as e:  # noqa: BLE001
-            print(f"[warmup] gemini skipped: {e}")
-
-    threading.Thread(target=warm, daemon=True).start()
 
 
 def all_cities():

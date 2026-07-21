@@ -11,6 +11,7 @@ const REVIEWS_BASE = import.meta.env.VITE_REVIEWS_API_URL || BASE
 const reviewRequests = new Map()
 const SNAPSHOT_TTL = 30 * 60 * 1000
 const RENT_TTL = 24 * 60 * 60 * 1000
+const EVIDENCE_TIMEOUT = 15000
 
 function stored(storage, key, ttl) {
   try {
@@ -53,6 +54,22 @@ async function jpost(path, body) {
   return r.json()
 }
 
+async function timedJson(base, path, timeout = EVIDENCE_TIMEOUT) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeout)
+  try {
+    const response = await fetch(base + path, { signal: controller.signal })
+    if (!response.ok) {
+      const error = new Error(`GET ${path} ${response.status}`)
+      error.status = response.status
+      throw error
+    }
+    return await response.json()
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function apiCities() {
   try {
     return await jget('/api/cities')
@@ -79,7 +96,7 @@ export async function apiNeighborhoods(city) {
   const cached = sessionValue(key)
   if (cached) return cached
   try {
-    return rememberSession(key, (await jget(`/api/neighborhoods?city=${city}`)).results)
+    return rememberSession(key, (await timedJson(BASE, `/api/neighborhoods?city=${encodeURIComponent(city)}`)).results)
   } catch (e) {
     console.warn('[api] neighborhoods fallback:', e.message)
     return null
@@ -125,10 +142,10 @@ export async function apiNeighborhood(id, city) {
   const cached = sessionValue(key)
   if (cached) return cached
   try {
-    return rememberSession(key, await jget(`/api/neighborhood/${id}?city=${city}`))
+    return rememberSession(key, await timedJson(BASE, `/api/neighborhood/${id}?city=${encodeURIComponent(city)}`))
   } catch (e) {
     console.warn('[api] neighborhood fallback:', e.message)
-    return null
+    return { __error: e.status === 404 ? 'not_found' : 'temporarily_unavailable' }
   }
 }
 
@@ -138,13 +155,11 @@ export async function apiReviews(id, city, refresh = false) {
   const request = (async () => {
     try {
       const path = `/api/neighborhood/${id}/reviews?city=${encodeURIComponent(city)}${refresh ? '&refresh=true' : ''}`
-      const r = await fetch(REVIEWS_BASE + path)
-      if (!r.ok) throw new Error(`GET ${path} ${r.status}`)
-      return await r.json()
+      return await timedJson(REVIEWS_BASE, path)
     } catch (e) {
       console.warn('[api] reviews fallback:', e.message)
       reviewRequests.delete(key)
-      return null
+      return { status: 'temporarily_unavailable', summary: '', citations: [], limitation: 'Verified community sources did not respond in time.' }
     }
   })()
   if (!refresh) reviewRequests.set(key, request)
@@ -159,9 +174,7 @@ export async function apiReviews(id, city, refresh = false) {
 export async function apiLocalityPulse(id, city, refresh = false) {
   try {
     const path = `/api/neighborhood/${id}/pulse?city=${encodeURIComponent(city)}${refresh ? '&refresh=true' : ''}`
-    const r = await fetch(REVIEWS_BASE + path)
-    if (!r.ok) throw new Error(`GET ${path} ${r.status}`)
-    return await r.json()
+    return await timedJson(REVIEWS_BASE, path)
   } catch (e) {
     console.warn('[api] locality pulse unavailable:', e.message)
     return { status: 'temporarily_unavailable', items: [], citations: [] }
@@ -188,9 +201,7 @@ export async function apiEssentials(id, city) {
 export async function apiCityPulse(city, refresh = false) {
   try {
     const path = `/api/city/${encodeURIComponent(city)}/pulse${refresh ? '?refresh=true' : ''}`
-    const r = await fetch(REVIEWS_BASE + path)
-    if (!r.ok) throw new Error(`GET ${path} ${r.status}`)
-    return await r.json()
+    return await timedJson(REVIEWS_BASE, path)
   } catch (e) {
     console.warn('[api] city pulse unavailable:', e.message)
     return { status: 'temporarily_unavailable', items: [], citations: [] }
@@ -212,11 +223,10 @@ export async function apiCivicKnowledge(id, city, question) {
 export async function apiRentVerification(id, city, refresh = false, persist = true) {
   const cacheKey = `nestiq:rent-verification:${city}:${id}`
   const path = `/api/neighborhood/${id}/rent-verification?city=${encodeURIComponent(city)}${refresh ? '&refresh=true' : ''}`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), EVIDENCE_TIMEOUT)
   try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 15000)
     const r = await fetch(REVIEWS_BASE + path, { signal: controller.signal })
-    clearTimeout(timer)
     if (r.status === 404) return {
       status: 'deployment_required',
       limitation: 'The Rent Verification Agent is ready locally but is not available on the deployed backend yet.',
@@ -236,6 +246,8 @@ export async function apiRentVerification(id, city, refresh = false, persist = t
       status: 'temporarily_unavailable',
       limitation: 'The verification service could not be reached. The previous evidence remains available.',
     }
+  } finally {
+    clearTimeout(timer)
   }
 }
 

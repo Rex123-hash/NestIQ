@@ -994,7 +994,7 @@ export function AirQualityTab({ n }) {
 }
 
 /* --------------------------- Community: reviews + ranks ------------------- */
-function ReviewsPanel({ n }) {
+export function ReviewsPanel({ n }) {
   const [reviews, setReviews] = useState(null)
   const [phase, setPhase] = useState('preparing')
   const [retryKey, setRetryKey] = useState(0)
@@ -1004,6 +1004,7 @@ function ReviewsPanel({ n }) {
     let pollTimer
     let twoSecondTimer
     let fiveSecondTimer
+    let attempts = 0
     const startedAt = Date.now()
     setPhase('preparing')
     setReviews(null)
@@ -1018,6 +1019,17 @@ function ReviewsPanel({ n }) {
       const d = await apiReviews(n.id, n.cityId, refresh)
       if (!alive) return
       if (d?.status === 'pending') {
+        attempts += 1
+        if (attempts >= 45) {
+          setReviews({
+            status: 'temporarily_unavailable',
+            summary: '',
+            citations: [],
+            limitation: 'Verified community evidence is still unavailable after 90 seconds.',
+          })
+          setPhase('visible')
+          return
+        }
         pollTimer = setTimeout(() => load(false), 2000)
         return
       }

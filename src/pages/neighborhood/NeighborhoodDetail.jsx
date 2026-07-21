@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, NavLink } from 'react-router-dom'
+import { useParams, NavLink, Link } from 'react-router-dom'
 import { Bookmark, LayoutGrid, PiggyBank, ShieldCheck, TrainFront, Heart, Wind, Users, Dot, TriangleAlert } from 'lucide-react'
 import AppTopbar from '../../components/layout/AppTopbar.jsx'
 import ScoreGauge from '../../components/ui/ScoreGauge.jsx'
@@ -41,6 +41,8 @@ export default function NeighborhoodDetail() {
   const { id, tab } = useParams()
   const { city } = useCity()
   const [n, setN] = useState(null)
+  const [detailStatus, setDetailStatus] = useState('loading')
+  const [retryKey, setRetryKey] = useState(0)
   const [essentials, setEssentials] = useState(null)
   const [showFullExplanation, setShowFullExplanation] = useState(false)
   const saved = useSaved().some((x) => x.id === id)
@@ -67,30 +69,62 @@ export default function NeighborhoodDetail() {
 
   useEffect(() => {
     let alive = true
+    setN(null)
+    setDetailStatus('loading')
     ;(async () => {
       // The locality itself (with AI summary + AQI series) plus its city peers,
       // so the tabs can rank it against the rest of the city.
       const [d, peers] = await Promise.all([apiNeighborhood(id, city), apiNeighborhoods(city)])
       if (!alive) return
+      if (d?.__error) {
+        setDetailStatus(d.__error)
+        return
+      }
       if (!d) {
-        setN(null)
+        setDetailStatus('temporarily_unavailable')
         return
       }
       const adapted = adaptNeighborhood(d)
       adapted.insights = cityInsights(peers || [], id)
       adapted.cityId = city
       setN(adapted)
+      setDetailStatus('ready')
     })()
     return () => {
       alive = false
     }
-  }, [id, city])
+  }, [id, city, retryKey])
 
   useEffect(() => {
     setShowFullExplanation(false)
   }, [id, city])
 
-  if (!n) return <div className="p-8 text-muted">Loading neighborhood…</div>
+  if (detailStatus === 'loading') {
+    return <div className="grid min-h-[55vh] place-items-center p-8 text-sm text-muted" role="status">Loading neighborhood…</div>
+  }
+  if (detailStatus === 'not_found') {
+    return (
+      <div className="grid min-h-[65vh] place-items-center p-8 text-center">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wider text-brand-600">Locality not found</p>
+          <h1 className="mt-2 font-serif text-3xl text-ink">We couldn’t find this neighborhood</h1>
+          <p className="mt-2 text-sm text-muted">It may not be available for the currently selected city.</p>
+          <Link to="/results" className="btn-primary mt-5 inline-flex">Back to results</Link>
+        </div>
+      </div>
+    )
+  }
+  if (detailStatus === 'temporarily_unavailable' || !n) {
+    return (
+      <div className="grid min-h-[65vh] place-items-center p-8 text-center">
+        <div className="max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-6">
+          <h1 className="font-serif text-2xl text-ink">Neighborhood details are temporarily unavailable</h1>
+          <p className="mt-2 text-sm text-muted">NestIQ could not reach the evidence service. This does not mean the locality has no data.</p>
+          <button type="button" onClick={() => setRetryKey((value) => value + 1)} className="mt-5 rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800">Try again</button>
+        </div>
+      </div>
+    )
+  }
 
   const active = tab || 'overview'
   const ActiveTab = TAB_CONTENT[active] || OverviewTab

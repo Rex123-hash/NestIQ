@@ -1,8 +1,20 @@
 """Part-2 efficiency guarantees: amenity differentiation, detail caching,
 and deduplicated BigQuery snapshot logging."""
+import asyncio
 import time
 
 from app import maps, main, gemini
+
+
+def test_lifespan_starts_cache_warmup(monkeypatch):
+    calls = {"n": 0}
+    monkeypatch.setattr(main, "warm_default_city_cache", lambda: calls.__setitem__("n", calls["n"] + 1))
+
+    async def exercise_lifespan():
+        async with main.lifespan(main.app):
+            assert calls["n"] == 1
+
+    asyncio.run(exercise_lifespan())
 
 
 def _clear_reviews_state():

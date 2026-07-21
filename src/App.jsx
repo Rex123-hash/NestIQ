@@ -12,7 +12,7 @@ const Alerts = lazy(() => import('./pages/Alerts.jsx'))
 const AskNestIQ = lazy(() => import('./pages/AskNestIQ.jsx'))
 const SignIn = lazy(() => import('./pages/SignIn.jsx'))
 
-function RouteFallback() {
+export function RouteFallback() {
   return (
     <div className="grid min-h-[35vh] place-items-center px-6 text-center" role="status" aria-live="polite">
       <div>
