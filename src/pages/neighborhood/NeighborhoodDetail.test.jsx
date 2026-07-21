@@ -53,21 +53,25 @@ describe('NeighborhoodDetail failure states', () => {
     await waitFor(() => expect(apiNeighborhood).toHaveBeenCalledTimes(2))
   })
 
-  it('starts evidence only after opening and staggers expensive jobs', async () => {
+  it('warms rent first, community after 5 seconds, and pulse after 10 seconds', async () => {
     vi.useFakeTimers()
     apiNeighborhood.mockResolvedValue({ __error: 'not_found' })
 
     renderDetail('/neighborhood/opened')
 
+    expect(apiRentVerification).toHaveBeenCalledWith('opened', 'delhi-ncr', false, false)
+    expect(apiReviews).not.toHaveBeenCalled()
+    expect(apiLocalityPulse).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(apiReviews).not.toHaveBeenCalled()
+    expect(apiLocalityPulse).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
     expect(apiReviews).toHaveBeenCalledWith('opened', 'delhi-ncr')
     expect(apiLocalityPulse).not.toHaveBeenCalled()
-    expect(apiRentVerification).not.toHaveBeenCalled()
 
-    await vi.advanceTimersByTimeAsync(300)
+    await vi.advanceTimersByTimeAsync(5000)
     expect(apiLocalityPulse).toHaveBeenCalledWith('opened', 'delhi-ncr')
-    expect(apiRentVerification).not.toHaveBeenCalled()
-
-    await vi.advanceTimersByTimeAsync(600)
-    expect(apiRentVerification).toHaveBeenCalledWith('opened', 'delhi-ncr', false, false)
   })
 })

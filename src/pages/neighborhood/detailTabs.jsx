@@ -453,11 +453,13 @@ export function AffordabilityTab({ n }) {
       if (!stillRunning) {
         if (result?.status !== 'available') setVerification(result)
         setBackgroundPending(false)
+        // Terminal failures render in the amber evidence panel below. Keeping
+        // the same limitation here would display the failure twice.
         setVerificationNotice(result?.status === 'available'
           ? (result?.refreshStatus === 'failed'
             ? (result?.limitation || 'Showing the last verified rent evidence because refresh failed.')
             : 'Verification updated from grounded sources.')
-          : (result?.limitation || 'Verification could not complete. The curated estimate remains unchanged.'))
+          : '')
         return
       }
       if (result?.pollable === false || Date.now() - startedAt >= RENT_POLL_DEADLINE_MS) {
@@ -527,7 +529,10 @@ export function AffordabilityTab({ n }) {
       verifyRent(false)
       return
     }
-    verifyRent(verification?.status === 'available' && !backgroundPending)
+    // Once a revealed request reaches any terminal state, the next explicit
+    // action is a true refresh. This bypasses the short shared failure cache so
+    // a transient grounding outage can recover immediately when the user retries.
+    verifyRent(Boolean(verification && verification.status !== 'pending' && !backgroundPending))
   }
   return (
     <div>

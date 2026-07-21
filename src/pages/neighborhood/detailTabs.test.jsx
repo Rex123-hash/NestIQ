@@ -84,6 +84,22 @@ describe('Rent verification', () => {
     expect(screen.getByText(/21,000 median/i)).toBeTruthy()
   })
 
+  it('shows one terminal failure and forces a fresh job on explicit retry', async () => {
+    vi.useFakeTimers()
+    apiRentVerification.mockResolvedValue({
+      status: 'temporarily_unavailable',
+      limitation: 'Grounded rent sources could not be reached just now. The curated market estimate remains available.',
+    })
+    render(<AffordabilityTab n={RENT_NEIGHBORHOOD} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /verify current rent/i }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+
+    expect(screen.getAllByText(/grounded rent sources could not be reached/i)).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: /verify current rent/i }))
+    expect(apiRentVerification.mock.calls[1].slice(0, 3)).toEqual(['sector-18', 'delhi-ncr', true])
+  })
+
   it('stops client polling after the bounded wait window', async () => {
     vi.useFakeTimers()
     apiRentVerification.mockResolvedValue({ status: 'pending', refreshStatus: 'refreshing' })

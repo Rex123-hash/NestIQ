@@ -48,14 +48,15 @@ export default function NeighborhoodDetail() {
   const saved = useSaved().some((x) => x.id === id)
 
   useEffect(() => {
-    // Start slow evidence only after this locality actually opens. A small
-    // stagger avoids one synchronized burst while still warming every tab.
-    apiReviews(id, city)
-    const pulseTimer = setTimeout(() => apiLocalityPulse(id, city), 300)
-    const rentTimer = setTimeout(() => apiRentVerification(id, city, false, false), 900)
+    // Warm the expensive evidence paths in a deliberate order instead of
+    // starting several grounded Gemini requests at once. Their panels keep
+    // controlling when prepared results become visible.
+    apiRentVerification(id, city, false, false)
+    const reviewsTimer = setTimeout(() => apiReviews(id, city), 5000)
+    const pulseTimer = setTimeout(() => apiLocalityPulse(id, city), 10000)
     return () => {
+      clearTimeout(reviewsTimer)
       clearTimeout(pulseTimer)
-      clearTimeout(rentTimer)
     }
   }, [id, city])
 
