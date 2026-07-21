@@ -1,0 +1,27 @@
+metrics_to_run:
+  - tool_trajectory_accuracy
+  - groundedness
+  - citation_precision
+  - unsupported_claim_rate
+  - contradiction_rate
+  - task_completion
+  - latency_ms
+  - fallback_frequency
+
+custom_metrics:
+  - name: tool_trajectory_accuracy
+    custom_function_file: metrics/tool_trajectory_accuracy.py
+  - name: groundedness
+    custom_function_file: metrics/groundedness.py
+  - name: citation_precision
+    custom_function_file: metrics/citation_precision.py
+  - name: unsupported_claim_rate
+    custom_function_file: metrics/unsupported_claim_rate.py
+  - name: contradiction_rate
+    custom_function_file: metrics/contradiction_rate.py
+  - name: task_completion
+    custom_function_file: metrics/task_completion.py
+  - name: latency_ms
+    custom_function_file: metrics/latency_ms.py
+  - name: fallback_frequency
+    custom_function_file: metrics/fallback_frequency.py
