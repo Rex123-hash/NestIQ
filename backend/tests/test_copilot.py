@@ -1,0 +1,53 @@
+"""NestIQ Copilot routing and additive response contract."""
+from app import copilot
+
+
+class TestCopilotRouting:
+    def test_comparative_question_routes_to_analytics(self):
+        assert copilot.route_intent("Compare the cheapest localities") == copilot.CITY_ANALYTICS
+        assert copilot.route_intent("Which locality has the cleanest air?") == copilot.CITY_ANALYTICS
+
+    def test_ordinary_city_question_avoids_an_unnecessary_analytics_job(self):
+        assert copilot.route_intent("Is the air safe to go out today?") == copilot.CITY_EVIDENCE
+
+    def test_explicit_locality_always_uses_locality_evidence(self):
+        assert copilot.route_intent("Compare it with alternatives", "powai") == copilot.LOCALITY_EVIDENCE
+
+    def test_referential_follow_up_inherits_the_last_user_analytics_route(self):
+        history = [
+            {"role": "user", "content": "Compare the cheapest localities"},
+            {"role": "assistant", "content": "Here are several options."},
+        ]
+        assert copilot.route_intent("What about the second one?", history=history) == copilot.CITY_ANALYTICS
+
+    def test_assistant_text_cannot_force_an_analytics_route(self):
+        history = [{"role": "assistant", "content": "Compare the cheapest localities"}]
+        assert copilot.route_intent("Tell me more about that", history=history) == copilot.CITY_EVIDENCE
+
+
+class TestCopilotEnvelope:
+    def test_bigquery_receipt_discloses_only_tools_that_ran(self):
+        result = copilot.envelope(
+            mode=copilot.CITY_ANALYTICS,
+            city="mumbai",
+            neighborhood_id=None,
+            used_bigquery=True,
+            rows=[{"id": "powai", "name": "Powai"}],
+        )
+        assert result["mode"] == "city_analytics"
+        assert [tool["id"] for tool in result["tools"]] == ["bigquery", "gemini"]
+        assert result["actions"] == [
+            {"type": "view_locality", "localityId": "powai", "label": "View Powai"},
+        ]
+        assert len(result["followUps"]) == 3
+
+    def test_evidence_envelope_never_claims_bigquery(self):
+        result = copilot.envelope(
+            mode=copilot.LOCALITY_EVIDENCE,
+            city="mumbai",
+            neighborhood_id="powai",
+            used_bigquery=False,
+            locality={"id": "powai", "name": "Powai"},
+        )
+        assert "bigquery" not in [tool["id"] for tool in result["tools"]]
+        assert result["scope"]["level"] == "locality"

@@ -282,11 +282,34 @@ export function prefetchLocality(id, city) {
   apiRentVerification(id, city, false, false)
 }
 
-export async function apiAsk(question, neighborhoodId, city) {
+export async function apiAsk(question, neighborhoodId, city, history = []) {
   try {
-    return await jpost('/api/ask', { question, neighborhoodId, city })
+    return await jpost('/api/ask', { question, neighborhoodId, city, history: history.slice(-6) })
   } catch (e) {
     console.warn('[api] ask fallback:', e.message)
     return null
+  }
+}
+
+export async function apiTranscribe(audioBlob, durationMs, languageCode = 'en-IN') {
+  try {
+    const path = `/api/copilot/transcribe?durationMs=${encodeURIComponent(Math.round(durationMs))}&languageCode=${encodeURIComponent(languageCode)}`
+    const response = await fetch(BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': audioBlob.type || 'audio/webm' },
+      body: audioBlob,
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}))
+      throw new Error(body.detail || `Voice transcription failed (${response.status})`)
+    }
+    return await response.json()
+  } catch (error) {
+    console.warn('[api] voice transcription unavailable:', error.message)
+    return {
+      status: 'temporarily_unavailable',
+      transcript: '',
+      limitation: error.message || 'Voice transcription is temporarily unavailable. You can continue typing.',
+    }
   }
 }

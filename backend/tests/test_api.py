@@ -111,12 +111,54 @@ class TestAsk:
         body = client.post("/api/ask", json={"question": "cleanest air?", "city": "delhi-ncr"}).json()
         assert body["sql"].lstrip().upper().startswith("SELECT")
         assert body["rows"] and "BigQuery (NL→SQL)" in body["sources"][0]
+        assert body["mode"] == "city_analytics"
+        assert [tool["id"] for tool in body["tools"]] == ["bigquery", "gemini"]
+        assert len(body["followUps"]) == 3
 
     def test_single_locality_question_uses_grounded_context(self, client):
         body = client.post("/api/ask", json={
             "question": "is it safe?", "neighborhoodId": "middle", "city": "delhi-ncr"}).json()
         assert body["answer"] == "Grounded answer."
         assert "sql" not in body
+        assert body["mode"] == "locality_evidence"
+        assert body["scope"]["neighborhoodId"] == "middle"
+        assert "bigquery" not in [tool["id"] for tool in body["tools"]]
+
+    def test_ordinary_city_question_uses_evidence_without_bigquery(self, client, monkeypatch):
+        from app import main
+        called = False
+
+        def unexpected_sql(*_args):
+            nonlocal called
+            called = True
+            raise AssertionError("ordinary city guidance must not invoke NL-to-SQL")
+
+        monkeypatch.setattr(main.gemini, "nl_to_sql", unexpected_sql)
+        body = client.post("/api/ask", json={
+            "question": "Is the air safe to go out today?", "city": "delhi-ncr",
+        }).json()
+        assert called is False
+        assert body["mode"] == "city_evidence"
+        assert "sql" not in body
+
+    def test_bounded_history_supports_analytical_follow_ups(self, client):
+        body = client.post("/api/ask", json={
+            "question": "What about the second option?",
+            "city": "delhi-ncr",
+            "history": [
+                {"role": "user", "content": "Compare the cheapest localities"},
+                {"role": "assistant", "content": "Here are the leading options."},
+            ],
+        }).json()
+        assert body["mode"] == "city_analytics"
+        assert body["sql"].lstrip().upper().startswith("SELECT")
+
+    def test_history_is_bounded_by_schema(self, client):
+        turns = [{"role": "user", "content": f"Question {index}"} for index in range(7)]
+        response = client.post("/api/ask", json={
+            "question": "What about it?", "city": "delhi-ncr", "history": turns,
+        })
+        assert response.status_code == 422
 
 
 class TestAgentStream:

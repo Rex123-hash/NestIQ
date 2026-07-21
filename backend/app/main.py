@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import bq, gemini, maps, bq_india, civic_rag, rate_limit, telemetry
+from . import bq, gemini, maps, bq_india, civic_rag, copilot, rate_limit, telemetry, transcription
 from .config import settings
 from .fitscore import score_neighborhoods, DEFAULT_WEIGHTS
 from .india import city_list, get_city
@@ -95,6 +95,8 @@ async def structured_request_telemetry(request: Request, call_next):
 # NOT a global cap: Cloud Run runs N instances, so the real ceiling is N x this.
 ASK_RATE_LIMIT = 20
 ASK_RATE_WINDOW = 60  # seconds
+TRANSCRIBE_RATE_LIMIT = 6
+TRANSCRIBE_RATE_WINDOW = 60
 
 # Log a BigQuery snapshot only once per fresh city build, not on every request.
 _last_logged: dict[str, float] = {}
@@ -739,7 +741,7 @@ def _slim(f: dict) -> dict:
 
 # Short-TTL cache so an identical question (e.g. a judge re-asking) is instant
 # and doesn't re-bill Gemini + BigQuery.
-_ask_cache: dict[tuple[str, str, str], tuple[float, dict]] = {}
+_ask_cache: dict[tuple, tuple[float, dict]] = {}
 _ASK_TTL = 600
 
 
@@ -750,7 +752,8 @@ def ask(req: AskRequest, request: Request):
     rate_limit.check("ask", rate_limit.client_id(request), limit=ASK_RATE_LIMIT,
                      window=ASK_RATE_WINDOW)
     city = req.city or DEFAULT_CITY
-    key = (city, req.neighborhoodId or "", (req.question or "").strip().lower())
+    history = tuple((turn.role, turn.content.strip()) for turn in req.history)
+    key = (city, req.neighborhoodId or "", (req.question or "").strip().lower(), history)
     cached = _ask_cache.get(key)
     if cached and time.time() - cached[0] < _ASK_TTL:
         telemetry.event("cache_access", cache="ask", city=city,
@@ -765,17 +768,69 @@ def ask(req: AskRequest, request: Request):
     return resp
 
 
+@app.post("/api/copilot/transcribe")
+async def transcribe_voice(
+    request: Request,
+    durationMs: int,
+    languageCode: str = "en-IN",
+):
+    """Transcribe a short, memory-only voice question through Google Speech v2."""
+    rate_limit.check(
+        "copilot_transcribe",
+        rate_limit.client_id(request),
+        limit=TRANSCRIBE_RATE_LIMIT,
+        window=TRANSCRIBE_RATE_WINDOW,
+    )
+    content_type = request.headers.get("content-type", "")
+    declared_size = request.headers.get("content-length")
+    if declared_size and int(declared_size) > transcription.MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="The recording is larger than 5 MB.")
+
+    audio = bytearray()
+    async for chunk in request.stream():
+        audio.extend(chunk)
+        if len(audio) > transcription.MAX_AUDIO_BYTES:
+            raise HTTPException(status_code=413, detail="The recording is larger than 5 MB.")
+
+    try:
+        return transcription.transcribe(bytes(audio), content_type, durationMs, languageCode)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except transcription.TranscriptionUnavailable as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice transcription is temporarily unavailable. You can continue typing.",
+        ) from error
+
+
 def _ask(city: str, req: AskRequest) -> dict:
-    # India + a cross-locality question -> real NL->SQL over BigQuery, with the SQL shown.
-    if city != NYC and not req.neighborhoodId:
+    history = [turn.model_dump() for turn in req.history]
+    mode = copilot.route_intent(req.question, req.neighborhoodId, history)
+    telemetry.event("copilot_route_selected", city=city, route=mode,
+                    locality=req.neighborhoodId)
+
+    # Comparative/aggregate India questions -> guarded NL->SQL over BigQuery.
+    # Ordinary city questions stay on structured evidence, avoiding an unnecessary
+    # analytics job while preserving the existing fallback if BigQuery is unavailable.
+    if city != NYC and mode == copilot.CITY_ANALYTICS:
         try:
             bq_india.ensure_ready()
-            sql = gemini.nl_to_sql(req.question, city, bq_india.LOCALITIES_LATEST)
+            analysis_question = copilot.contextual_question(req.question, history)
+            sql = gemini.nl_to_sql(analysis_question, city, bq_india.LOCALITIES_LATEST)
             rows = bq_india.analytics_query(sql, city)
             if rows:
                 answer = gemini.ask(req.question, f"BigQuery query returned these rows: {rows}")
-                return {"answer": answer, "sql": sql, "rows": rows[:8],
-                        "sources": ["BigQuery (NL→SQL)", "india_localities_latest view", "Gemini on Vertex AI"]}
+                visible_rows = rows[:8]
+                return {
+                    "answer": answer,
+                    "sql": sql,
+                    "rows": visible_rows,
+                    "sources": ["BigQuery (NL→SQL)", "india_localities_latest view", "Gemini on Vertex AI"],
+                    **copilot.envelope(
+                        mode=mode, city=city, neighborhood_id=req.neighborhoodId,
+                        used_bigquery=True, rows=visible_rows,
+                    ),
+                }
         except Exception as e:  # noqa: BLE001
             telemetry.event(
                 "tool_fallback", tool="nl_to_sql", city=city, sourceType="bigquery",
@@ -784,8 +839,20 @@ def _ask(city: str, req: AskRequest) -> dict:
 
     feats = {f["id"]: f for f in rank(city, default_weights(city), None)}
     if req.neighborhoodId and req.neighborhoodId in feats:
-        ctx = f"Locality {feats[req.neighborhoodId]['name']}: {_slim(feats[req.neighborhoodId])}"
+        selected = feats[req.neighborhoodId]
+        ctx = f"Locality {selected['name']}: {_slim(selected)}"
     else:
+        selected = None
         ctx = f"All localities in {city}: {[_slim(f) for f in feats.values()]}"
+    conversation = copilot.conversation_context(history)
+    if conversation:
+        ctx = f"{ctx}\n\n{conversation}"
     sources = ["Google Air Quality API", "Google Places", "Google Maps", "Gemini"] if city != NYC else ["NYC 311", "NYPD collisions", "Zillow ZORI", "BigQuery ML"]
-    return {"answer": gemini.ask(req.question, ctx), "sources": sources}
+    return {
+        "answer": gemini.ask(req.question, ctx),
+        "sources": sources,
+        **copilot.envelope(
+            mode=mode, city=city, neighborhood_id=req.neighborhoodId,
+            used_bigquery=False, locality=selected,
+        ),
+    }

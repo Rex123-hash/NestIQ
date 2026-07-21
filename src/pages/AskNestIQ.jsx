@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
-import { Sparkles, Send, ShieldCheck, Home, Train, TreePine, ShoppingCart, DollarSign, Building2, TrendingUp, MessageSquare, Trash2, Database } from 'lucide-react'
-import { apiAsk, apiNeighborhoods } from '../lib/api.js'
+import { useState, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
+import { Sparkles, Send, ShieldCheck, Home, Train, TreePine, ShoppingCart, DollarSign, Building2, TrendingUp, MessageSquare, Trash2, Database, X, LoaderCircle, CircleCheck, ArrowRight, ChevronDown, MessageSquarePlus, Mic, MicOff } from 'lucide-react'
+import { apiAsk, apiNeighborhoods, apiTranscribe } from '../lib/api.js'
 import { useCity } from '../lib/cityStore.jsx'
 import { useRecent, pushRecent, removeRecent, clearRecent, relativeTime } from '../lib/recent.js'
 import CityPicker from '../components/layout/CityPicker.jsx'
@@ -28,14 +29,156 @@ const STEPS = [
   ['You get smart answers', 'Clear, accurate, and personalized answers in seconds.'],
 ]
 
+const MODE_LABELS = {
+  city_analytics: 'City data analysis',
+  city_evidence: 'City evidence',
+  locality_evidence: 'Locality evidence',
+}
+
+function CopilotAnswer({ answer, onFollowUp }) {
+  const modeLabel = MODE_LABELS[answer.mode] || 'Grounded answer'
+  const tools = Array.isArray(answer.tools) ? answer.tools : []
+  const followUps = Array.isArray(answer.followUps) ? answer.followUps : []
+  const actions = Array.isArray(answer.actions) ? answer.actions : []
+
+  return (
+    <article className="mt-4 overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-card">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-gradient-to-r from-brand-50/80 via-white to-white px-5 py-3.5">
+        <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <span className="grid h-8 w-8 place-items-center rounded-xl bg-brand-600 text-white shadow-sm"><Sparkles size={15} /></span>
+          Copilot answer
+        </div>
+        <span className="rounded-full border border-brand-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700">{modeLabel}</span>
+      </header>
+
+      <div className="p-5">
+        <p className="text-sm leading-7 text-ink-soft">{answer.answer}</p>
+
+        {tools.length > 0 && (
+          <section className="mt-4 rounded-xl border border-line bg-band/35 p-3.5" aria-label="Tools used for this answer">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted">Tools used</span>
+              {tools.map((tool) => (
+                <span key={tool.id} className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-2.5 py-1 text-xs font-medium text-ink-soft">
+                  <CircleCheck size={13} className="text-aff" /> {tool.label}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {answer.sql && (
+          <details className="group mt-4 rounded-xl border border-line bg-white">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-semibold text-brand-700">
+              <span className="flex items-center gap-2"><Database size={14} /> View BigQuery analysis</span>
+              <ChevronDown size={15} className="transition group-open:rotate-180" />
+            </summary>
+            <div className="border-t border-line p-3">
+              <pre className="overflow-x-auto rounded-lg bg-[#1B1B2F] p-3 text-[11px] leading-relaxed text-[#D6CCFB]">
+                <code>{answer.sql}</code>
+              </pre>
+              {answer.rows?.length > 0 && (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr>
+                        {Object.keys(answer.rows[0]).map((key) => (
+                          <th key={key} className="border-b border-line px-2 py-1.5 font-semibold text-muted">{key}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {answer.rows.map((row, rowIndex) => (
+                        <tr key={rowIndex}>
+                          {Object.values(row).map((value, valueIndex) => (
+                            <td key={valueIndex} className="border-b border-line/60 px-2 py-1.5 text-ink-soft">{String(value)}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </details>
+        )}
+
+        {answer.sources?.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted">
+            <span className="font-medium">Evidence:</span>
+            {answer.sources.map((source) => <span key={source} className="chip py-1 text-xs">{source}</span>)}
+          </div>
+        )}
+
+        {actions.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {actions.map((action) => action.type === 'view_locality' && (
+              <Link
+                key={`${action.type}:${action.localityId}`}
+                to={`/neighborhood/${action.localityId}`}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-brand-700"
+              >
+                {action.label} <ArrowRight size={13} />
+              </Link>
+            ))}
+          </div>
+        )}
+
+        {followUps.length > 0 && (
+          <section className="mt-5 border-t border-line pt-4">
+            <p className="text-xs font-semibold text-ink">Continue exploring</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {followUps.map((question) => (
+                <button
+                  key={question}
+                  type="button"
+                  onClick={() => onFollowUp(question)}
+                  className="rounded-full border border-brand-200 bg-brand-50/60 px-3 py-1.5 text-left text-xs font-medium text-brand-700 transition hover:border-brand-300 hover:bg-brand-100"
+                >
+                  {question}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </article>
+  )
+}
+
 export default function AskNestIQ() {
   const { city, cities } = useCity()
   const cityName = cities.find((c) => c.id === city)?.name || 'your city'
   const [q, setQ] = useState('')
-  const [answer, setAnswer] = useState(null)
+  const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [liveSug, setLiveSug] = useState([])
+  const [listening, setListening] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const [voiceError, setVoiceError] = useState('')
+  const composerRef = useRef(null)
+  const recorderRef = useRef(null)
+  const voiceStreamRef = useRef(null)
+  const voiceTimerRef = useRef(null)
+  const voiceStartedRef = useRef(0)
+  const voiceCancelledRef = useRef(false)
+  const voicePrefixRef = useRef('')
   const recent = useRecent()
+  const voiceSupported = typeof window !== 'undefined'
+    && typeof window.MediaRecorder !== 'undefined'
+    && Boolean(navigator.mediaDevices?.getUserMedia)
+
+  useEffect(() => {
+    setMessages([])
+    setQ('')
+  }, [city])
+
+  useEffect(() => () => {
+    voiceCancelledRef.current = true
+    clearTimeout(voiceTimerRef.current)
+    if (recorderRef.current?.state !== 'inactive') recorderRef.current?.stop()
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+  }, [])
 
   // Build genuinely personalized suggestions from the current city's live data.
   useEffect(() => {
@@ -68,92 +211,259 @@ export default function AskNestIQ() {
   const suggestions = liveSug.length ? [...liveSug, ...SUGGESTIONS.slice(0, 2)] : SUGGESTIONS
 
   async function submit(text) {
+    if (loading) return
     const question = (text ?? q).trim()
     if (!question) return
-    setQ(question)
+    const history = messages
+      .map((message) => ({
+        role: message.role,
+        content: message.role === 'assistant' ? message.response.answer : message.content,
+      }))
+      .slice(-6)
+    setQ('')
+    if (composerRef.current) composerRef.current.style.height = 'auto'
     pushRecent(question)
+    setMessages((current) => [...current, { role: 'user', content: question }])
     setLoading(true)
-    setAnswer(null)
-    const res = await apiAsk(question, null, city)
+    const res = await apiAsk(question, null, city, history)
     setLoading(false)
-    setAnswer(res || { answer: "I couldn't reach the assistant just now. Please try again.", sources: [] })
+    const response = res || { answer: "I couldn't reach the assistant just now. Please try again.", sources: [] }
+    setMessages((current) => [...current, { role: 'assistant', response }])
+  }
+
+  function newConversation() {
+    voiceCancelledRef.current = true
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+    setListening(false)
+    setTranscribing(false)
+    setVoiceError('')
+    setMessages([])
+    setQ('')
+    if (composerRef.current) {
+      composerRef.current.style.height = 'auto'
+      composerRef.current.focus()
+    }
+  }
+
+  function clearComposer() {
+    voiceCancelledRef.current = true
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+    setQ('')
+    setListening(false)
+    setTranscribing(false)
+    setVoiceError('')
+    if (composerRef.current) {
+      composerRef.current.style.height = 'auto'
+      composerRef.current.focus()
+    }
+  }
+
+  function updateComposer(event) {
+    setQ(event.target.value)
+    event.target.style.height = 'auto'
+    event.target.style.height = `${Math.min(event.target.scrollHeight, 144)}px`
+  }
+
+  function handleComposerKeyDown(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      submit()
+    }
+  }
+
+  async function toggleVoice() {
+    setVoiceError('')
+    if (!voiceSupported) {
+      setVoiceError('Audio recording is not supported by this browser. You can continue typing normally.')
+      return
+    }
+    if (listening) {
+      recorderRef.current?.stop()
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      voiceStreamRef.current = stream
+      const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      const mimeType = preferredTypes.find((type) => window.MediaRecorder.isTypeSupported?.(type)) || ''
+      const recorder = new window.MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      const chunks = []
+      voicePrefixRef.current = q.trim()
+      voiceCancelledRef.current = false
+      recorderRef.current = recorder
+
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) chunks.push(event.data)
+      }
+      recorder.onerror = () => {
+        setVoiceError('The recording stopped unexpectedly. You can continue typing.')
+      }
+      recorder.onstart = () => {
+        voiceStartedRef.current = Date.now()
+        setListening(true)
+        voiceTimerRef.current = setTimeout(() => recorder.stop(), 30_000)
+      }
+      recorder.onstop = async () => {
+        clearTimeout(voiceTimerRef.current)
+        setListening(false)
+        stream.getTracks().forEach((track) => track.stop())
+        voiceStreamRef.current = null
+        recorderRef.current = null
+        if (voiceCancelledRef.current) return
+
+        const durationMs = Math.max(1, Date.now() - voiceStartedRef.current)
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+        if (!blob.size) {
+          setVoiceError('The recording was empty. Please try again closer to the microphone.')
+          return
+        }
+        setTranscribing(true)
+        const result = await apiTranscribe(blob, durationMs, 'en-IN')
+        setTranscribing(false)
+        if (voiceCancelledRef.current) return
+        if (result?.transcript) {
+          const prefix = voicePrefixRef.current
+          setQ(`${prefix}${prefix ? ' ' : ''}${result.transcript}`)
+          requestAnimationFrame(() => composerRef.current?.focus())
+        } else {
+          setVoiceError(result?.limitation || 'Voice transcription is temporarily unavailable. You can continue typing.')
+        }
+      }
+      recorder.start()
+    } catch (error) {
+      setListening(false)
+      voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+      voiceStreamRef.current = null
+      const denied = error?.name === 'NotAllowedError' || error?.name === 'SecurityError'
+      setVoiceError(denied
+        ? 'Microphone permission was denied. Allow access or continue typing.'
+        : 'The microphone could not start. Please try again or continue typing.')
+    }
   }
 
   return (
     <div className="px-6 py-6 lg:px-8">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="font-serif text-3xl text-ink">Ask NestIQ</h1>
-          <p className="mt-1 text-sm text-muted">Your AI neighborhood assistant. Ask anything about {cityName}.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-serif text-3xl text-ink">NestIQ Copilot</h1>
+            <span className="rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-700">Grounded assistant</span>
+          </div>
+          <p className="mt-1 text-sm text-muted">Ask, compare and investigate neighborhoods across {cityName}.</p>
         </div>
         <CityPicker className="shrink-0" />
       </div>
 
-      {/* ask box */}
-      <div className="mt-5 rounded-2xl border-2 border-brand-200 bg-white p-3 shadow-card">
-        <div className="flex items-center gap-3">
-          <Sparkles size={18} className="ml-1 shrink-0 text-brand-500" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-            className="min-w-0 flex-1 text-sm outline-none placeholder:text-muted"
-            placeholder="Ask anything about your neighborhood..."
-          />
-          <button onClick={() => submit()} className="grid h-9 w-9 place-items-center rounded-lg bg-brand-600 text-white hover:bg-brand-700"><Send size={16} /></button>
+      {/* Copilot composer: focus is calm; the animated aura is reserved for real work. */}
+      <div className={`copilot-composer mt-5 ${loading || listening || transcribing ? 'copilot-composer--working' : ''}`}>
+        <div className="relative rounded-[21px] bg-white p-3">
+          <div className="flex items-start gap-3">
+            <span className={`mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 ${loading ? 'animate-pulse' : ''}`}>
+              {loading ? <LoaderCircle size={18} className="animate-spin" /> : <Sparkles size={18} />}
+            </span>
+            <textarea
+              ref={composerRef}
+              value={q}
+              rows={1}
+              onChange={updateComposer}
+              onKeyDown={handleComposerKeyDown}
+              className="max-h-36 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-5 text-ink outline-none placeholder:text-muted"
+              placeholder="Ask about a locality, compare options, or investigate a trade-off..."
+              aria-label="Ask NestIQ Copilot"
+            />
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleVoice}
+                disabled={loading || transcribing}
+                className={`grid h-9 w-9 place-items-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  listening
+                    ? 'border-brand-500 bg-brand-600 text-white shadow-sm'
+                    : 'border-line bg-white text-muted hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700'
+                }`}
+                aria-label={listening ? 'Stop voice input' : 'Start voice input'}
+                aria-pressed={listening}
+                title={voiceSupported ? (listening ? 'Stop listening' : 'Speak your question') : 'Voice input unavailable in this browser'}
+              >
+                {listening ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+              {q && (
+                <button
+                  type="button"
+                  onClick={clearComposer}
+                  className="grid h-9 w-9 place-items-center rounded-xl border border-line bg-white text-muted transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700"
+                  aria-label="Clear question"
+                  title="Clear question"
+                >
+                  <X size={16} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => submit()}
+                disabled={!q.trim() || loading || listening || transcribing}
+                className="grid h-9 w-9 place-items-center rounded-xl bg-brand-600 text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-brand-200 disabled:shadow-none"
+                aria-label={loading ? 'NestIQ is working' : 'Send question'}
+              >
+                {loading ? <LoaderCircle size={16} className="animate-spin" /> : <Send size={16} />}
+              </button>
+            </div>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-line/70 px-1 pt-2 text-[11px] text-muted">
+            <span className="flex items-center gap-1.5" aria-live="polite">
+              <span className={`h-1.5 w-1.5 rounded-full ${loading ? 'animate-pulse bg-brand-500' : 'bg-aff'}`} />
+              {listening
+                ? 'Recording… up to 30 seconds'
+                : transcribing
+                  ? 'Transcribing securely with Google Speech-to-Text…'
+                : loading
+                  ? 'Selecting grounded tools and checking evidence…'
+                  : `Auto-routing for ${cityName}`}
+            </span>
+            <span>{listening ? 'Tap the microphone to stop' : transcribing ? 'Audio is not stored' : 'Enter to send · Shift + Enter for a new line'}</span>
+          </div>
         </div>
       </div>
+      {(voiceError || listening || transcribing) && (
+        <p className={`mt-2 px-1 text-xs ${voiceError ? 'text-red-700' : 'text-muted'}`} role={voiceError ? 'alert' : 'status'}>
+          {voiceError || (listening
+            ? 'Recording locally. It will be sent for transcription only when you stop.'
+            : 'Google Speech-to-Text is processing this clip in memory. Raw audio is not saved.')}
+        </p>
+      )}
 
-      {(loading || answer) && (
-        <div className="mt-4 rounded-2xl border border-line bg-white p-5 shadow-card">
-          {loading ? (
-            <p className="flex items-center gap-2 text-sm text-muted">
-              <Sparkles size={16} className="animate-pulse text-brand-500" /> NestIQ is thinking…
-            </p>
-          ) : (
-            <>
-              <p className="text-sm leading-relaxed text-ink-soft">{answer.answer}</p>
-              {answer.sql && (
-                <div className="mt-3 rounded-xl border border-line bg-band/40 p-3">
-                  <p className="flex items-center gap-1.5 text-xs font-semibold text-brand-700">
-                    <Database size={13} /> Answered by a live BigQuery query
-                  </p>
-                  <pre className="mt-2 overflow-x-auto rounded-lg bg-[#1B1B2F] p-3 text-[11px] leading-relaxed text-[#D6CCFB]">
-                    <code>{answer.sql}</code>
-                  </pre>
-                  {answer.rows?.length > 0 && (
-                    <div className="mt-2 overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr>
-                            {Object.keys(answer.rows[0]).map((k) => (
-                              <th key={k} className="border-b border-line px-2 py-1 font-medium text-muted">{k}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {answer.rows.map((r, i) => (
-                            <tr key={i}>
-                              {Object.values(r).map((v, j) => (
-                                <td key={j} className="border-b border-line/60 px-2 py-1 text-ink-soft">{String(v)}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+      {(messages.length > 0 || loading) && (
+        <section className="mt-5" aria-label="Copilot conversation">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Conversation</p>
+            <button
+              type="button"
+              onClick={newConversation}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-brand-700 transition hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <MessageSquarePlus size={14} /> New conversation
+            </button>
+          </div>
+          <div className="mt-2 space-y-3">
+            {messages.map((message, index) => message.role === 'user' ? (
+              <div key={`user:${index}`} className="flex justify-end">
+                <div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-sm leading-6 text-white shadow-sm">
+                  {message.content}
                 </div>
-              )}
-              {answer.sources?.length > 0 && (
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
-                  Sources:
-                  {answer.sources.map((s) => <span key={s} className="chip">{s}</span>)}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+              </div>
+            ) : (
+              <CopilotAnswer key={`assistant:${index}`} answer={message.response} onFollowUp={submit} />
+            ))}
+            {loading && (
+              <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-card" role="status">
+                <p className="flex items-center gap-2 text-sm text-muted">
+                  <LoaderCircle size={16} className="animate-spin text-brand-500" /> NestIQ is selecting tools and checking grounded evidence…
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_1fr]">

@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 google-cloud-bigquery
+google-cloud-speech>=2.33,<3
 google-genai
 google-adk
 # Only needed when USE_SECRET_MANAGER=true; the import in app/secrets.py is lazy.

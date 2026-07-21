@@ -1,5 +1,7 @@
 """API request/response models."""
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class SearchRequest(BaseModel):
@@ -11,7 +13,15 @@ class SearchRequest(BaseModel):
     preset: str | None = None
 
 
+class AskTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=1500)
+
+
 class AskRequest(BaseModel):
     question: str
     neighborhoodId: str | None = None
     city: str | None = None
+    # Stateless, bounded context. The client sends only recent visible turns;
+    # conversations are not persisted by the API or silently attached to users.
+    history: list[AskTurn] = Field(default_factory=list, max_length=6)
