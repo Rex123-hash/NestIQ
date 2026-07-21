@@ -26,14 +26,31 @@ _ANALYTICS_PATTERNS = (
     r"\bacross (?:the )?(?:city|localities|areas|neighbou?rhoods)\b",
 )
 
-_GENERAL_PATTERNS = (
-    r"\bwhat (?:is|does|are)\b",
-    r"\bhow (?:does|do|can)\b",
-    r"\bwhy does\b",
+_NESTIQ_DOMAIN_PATTERNS = (
+    r"\b(?:air|air quality|aqi|cpcb|pollution|pm2\.?5|pm10)\b",
+    r"\b(?:rent|budget|affordab(?:le|ility)|cost of living)\b",
+    r"\b(?:commute|traffic|travel time|metro|transit)\b",
+    r"\b(?:safe|safety|crime|emergency access)\b",
+    r"\b(?:amenit(?:y|ies)|essential services|lifestyle|hospital|clinic|pharmacy|school|college|park|restaurant|gym)\b",
+    r"\b(?:localit(?:y|ies)|area|areas|neighbou?rhoods?|city)\b",
+    r"\b(?:fitscore|match score)\b",
+)
+
+_CONCEPT_PATTERNS = (
+    r"\b(?:what does|meaning of|define)\b",
+    r"\bhow (?:does|do) .+ (?:work|classify|calculate|score)\b",
     r"\bexplain\b",
-    r"\bmeaning of\b",
     r"\bdifference between\b",
 )
+
+
+def _matches_any(patterns: tuple[str, ...], text: str) -> bool:
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _is_analytics_question(text: str) -> bool:
+    """Require both an analytical instruction and a NestIQ data subject."""
+    return _matches_any(_ANALYTICS_PATTERNS, text) and _matches_any(_NESTIQ_DOMAIN_PATTERNS, text)
 
 
 def route_intent(
@@ -45,7 +62,7 @@ def route_intent(
     if neighborhood_id:
         return LOCALITY_EVIDENCE
     normalized = " ".join((question or "").lower().split())
-    if any(re.search(pattern, normalized) for pattern in _ANALYTICS_PATTERNS):
+    if _is_analytics_question(normalized):
         return CITY_ANALYTICS
     # Short referential follow-ups inherit an analytical route only from the
     # most recent user question. This supports "what about the second one?"
@@ -53,11 +70,15 @@ def route_intent(
     refers_back = bool(re.search(r"\b(?:it|that|those|them|one|ones|first|second|third|option)\b", normalized))
     if refers_back:
         prior_users = [turn.get("content", "") for turn in (history or []) if turn.get("role") == "user"]
-        if prior_users and any(re.search(pattern, prior_users[-1].lower()) for pattern in _ANALYTICS_PATTERNS):
+        if prior_users and _is_analytics_question(prior_users[-1].lower()):
             return CITY_ANALYTICS
-    if any(re.search(pattern, normalized) for pattern in _GENERAL_PATTERNS):
+    if _matches_any(_CONCEPT_PATTERNS, normalized):
         return GENERAL_GUIDANCE
-    return CITY_EVIDENCE
+    if _matches_any(_NESTIQ_DOMAIN_PATTERNS, normalized):
+        return CITY_EVIDENCE
+    # Unknown input must never silently trigger locality evidence. General
+    # questions, greetings and calculations stay on the model-only path.
+    return GENERAL_GUIDANCE
 
 
 def contextual_question(question: str, history: list[dict[str, str]] | None = None) -> str:

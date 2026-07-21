@@ -109,6 +109,31 @@ def test_pulse_does_not_chain_a_second_model_call_for_malformed_ledger(monkeypat
     assert result["errorCode"] == "unusable_grounding"
     assert calls["n"] == 1
 
+
+def test_pulse_accepts_only_explicit_completed_search_as_no_evidence(monkeypatch):
+    response = SimpleNamespace(
+        text="NO_VERIFIED_UPDATES",
+        candidates=[SimpleNamespace(grounding_metadata=SimpleNamespace(grounding_chunks=[]))],
+    )
+    monkeypatch.setattr(gemini, "_generate", lambda **_kwargs: response)
+
+    result = gemini.locality_pulse("Vyttila", "Kochi")
+
+    assert result == {"status": "no_evidence", "items": [], "citations": []}
+
+
+def test_pulse_does_not_mislabel_missing_citations_as_no_evidence(monkeypatch):
+    response = SimpleNamespace(
+        text="No reliable recent evidence exists.",
+        candidates=[SimpleNamespace(grounding_metadata=SimpleNamespace(grounding_chunks=[]))],
+    )
+    monkeypatch.setattr(gemini, "_generate", lambda **_kwargs: response)
+
+    result = gemini.locality_pulse("Vyttila", "Kochi")
+
+    assert result["status"] == "temporarily_unavailable"
+    assert result["errorCode"] == "unusable_grounding"
+
 def test_pulse_endpoint_returns_pending_without_duplicate_jobs(client, monkeypatch,
                                                                isolated_pulse_store):
     started, release = Event(), Event()

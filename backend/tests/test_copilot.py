@@ -14,6 +14,18 @@ class TestCopilotRouting:
         assert copilot.route_intent("What does AQI 110 mean?") == copilot.GENERAL_GUIDANCE
         assert copilot.route_intent("How does CPCB classify air quality?") == copilot.GENERAL_GUIDANCE
 
+    def test_general_chat_and_calculations_never_trigger_city_evidence(self):
+        assert copilot.route_intent("2+2") == copilot.GENERAL_GUIDANCE
+        assert copilot.route_intent("hello") == copilot.GENERAL_GUIDANCE
+        assert copilot.route_intent("Who wrote The Discovery of India?") == copilot.GENERAL_GUIDANCE
+
+    def test_unrelated_superlative_does_not_trigger_bigquery(self):
+        assert copilot.route_intent("What is the highest mountain in India?") == copilot.GENERAL_GUIDANCE
+
+    def test_current_nestiq_subject_still_uses_city_evidence(self):
+        assert copilot.route_intent("What is the current rent here?") == copilot.CITY_EVIDENCE
+        assert copilot.route_intent("Is the air safe to go out today?") == copilot.CITY_EVIDENCE
+
     def test_explicit_locality_always_uses_locality_evidence(self):
         assert copilot.route_intent("Compare it with alternatives", "powai") == copilot.LOCALITY_EVIDENCE
 
@@ -26,7 +38,7 @@ class TestCopilotRouting:
 
     def test_assistant_text_cannot_force_an_analytics_route(self):
         history = [{"role": "assistant", "content": "Compare the cheapest localities"}]
-        assert copilot.route_intent("Tell me more about that", history=history) == copilot.CITY_EVIDENCE
+        assert copilot.route_intent("Tell me more about that", history=history) == copilot.GENERAL_GUIDANCE
 
 
 class TestCopilotEnvelope:

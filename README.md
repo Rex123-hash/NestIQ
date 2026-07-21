@@ -15,7 +15,7 @@ NestIQ helps people compare where to live across affordability, air quality, saf
 ![BigQuery](https://img.shields.io/badge/BigQuery_+_BQML-7C5CF6?style=flat-square&logo=googlebigquery&logoColor=white)
 ![Maps](https://img.shields.io/badge/Google_Maps_Platform-7C5CF6?style=flat-square&logo=googlemaps&logoColor=white)
 ![ADK](https://img.shields.io/badge/Google_ADK_agents-7C5CF6?style=flat-square&logo=google&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-461_passing-3FB984?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-483_passing-3FB984?style=flat-square)
 ![Evaluation](https://img.shields.io/badge/evaluation-15%2F15-3FB984?style=flat-square)
 
 Built for the **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon**
@@ -31,9 +31,9 @@ Problem Statement: *AI for Better Living and Smarter Communities*
 
 | Production | Verified catalog | Automated verification | Responsible-agent evaluation |
 |---|---:|---:|---:|
-| [Live Firebase experience](https://nestiq-india.web.app) | **13 cities · 73 localities** | **461 tests passing** | **15 / 15 · zero billable calls** |
+| [Live Firebase experience](https://nestiq-india.web.app) | **13 cities · 73 localities** | **483 tests passing** | **15 / 15 · zero billable calls** |
 
-**90-second judge path:** launch the Family Health & Resilience preset, inspect the evidence labels on the top match, open Community Insights for Locality Pulse and controlled civic RAG, then ask NestIQ Copilot an ordinary city question followed by a comparison to see selective tool routing.
+**90-second judge path:** launch the Family Health & Resilience preset, inspect the evidence labels on the top match, open Community Insights for Locality Pulse and controlled civic RAG, then ask NestIQ Copilot a general question, a current city question and a comparison to see selective tool routing.
 
 ---
 
@@ -75,7 +75,7 @@ Air quality is treated as a first-class pillar rather than a nice-to-have, becau
 
 **Saved and Alerts.** A watchlist of localities with live air-quality signals, plus grounded civic alerts filtered to moderate-or-higher severity, and a city-wide pulse view. Alerts never manufacture events; an unreachable source is reported as unavailable rather than as "nothing happening" (`src/pages/Alerts.jsx`, `src/lib/watchlistPulse.js`).
 
-**NestIQ Copilot.** One conversational surface routes ordinary city questions to structured city evidence, locality questions to locality evidence, and comparative or aggregate questions to guarded BigQuery analytics. It shows the tools that actually contributed, supports bounded conversation context, returns verified navigation actions, and keeps recent conversations newest-first (`backend/app/copilot.py`, `backend/app/main.py`, `src/pages/AskNestIQ.jsx`). Voice questions use Google Cloud Speech-to-Text and are submitted after recording stops; JPG, PNG and WebP uploads use Gemini image understanding. Audio, images and prompts are processed in memory and are not persisted or emitted in telemetry (`backend/app/transcription.py`, `backend/app/image_analysis.py`).
+**NestIQ Copilot.** One conversational surface routes general questions, greetings and calculations to a model-only guidance path; current city questions to structured evidence; locality questions to locality evidence; and comparative or aggregate neighborhood questions to guarded BigQuery analytics. Unknown input never silently triggers locality tools, and unrelated superlatives cannot launch an analytics job. The response shows only the tools that actually contributed, supports bounded conversation context, returns verified navigation actions, and keeps recent conversations newest-first (`backend/app/copilot.py`, `backend/app/main.py`, `src/pages/AskNestIQ.jsx`). Voice questions use Google Cloud Speech-to-Text and are submitted after recording stops; JPG, PNG and WebP uploads use Gemini image understanding. Audio, images and prompts are processed in memory and are not persisted or emitted in telemetry (`backend/app/transcription.py`, `backend/app/image_analysis.py`).
 
 **Rent verification.** Opening a locality starts one shared, grounded market search in the background. Firestore deduplicates work across Cloud Run instances; deterministic code validates the returned ledger and calculates cited ranges by home size without a second model call (`backend/app/gemini.py`, `backend/app/main.py`, `backend/app/pulse_store.py`).
 
@@ -92,7 +92,7 @@ Air quality is treated as a first-class pillar rather than a nice-to-have, becau
 | **Conversational analytics with a real guard** | NL to BigQuery SQL, constrained by a table allowlist and a dry-run byte cap, with the generated query shown to the user (`backend/app/sql_guard.py`, `backend/app/bq_india.py`) |
 | **Self-building dataset and its own forecast** | Every search snapshots features into BigQuery; an ARIMA_PLUS model trained on that accumulating history forecasts AQI alongside Google's (`backend/app/bq_india.py`) |
 | **Anomaly detection at no extra cost** | Cross-sectional outliers at 1.5σ and temporal AQI spikes, computed from metrics already fetched (`backend/app/maps.py`) |
-| **One Copilot, selective tools** | Deterministic intent routing keeps routine questions on structured evidence and invokes BigQuery only for analytical questions; voice and image inputs are privacy-bounded (`backend/app/copilot.py`, `backend/app/transcription.py`, `backend/app/image_analysis.py`) |
+| **One Copilot, selective tools** | Deterministic intent routing keeps general chat model-only, uses structured evidence for current locality questions and invokes BigQuery only when both an analytical instruction and a NestIQ data subject are present; voice and image inputs are privacy-bounded (`backend/app/copilot.py`, `backend/app/transcription.py`, `backend/app/image_analysis.py`) |
 | **13 cities, Tier-1 to Tier-3** | Delhi NCR through Patna, Ranchi, Lucknow and Kochi — decision intelligence beyond the metros (`backend/app/india.py`) |
 
 ---
@@ -374,7 +374,7 @@ One grounded pipeline powers three surfaces — locality pulse, city-wide pulse,
 
 Pulse coordination is durable across Cloud Run instances (`backend/app/pulse_store.py`). A Firestore transaction gives each city or locality one active generation id, deduplicates simultaneous requests, rejects late workers from expired generations, and preserves the last verified evidence while a bounded refresh runs. Firestore stores coordination state and validated results only; Gemini grounding and the citation validator remain the source of evidence.
 
-Affordability verification uses the same generation-safe protocol in a separate `rent_verification_jobs` collection. Both Pulse and rent perform at most one grounded model call per generation, then validate the machine-readable ledger locally. A malformed Pulse ledger is reported as temporarily unavailable rather than falsely implying no activity; insufficient rent observations return a labelled no-evidence result.
+Affordability verification uses the same generation-safe protocol in a separate `rent_verification_jobs` collection. Both Pulse and rent perform at most one grounded model call per generation, then validate the machine-readable ledger locally. Pulse reports no recent updates only when grounding returns the explicit `NO_VERIFIED_UPDATES` completion signal; empty text, missing citations or a malformed ledger is retryable and cannot falsely imply no activity. Insufficient rent observations return a labelled no-evidence result (`backend/app/gemini.py`).
 
 Successful Pulse evidence is reusable for six hours and grounded rent evidence for 24 hours. Once stale, the last citation-backed result remains visible with an explicit refresh label while one bounded generation runs. Regression coverage lives in `backend/tests/test_community_insights.py`, `backend/tests/test_safety_rent.py`, `backend/tests/test_pulse_store.py`, `src/lib/watchlistPulse.test.js`, and `src/pages/neighborhood/detailTabs.test.jsx`.
 
@@ -416,21 +416,21 @@ All figures below were produced by running the suites in this repository, not ca
 
 | Gate | Result |
 |---|---|
-| Backend tests | **361 passed** across 36 test modules |
-| Frontend tests | **100 passed** across 17 test files |
-| Combined automated tests | **461 passed** |
-| Production build | **Passing** with Vite 8.1.5; initial JavaScript bundle **62.78 kB gzip** |
+| Backend tests | **374 passed** across 37 test modules |
+| Frontend tests | **109 passed** across 19 test files |
+| Combined automated tests | **483 passed** |
+| Production build | **Passing** with Vite 8.1.5; initial JavaScript bundle **62.95 kB gzip** |
 | Evaluation scorecard | **15 / 15** across eight dimensions, 0 billable calls |
 | City validator | **0 structural errors**, 0 flagged rent disagreements, 13 cities |
 
 Reproduce:
 
 ```bash
-cd backend && python -m pytest -q          # 361 passed
+cd backend && python -m pytest -q          # 374 passed
 python -m app.evaluation                    # 15 / 15, zero billable calls
 python -m tools.validate_city              # 0 structural errors
 
-cd .. && npm test                          # 100 passed
+cd .. && npm test                          # 109 passed
 npm run build                              # production build
 ```
 
@@ -494,10 +494,11 @@ Production behaviour under load and partial failure, each item verifiable in cod
 - **Concurrent-build de-duplication.** Simultaneous cold requests for the same city share one build instead of each calling Google, asserted by `test_concurrent_cold_requests_share_one_build`.
 - **Durable Pulse and rent single-flight coordination** (`backend/app/pulse_store.py`, `backend/app/main.py`). Firestore transactions let every Cloud Run instance observe the same pending or completed generation. Simultaneous requests launch one grounded job; expired leases can be reclaimed, and an older worker cannot overwrite a newer result.
 - **Stale verified evidence survives refresh failures.** Pulse and grounded rent return the last successful cited result immediately while one bounded refresh runs. A failed refresh is labelled honestly and never erases previously verified evidence.
+- **One bounded transient retry** (`src/lib/api.js`, `backend/app/maps.py`, `backend/app/gemini.py`). Frontend API calls and Google Maps, Places, Air Quality and Gemini provider calls retry once for a transport interruption or HTTP 408, 429, 500, 502, 503 or 504. Permanent client errors and user cancellation are not retried, preventing retry storms.
 - **Failures, not endless spinners** (`backend/app/main.py`). Community-review failures are recorded briefly in process memory, while Pulse and rent use shared terminal failure states. The UI reaches an honest unavailable state with retry instead of loading forever.
-- **Evidence loading after confirmed navigation** (`src/pages/neighborhood/NeighborhoodDetail.jsx`). Hover, focus and touch exploration perform no grounded work. Once a locality route opens, community evidence starts immediately, Pulse follows after 300 ms and hidden rent preparation after 900 ms, avoiding unused jobs and a synchronized provider burst.
+- **Staged evidence preparation** (`src/components/results/NeighborhoodCard.jsx`, `src/pages/neighborhood/NeighborhoodDetail.jsx`). A deliberate card hover or keyboard focus starts rent preparation first, Community Insights after 1.5 seconds and Pulse after 3 seconds; leaving cancels stages that have not started. Confirmed navigation retains its own staggered preparation, avoiding a synchronized provider burst while making likely detail views feel ready sooner.
 - **Bounded evidence polling** (`src/lib/api.js`, `src/lib/watchlistPulse.js`, `src/pages/neighborhood/detailTabs.jsx`). Community reviews, Locality Pulse and rent verification have request timeouts, finite polling budgets, explicit background states and retry actions instead of indefinite spinners.
-- **Route-level recovery** (`src/App.jsx`). Every page is code-split behind `React.lazy`, with a branded loading state, a chunk-load error boundary and a real not-found route. The initial production JavaScript bundle is 62.78 kB gzip in the verified build.
+- **Route-level recovery** (`src/App.jsx`). Every page is code-split behind `React.lazy`, with a branded loading state, a chunk-load error boundary and a real not-found route. The initial production JavaScript bundle is 62.95 kB gzip in the verified build.
 - **Non-blocking snapshot writes.** BigQuery snapshots are written off the request path and only when a city's data was genuinely rebuilt (`maybe_log_snapshot`).
 - **Warm start.** The default city's signals and the Vertex client are pre-warmed at startup so the first user request does not pay cold-start cost.
 - **Privacy-safe structured telemetry** (`backend/app/telemetry.py`, `backend/app/main.py`). Request IDs, route status, tool latency, fallback use and agent outcomes are logged as bounded JSON fields; prompts, answers, SQL, document contents, credentials and provider error messages are blocked.
@@ -568,7 +569,7 @@ NestIQ/
 │   ├── data/
 │   │   ├── civic_knowledge.json      civic document corpus
 │   │   └── city_coverage_report.md   generated validation artifact
-│   └── tests/                        361 tests across 36 modules, fully offline
+│   └── tests/                        374 tests across 37 modules, fully offline
 ├── assets/readme/                    themed section icons
 └── README.md
 ```
@@ -589,7 +590,7 @@ NestIQ/
 | `GET` | `/api/neighborhood/{id}/rent-verification` | On-demand grounded rent evidence with citations |
 | `GET` | `/api/neighborhood/{id}/civic-knowledge` | Citation-locked civic document retrieval |
 | `GET` | `/api/city/{city}/pulse` | City-wide civic pulse, same pipeline |
-| `POST` | `/api/ask` | Deterministically routed Copilot question: city evidence, locality evidence or guarded BigQuery analytics |
+| `POST` | `/api/ask` | Deterministically routed Copilot question: model-only guidance, city evidence, locality evidence or guarded BigQuery analytics |
 | `POST` | `/api/copilot/transcribe` | Memory-only Google Speech-to-Text for a bounded voice clip |
 | `POST` | `/api/copilot/analyze-image` | Memory-only Gemini analysis of one JPG, PNG or WebP image |
 | `GET` | `/api/cities` · `/api/config` · `/api/health` | Supported cities · browser-safe config · liveness |
@@ -605,7 +606,7 @@ An unrecognised `preset` returns `422` rather than being silently ignored, so a 
 3. **Provenance.** Open the top match. Every pillar publishes its weight and source; any missing signal is marked unavailable and the score is labelled provisional with coverage.
 4. **Absolute air.** On the Air Quality tab the CPCB band is absolute, so a polluted locality cannot appear healthy by being the best of a bad set. The BQML ARIMA_PLUS forecast runs alongside Google's.
 5. **Safety semantics.** Switch to Lucknow or Kochi and open Safety. The page labels live police, hospital and fire-station access as emergency resilience—not as a crime rate—and excludes the pillar if that live evidence is unavailable.
-6. **Copilot routing.** Ask an ordinary city question, then a cross-locality comparison. The first stays on structured evidence; the second uses guarded BigQuery analytics and shows a truthful tool receipt. Record a short voice question or attach a neighborhood image to demonstrate the same privacy-bounded surface.
+6. **Copilot routing.** Begin with a greeting or calculation to show the model-only general path, ask a current city question to invoke structured evidence, then request a cross-locality comparison to use guarded BigQuery analytics. Each answer exposes a truthful tool receipt. Record a short voice question or attach a neighborhood image to demonstrate the same privacy-bounded surface.
 
 ---
 

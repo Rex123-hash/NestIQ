@@ -29,6 +29,11 @@ def test_client_is_constructed_with_a_timeout(monkeypatch):
     # SDK expects milliseconds.
     assert http_options.timeout == settings.gemini_timeout_ms
     assert http_options.timeout > 0
+    retry = http_options.retry_options
+    assert retry.attempts == 2
+    assert retry.initial_delay == 1.0
+    assert retry.max_delay == 4.0
+    assert retry.http_status_codes == [408, 429, 500, 502, 503, 504]
 
 
 def test_timeout_default_is_bounded():

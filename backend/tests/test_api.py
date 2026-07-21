@@ -153,6 +153,18 @@ class TestAsk:
         assert [tool["id"] for tool in body["tools"]] == ["gemini"]
         assert "sql" not in body
 
+    def test_general_calculation_never_receives_city_evidence(self, client, monkeypatch):
+        from app import main
+        monkeypatch.setattr(main.gemini, "ask_general", lambda question, conversation="": "4")
+        body = client.post("/api/ask", json={
+            "question": "2+2", "city": "kochi",
+        }).json()
+        assert body["answer"] == "4"
+        assert body["mode"] == "general_guidance"
+        assert body["evidenceStatus"] == "not_applicable"
+        assert [tool["id"] for tool in body["tools"]] == ["gemini"]
+        assert "sql" not in body
+
     def test_bounded_history_supports_analytical_follow_ups(self, client):
         body = client.post("/api/ask", json={
             "question": "What about the second option?",
