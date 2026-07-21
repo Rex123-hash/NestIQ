@@ -573,29 +573,38 @@ function Comparison() {
 
 /* ------------------------------ Feature band ------------------------------ */
 const FEATURES = [
-  { icon: PiggyBank, tint: 'bg-[#E8F6EF] text-aff', title: 'Affordability', sub: 'Rent vs. your budget' },
-  { icon: ShieldCheck, tint: 'bg-brand-50 text-brand-600', title: 'Safety', sub: 'Locality safety profile' },
-  { icon: TrainFront, tint: 'bg-[#E7F6EE] text-aff', title: 'Commute', sub: 'Live drive time to the hub' },
-  { icon: Coffee, tint: 'bg-[#FCEBF2] text-life', title: 'Essentials & Lifestyle', sub: 'Amenities within 1.5 km' },
-  { icon: Wind, tint: 'bg-[#FDF0DF] text-trend', title: 'Air Quality', sub: 'Live AQI & forecast' },
+  { icon: PiggyBank, tint: 'bg-[#E8F6EF] text-aff', glow: 'from-[#E8F6EF] to-white', title: 'Affordability', sub: 'Rent weighed against your budget', status: 'Budget-aware', detail: 'Indicative rent · city rank' },
+  { icon: ShieldCheck, tint: 'bg-brand-50 text-brand-600', glow: 'from-brand-50 to-white', title: 'Safety', sub: 'Clearly labelled locality context', status: 'Evidence labelled', detail: 'Baseline or proxy · never guessed' },
+  { icon: TrainFront, tint: 'bg-[#E7F6EE] text-aff', glow: 'from-[#EDF8F3] to-white', title: 'Commute', sub: 'Travel time to your work hub', status: 'Live route', detail: 'Drive time · traffic-aware' },
+  { icon: Coffee, tint: 'bg-[#FCEBF2] text-life', glow: 'from-[#FDF0F5] to-white', title: 'Essentials', sub: 'Daily life and essential services nearby', status: 'Additive signal', detail: 'Health · education · lifestyle' },
+  { icon: Wind, tint: 'bg-[#FDF0DF] text-trend', glow: 'from-[#FFF4E5] to-white', title: 'Air Quality', sub: 'Current air evidence and health band', status: 'Live health signal', detail: 'CPCB AQI · forecast context' },
 ]
 
 function FeatureBand() {
   return (
-    <section id="features" className="scroll-mt-24 bg-band py-16">
-      <div className="mx-auto max-w-[1400px] px-6 md:px-10">
-        <h2 className="text-center font-serif text-2xl text-ink md:text-3xl">
+    <section id="features" className="scroll-mt-24 overflow-hidden bg-band py-16 lg:py-20">
+      <div className="mx-auto max-w-[1240px] px-6 md:px-10">
+        <div className="mx-auto max-w-3xl text-center">
+          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-600">Five signals. One decision.</span>
+        <h2 className="mt-3 font-serif text-3xl text-ink md:text-4xl">
           All the insights you need. In one intelligent place.
         </h2>
-        <div className="mt-10 grid grid-cols-2 gap-8 md:grid-cols-3 lg:grid-cols-5">
+          <p className="mt-3 text-base leading-7 text-muted">Every pillar keeps its own evidence label, so a convenient overall score never erases an important limitation.</p>
+        </div>
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {FEATURES.map((f) => (
-            <div key={f.title} className="flex flex-col items-center text-center">
-              <span className={`grid h-16 w-16 place-items-center rounded-full ${f.tint}`}>
-                <f.icon size={26} />
-              </span>
-              <p className="mt-4 text-base font-semibold text-ink">{f.title}</p>
-              <p className="mt-1 text-sm text-muted">{f.sub}</p>
-            </div>
+            <article key={f.title} className={`group flex min-h-[250px] flex-col rounded-3xl border border-line bg-gradient-to-b ${f.glow} p-5 shadow-card transition duration-300 hover:-translate-y-1 hover:border-brand-200 hover:shadow-float`}>
+              <div className="flex items-start justify-between gap-3">
+                <span className={`grid h-12 w-12 place-items-center rounded-2xl shadow-sm ${f.tint}`}><f.icon size={22} /></span>
+                <span className="rounded-full border border-white bg-white/80 px-2.5 py-1 text-[10px] font-semibold text-muted shadow-sm">{f.status}</span>
+              </div>
+              <p className="mt-5 text-base font-semibold text-ink">{f.title}</p>
+              <p className="mt-2 text-sm leading-6 text-muted">{f.sub}</p>
+              <div className="mt-auto border-t border-line/70 pt-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">What you see</p>
+                <p className="mt-1.5 text-xs font-medium leading-5 text-ink-soft">{f.detail}</p>
+              </div>
+            </article>
           ))}
         </div>
       </div>
@@ -605,26 +614,34 @@ function FeatureBand() {
 
 /* ------------------------------ How it works ----------------------------- */
 const STEPS = [
-  { icon: Search, title: 'Tell NestIQ what matters', desc: 'Describe your priorities in plain language or begin with a transparent preset.' },
-  { icon: Database, title: 'Collect and label evidence', desc: 'Available locality signals retain their provenance: live, estimated, proxied, verified, or unavailable.' },
-  { icon: Cpu, title: 'Rank the trade-offs', desc: 'ADK agents coordinate evidence while deterministic FitScore logic compares localities using your priorities.' },
-  { icon: ListChecks, title: 'Explain the recommendation', desc: 'See why a locality fits, what the risks are, which sources were used, and what evidence is missing.' },
+  { icon: Search, stage: 'Your intent', accent: 'bg-brand-600', title: 'Tell NestIQ what matters', desc: 'Describe your priorities in plain language or begin with a transparent preset.', proof: 'Editable priorities' },
+  { icon: Database, stage: 'Evidence', accent: 'bg-[#2FA875]', title: 'Collect and label evidence', desc: 'Available locality signals retain their provenance: live, estimated, proxied, verified, or unavailable.', proof: 'Sources stay visible' },
+  { icon: Cpu, stage: 'Decision', accent: 'bg-[#4F86F7]', title: 'Rank the trade-offs', desc: 'ADK agents coordinate evidence while deterministic FitScore logic compares localities using your priorities.', proof: 'FitScore stays deterministic' },
+  { icon: ListChecks, stage: 'Explanation', accent: 'bg-[#EC6FA6]', title: 'Explain the recommendation', desc: 'See why a locality fits, what the risks are, which sources were used, and what evidence is missing.', proof: 'Risks remain visible' },
 ]
 
 function HowItWorks() {
   return (
-    <section id="how" className="scroll-mt-24 py-16">
-      <div className="mx-auto max-w-[1400px] px-6 md:px-10">
-        <h2 className="text-center font-serif text-2xl text-ink md:text-3xl">How it works</h2>
-        <p className="mx-auto mt-2 max-w-2xl text-center text-sm text-muted">From a plain-English wish to a transparent, evidence-backed decision.</p>
-        <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+    <section id="how" className="scroll-mt-24 overflow-hidden py-16 lg:py-20">
+      <div className="mx-auto max-w-[1240px] px-6 md:px-10">
+        <div className="mx-auto max-w-3xl text-center">
+          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-600">From intent to evidence</span>
+          <h2 className="mt-3 font-serif text-3xl text-ink md:text-4xl">How NestIQ reaches a recommendation</h2>
+          <p className="mt-3 text-base leading-7 text-muted">A visible journey from what you care about to a decision you can inspect.</p>
+        </div>
+        <div className="relative mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+          <div className="absolute left-[12%] right-[12%] top-8 hidden h-px bg-gradient-to-r from-brand-200 via-[#A9C5FA] to-[#F2B8D2] lg:block" aria-hidden="true" />
           {STEPS.map((s, i) => (
-            <div key={s.title} className="relative rounded-2xl border border-line bg-white p-6 shadow-card">
-              <span className="absolute right-5 top-4 font-serif text-3xl text-brand-100">{i + 1}</span>
-              <span className="grid h-12 w-12 place-items-center rounded-xl bg-brand-50 text-brand-600"><s.icon size={22} /></span>
-              <p className="mt-4 text-base font-semibold text-ink">{s.title}</p>
-              <p className="mt-1.5 text-sm leading-relaxed text-muted">{s.desc}</p>
-            </div>
+            <article key={s.title} className="group relative flex min-h-[290px] flex-col rounded-3xl border border-line bg-white p-5 shadow-card transition duration-300 hover:-translate-y-1 hover:border-brand-200 hover:shadow-float">
+              <div className="relative z-10 flex items-center justify-between gap-3">
+                <span className={`grid h-14 w-14 place-items-center rounded-2xl text-white shadow-md ${s.accent}`}><s.icon size={23} /></span>
+                <span className="font-serif text-4xl text-brand-100">0{i + 1}</span>
+              </div>
+              <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-600">{s.stage}</p>
+              <h3 className="mt-2 text-base font-semibold text-ink">{s.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-muted">{s.desc}</p>
+              <div className="mt-auto flex items-center gap-2 border-t border-line/70 pt-4 text-xs font-semibold text-ink-soft"><CircleCheck size={14} className="text-aff" /> {s.proof}</div>
+            </article>
           ))}
         </div>
       </div>
