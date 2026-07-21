@@ -66,7 +66,8 @@ describe('refined NestIQ homepage', () => {
 
   it('exposes meaningful navigation and final calls to action', () => {
     render(<MemoryRouter><Home /></MemoryRouter>)
-    expect(screen.getByRole('link', { name: 'Why NestIQ' }).getAttribute('href')).toBe('#why')
+    expect(screen.getAllByRole('link', { name: 'Why NestIQ' })).toHaveLength(2)
+    expect(screen.getAllByRole('link', { name: 'Why NestIQ' }).every((link) => link.getAttribute('href') === '#why')).toBe(true)
     expect(screen.getAllByRole('link', { name: /Find my neighborhood/ })[0].getAttribute('href')).toBe('#home-search')
     expect(screen.getByRole('link', { name: /See how NestIQ works/ }).getAttribute('href')).toBe('#how')
   })

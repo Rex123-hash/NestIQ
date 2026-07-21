@@ -698,7 +698,7 @@ function TrustProof() {
         </div>
         <p className="mt-6 text-xs leading-5 text-white/45">Offline deterministic evaluation: 15 cases, 0 billable calls. Automated-test total reflects the verified build published on 21 July 2026; future releases must update this evidence.</p>
         <a
-          href="https://github.com/Rex123-hash/NestIQ/blob/main/PHASE13_HANDOFF.md"
+          href="https://github.com/Rex123-hash/NestIQ/tree/main/artifacts/phase13"
           target="_blank"
           rel="noreferrer"
           className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-brand-200 transition hover:text-white"
@@ -790,14 +790,38 @@ function FinalCTA() {
 
 function Footer() {
   return (
-    <footer className="border-t border-line bg-band">
-      <div className="mx-auto flex max-w-[1400px] flex-col items-center justify-center gap-2 px-6 py-6 text-sm text-muted md:flex-row md:gap-6">
-        <span className="flex items-center gap-2">
-          <Heart size={15} className="text-life" />
-          Built for better living and smarter communities
-        </span>
-        <span className="hidden h-4 w-px bg-line md:block" />
-        <span>Powered by Google Cloud &amp; Gemini</span>
+    <footer className="overflow-hidden border-t border-white/10 bg-[#111122] text-white">
+      <div className="mx-auto max-w-[1400px] px-6 py-12 md:px-10">
+        <div className="grid gap-10 border-b border-white/10 pb-10 md:grid-cols-[1.5fr_1fr_1fr]">
+          <div className="max-w-md">
+            <div className="flex items-center gap-3">
+              <LogoMark size={38} />
+              <span className="font-serif text-2xl">NestIQ</span>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-white/55">Evidence-backed neighborhood decisions for the life you are actually building—not just another list of properties.</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {['Grounded', 'Explainable', 'Privacy-conscious'].map((label) => <span key={label} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/65">{label}</span>)}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-200">Explore</p>
+            <nav className="mt-4 grid gap-3 text-sm text-white/60">
+              <a className="transition hover:text-white" href="#why">Why NestIQ</a>
+              <a className="transition hover:text-white" href="#how">How it works</a>
+              <a className="transition hover:text-white" href="#proof">Evaluation proof</a>
+              <a className="transition hover:text-white" href="#data">Data sources</a>
+            </nav>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-200">Start a decision</p>
+            <p className="mt-4 text-sm leading-6 text-white/55">Tell NestIQ what matters and inspect the evidence behind every recommendation.</p>
+            <a href="#home-search" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">Find my neighborhood <ArrowRight size={15} /></a>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 pt-6 text-xs text-white/40 sm:flex-row sm:items-center sm:justify-between">
+          <span>© 2026 NestIQ. Built for better living and smarter communities.</span>
+          <span className="flex items-center gap-2"><Heart size={13} className="text-life" /> Powered by Google Cloud &amp; Gemini</span>
+        </div>
       </div>
     </footer>
   )
