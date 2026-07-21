@@ -63,6 +63,8 @@ class RentObservation(BaseModel):
     observedOn: str = ""
     sourceTitle: str = ""
     evidenceType: str = "listing_or_market_page"
+    # As shown by the source ("2 BHK"), or empty when the source does not say.
+    bedrooms: str = ""
 
 
 class RentExtraction(BaseModel):
@@ -116,9 +118,15 @@ def parse_query(text: str, budget: float | None = None) -> dict:
 
 def explain(name: str, subscores: dict, rent: int, note: str) -> str:
     try:
+        # Rent may not be sourced yet for a newly onboarded locality. Say so
+        # rather than formatting None, and never let the model invent a figure.
+        rent_clause = (
+            f"a median rent of ₹{rent:,}/month" if rent is not None
+            else "no sourced rent figure yet (do not state or estimate a rent)"
+        )
         prompt = (
             f"In 2 concise sentences, explain why {name} is a good place to live for this user, grounded in "
-            f"these 0-100 scores {subscores}, a median rent of ₹{rent:,}/month, and {note}. Be specific, no fluff. "
+            f"these 0-100 scores {subscores}, {rent_clause}, and {note}. Be specific, no fluff. "
             "Do not use em dashes; use commas or full stops instead."
         )
         resp = _generate(model=settings.gemini_model, contents=prompt)
@@ -542,7 +550,12 @@ def _parse_rent_ledger(text: str) -> dict:
 
 
 def verify_rent(name: str, city: str) -> dict:
-    """On-demand, citation-backed 1-bedroom rent verification."""
+    """On-demand, citation-backed rent verification across common home sizes.
+
+    Observations carry the bedroom count the source states, and the result
+    reports a median per size alongside the overall median, so the evidence can
+    be compared against a listed rent of any size.
+    """
     try:
         from google.genai import types
         # Start broad and stop as soon as the ledger has enough diverse
@@ -600,8 +613,9 @@ def verify_rent(name: str, city: str) -> dict:
 
         extract_prompt = (
             "Extract at most 12 distinct rent observations from the evidence ledgers below. Copy only explicit monthly INR "
-            "amounts for 1 BHK/one-bedroom homes. Use an empty observedOn when the date is unknown. Never add a "
-            "number, date, or source title that is not present in the ledger.\n\n"
+            "amounts for residential homes of any size. Copy the bedroom count exactly as the ledger states it (for "
+            "example '2 BHK') and leave bedrooms empty when it is not stated. Use an empty observedOn when the date "
+            "is unknown. Never add a number, date, bedroom count or source title that is not present in the ledger.\n\n"
             f"GROUNDED EVIDENCE LEDGER:\n{grounded_text}"
         )
         extracted = _generate(

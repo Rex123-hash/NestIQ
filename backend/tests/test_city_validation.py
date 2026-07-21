@@ -37,10 +37,20 @@ class TestStructuralGate:
         assert validate_structure("test", _city([_loc()])) == []
 
     def test_missing_required_key_is_an_error(self):
+        # `short` is structural: without it the UI has no label to render.
+        loc = _loc()
+        del loc["short"]
+        errors = _messages(validate_structure("test", _city([loc])), "error")
+        assert any("missing required key 'short'" in m for m in errors)
+
+    def test_missing_rent_is_a_warning_not_an_error(self):
+        # A staged city is publishable but provisional: affordability drops out
+        # rather than being invented, so this must not block publication.
         loc = _loc()
         del loc["rent"]
-        errors = _messages(validate_structure("test", _city([loc])), "error")
-        assert any("missing required key 'rent'" in m for m in errors)
+        findings = validate_structure("test", _city([loc]))
+        assert _messages(findings, "error") == []
+        assert any("affordability excluded" in m for m in _messages(findings, "warning"))
 
     def test_duplicate_locality_id_is_an_error(self):
         city = _city([_loc(id="dupe"), _loc(id="dupe", name="Other")])

@@ -1,22 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import {
-  Search,
-  ArrowLeftRight,
-  Bookmark,
-  Bell,
-  Sparkles,
-  House,
-} from 'lucide-react'
+import { House } from 'lucide-react'
 import { cn } from '../../lib/cn.js'
 import { LogoMark } from '../ui/Logo.jsx'
-
-const NAV = [
-  { to: '/results', label: 'Search & Results', icon: Search },
-  { to: '/compare', label: 'Compare', icon: ArrowLeftRight },
-  { to: '/saved', label: 'Saved', icon: Bookmark },
-  { to: '/alerts', label: 'Alerts', icon: Bell },
-  { to: '/ask', label: 'Ask NestIQ', icon: Sparkles },
-]
+import { NAV } from './navItems.js'
 
 function Logo() {
   return (

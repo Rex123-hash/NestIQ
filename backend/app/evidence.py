@@ -60,17 +60,24 @@ def metric_evidence(feature: dict) -> dict[str, dict]:
     # citations rather than a hand-typed integer. Absent marker = curated, so
     # the existing catalog is unaffected.
     rent_grounded = feature.get("rentSource") == "grounded_market_evidence"
+    rent_value = feature.get("median_rent")
+    has_rent = rent_value is not None
     evidence = {
         "affordability": _envelope(
-            "affordability", feature.get("median_rent"), "INR/month",
-            "Grounded market evidence (Google Search grounding; median calculated by NestIQ)"
+            "affordability", rent_value, "INR/month",
+            "No sourced rent evidence for this locality" if not has_rent
+            else "Grounded market evidence (Google Search grounding; median calculated by NestIQ)"
             if rent_grounded else "NestIQ curated locality market dataset",
-            "grounded_market_evidence" if rent_grounded else "curated_market_estimate",
-            "estimated", None, "locality", "medium",
-            "A locality-level market estimate, not a guaranteed quote or an individual "
-            "property recommendation."
-            if rent_grounded else
-            "Indicative median rent, not a live property listing or quoted offer.",
+            "unavailable" if not has_rent
+            else "grounded_market_evidence" if rent_grounded else "curated_market_estimate",
+            "temporarily_unavailable" if not has_rent else "estimated",
+            None, "locality",
+            "unavailable" if not has_rent else "medium",
+            "Rent evidence has not been sourced for this locality yet, so affordability "
+            "is excluded from the FitScore rather than estimated." if not has_rent
+            else "A locality-level market estimate, not a guaranteed quote or an individual "
+            "property recommendation." if rent_grounded
+            else "Indicative median rent, not a live property listing or quoted offer.",
         ),
         "safety": _envelope(
             "safety", safety_value, "index/100",

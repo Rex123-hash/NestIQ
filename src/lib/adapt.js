@@ -16,6 +16,9 @@ function pin(lat, lng, b) {
 }
 
 function inr(n) {
+  // An unsourced rent must read as unavailable. Number(null) is 0, which would
+  // render a fabricated "₹0" price.
+  if (n === null || n === undefined || Number.isNaN(Number(n))) return 'Not available'
   return '₹' + Number(n).toLocaleString('en-IN')
 }
 

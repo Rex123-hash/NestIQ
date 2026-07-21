@@ -14,7 +14,7 @@ Ask in plain language. Real Google ADK agents gather live evidence, a determinis
 ![Gemini](https://img.shields.io/badge/Gemini_on_Vertex_AI-7C5CF6?style=flat-square&logo=googlegemini&logoColor=white)
 ![BigQuery](https://img.shields.io/badge/BigQuery_+_BQML-7C5CF6?style=flat-square&logo=googlebigquery&logoColor=white)
 ![Maps](https://img.shields.io/badge/Google_Maps_Platform-7C5CF6?style=flat-square&logo=googlemaps&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-346_passing-3FB984?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-369_passing-3FB984?style=flat-square)
 ![ADK](https://img.shields.io/badge/Google_ADK_agents-7C5CF6?style=flat-square&logo=google&logoColor=white)
 
 Built for the **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon**
@@ -56,8 +56,8 @@ It is not a search filter with sliders. It is a **parallel multi-agent system** 
 | **Honest missing data** | A failed live call is never dressed up as a reading. Signals return an explicit unavailable state, the FitScore is labelled **provisional** with its coverage percentage, and the affected pillar is excluded rather than guessed. |
 | **Air quality as a first-class pillar** | Live **CPCB AQI** per locality via the Google Air Quality API — current reading, 24-hour history, and 24-hour forecast — weighted into every recommendation. Built for the reality of Indian cities. |
 | **Cited resident sentiment** | Grounded retrieval: Gemini + Google Search surfaces what residents say online, summarized with clickable source citations, cached for 24 hours. |
-| **9 cities, Tier-1 to Tier-3** | Delhi NCR, Mumbai, Bengaluru, Kolkata, Hyderabad, Chennai, Pune, **Patna**, and **Ranchi** — decision intelligence is not just for the metros. |
-| **Scales by validation, not by copy-paste** | Air, commute, amenities, scoring and BigQuery history extend to a new city for the cost of its coordinates. A candidate city is staged outside the served catalog and must pass a validation gate — centroids inside India, no duplicate ids, all three Google signals resolving, and scoring invariants intact — before it can be published. Four candidate metros are staged and geographically verified today; they stay unpublished until their rent evidence is sourced rather than guessed. |
+| **13 cities, Tier-1 to Tier-3** | Delhi NCR, Mumbai, Bengaluru, Kolkata, Hyderabad, Chennai, Pune, **Patna**, **Ranchi**, and newly onboarded **Ahmedabad**, **Jaipur**, **Lucknow** and **Kochi** — decision intelligence is not just for the metros. |
+| **Scales by validation, not by copy-paste** | Air, commute, amenities, scoring and BigQuery history extend to a new city for the cost of its coordinates. Every city passes a validation gate — centroids inside India, no duplicate ids, all three Google signals resolving, scoring invariants intact — run by an offline CLI that publishes a coverage report. The four newest metros ship with air, commute and amenities live while rent and safety are **openly absent**: their FitScore is labelled provisional at 60% coverage rather than padded with invented numbers. |
 
 ---
 
@@ -306,7 +306,7 @@ NestIQ/
 │   │   ├── rate_limit.py        Per-instance request limiting
 │   │   ├── secrets.py           Optional Secret Manager backing (default off)
 │   │   ├── bq_india.py          BigQuery snapshots, AQI history, ARIMA_PLUS, cost caps
-│   │   ├── india.py             9 cities · 53 localities · default weights
+│   │   ├── india.py             13 cities · 73 localities · default weights
 │   │   └── fitscore.py          Normalization + weighted scoring engine
 │   └── tests/                   253 backend tests across 25 modules (fully offline)
 ├── assets/readme/               themed section icons
@@ -383,7 +383,7 @@ client can never quietly get a different ranking than the one it asked for.
 
 ## <img src="assets/readme/testing.svg" height="22" align="center" alt="" /> &nbsp;Testing & quality
 
-**346 automated tests** (294 backend across 28 modules + 52 frontend) run fully offline. Every external
+**369 automated tests** (317 backend across 31 modules + 52 frontend) run fully offline. Every external
 service is stubbed, so the suite is deterministic and CI-safe.
 
 | Suite | Focus |

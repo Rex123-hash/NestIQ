@@ -394,19 +394,18 @@ export function AffordabilityTab({ n }) {
   const [backgroundPending, setBackgroundPending] = useState(false)
   const [verificationNotice, setVerificationNotice] = useState('')
 
-  // The verified figure is specifically 1-bedroom; the listed estimate carries no
-  // unit size at all. When the two diverge sharply that is a difference in what is
-  // being measured, not a contradiction -- so say so, rather than leaving a reader
-  // to conclude the page disagrees with itself.
+  // Verified evidence spans several home sizes; the listed estimate states no
+  // size at all. Showing the per-size medians is what makes the two comparable,
+  // so a gap reads as a difference in unit size rather than a contradiction.
+  const rentSizeBreakdown = Object.entries(verification?.bySize || {})
+    .map(([beds, v]) => ({ beds: Number(beds), ...v }))
+    .sort((a, b) => a.beds - b.beds)
+
   const rentComparisonNote = (() => {
-    const verified = verification?.medianRent
     const listed = verification?.curatedMedianRent
-    if (verification?.status !== 'available' || !verified || !listed) return ''
-    const delta = (verified - listed) / listed
-    if (Math.abs(delta) < 0.2) return ''
-    const pct = Math.abs(Math.round(delta * 100))
-    const direction = delta < 0 ? 'lower' : 'higher'
-    return `This verified figure covers 1-bedroom homes specifically, while the listed ${inr(listed)} estimate is not tied to a unit size. That is why it reads ${pct}% ${direction}. The two measure different things, so read them side by side rather than as a correction.`
+    if (verification?.status !== 'available' || !listed) return ''
+    if (rentSizeBreakdown.length === 0) return ''
+    return `The listed ${inr(listed)} estimate is not tied to a unit size, so compare it against the matching size above rather than the overall median.`
   })()
 
   useEffect(() => {
@@ -453,7 +452,7 @@ export function AffordabilityTab({ n }) {
         const canPoll = result?.pollable !== false
         setBackgroundPending(canPoll)
         setVerificationNotice(canPoll
-          ? 'Grounded verification is running in the background. You can continue browsing while NestIQ checks sources.'
+          ? 'Grounded verification is running in the background and usually takes up to a minute, since sources are searched and each observation is validated. You can continue browsing while NestIQ checks sources.'
           : (result?.limitation || 'The source check is continuing. You can keep browsing and check again shortly.'))
       } else {
         setVerification(result || {
@@ -517,7 +516,7 @@ export function AffordabilityTab({ n }) {
           <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Grounded market verification · 1-bedroom homes</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Grounded market verification</p>
                 <p className="mt-1 text-xl font-semibold text-ink">
                   {inr(verification.medianRent)} median
                   <span className="ml-2 text-sm font-normal text-muted">
@@ -529,6 +528,17 @@ export function AffordabilityTab({ n }) {
                 {verification.confidence} confidence · {verification.confidenceScore}/100
               </span>
             </div>
+            {rentSizeBreakdown.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {rentSizeBreakdown.map((s) => (
+                  <span key={s.beds} className="rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-xs">
+                    <span className="font-semibold text-ink">{s.beds} BHK</span>
+                    <span className="ml-1.5 font-semibold text-emerald-700">{inr(s.median)}</span>
+                    <span className="ml-1 text-muted">({s.count} {s.count === 1 ? 'listing' : 'listings'})</span>
+                  </span>
+                ))}
+              </div>
+            )}
             <p className="mt-2 text-xs leading-relaxed text-muted">
               {verification.sampleSize} validated observations across {verification.sourceCount} grounded sources. This verification is evidence only and does not silently change FitScore.
             </p>

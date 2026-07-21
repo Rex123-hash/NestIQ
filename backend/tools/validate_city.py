@@ -41,10 +41,12 @@ from app.india import CITIES  # noqa: E402
 _INDIA_LAT = (6.5, 35.7)
 _INDIA_LNG = (68.0, 97.5)
 
-_REQUIRED_KEYS = ("id", "name", "short", "lat", "lng", "rent")
-# `safety` is deliberately NOT required: a city with no locality-level crime
-# source runs provisional rather than carrying an invented index.
-_OPTIONAL_KEYS = ("safety", "accent")
+_REQUIRED_KEYS = ("id", "name", "short", "lat", "lng")
+# `rent` and `safety` are deliberately NOT required. Rent is sourced from
+# grounded evidence with citations rather than typed in, so a city is onboarded
+# before it exists; safety has no locality-level crime source in India at all.
+# Their absence is reported as reduced coverage, never invented.
+_OPTIONAL_KEYS = ("rent", "safety", "accent")
 
 _DEFAULT_LEDGER = _BACKEND_ROOT / "data" / "rent_check_ledger.json"
 _DEFAULT_REPORT = _BACKEND_ROOT / "data" / "city_coverage_report.md"
@@ -107,7 +109,12 @@ def validate_structure(city_id: str, city: dict) -> list[dict]:
             add("error", name, f"longitude {lng} is outside India")
 
         rent = loc.get("rent")
-        if isinstance(rent, (int, float)) and not 3000 <= rent <= 400000:
+        if rent is None:
+            # Publishable, but visibly incomplete: affordability is excluded
+            # from the FitScore until grounded rent evidence is sourced.
+            add("warning", name, "no rent evidence sourced yet: affordability excluded, "
+                                 "FitScore runs provisional")
+        elif isinstance(rent, (int, float)) and not 3000 <= rent <= 400000:
             add("warning", name, f"rent {rent} is outside a plausible monthly range")
 
         # Absence is legitimate and must be reported as reduced coverage, not as

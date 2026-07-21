@@ -465,7 +465,9 @@ def _fetch_features(city: dict) -> list[dict]:
             feats.append({
                 "id": loc["id"], "name": loc["name"], "short": loc["short"], "accent": loc.get("accent", "#7C5CF6"),
                 "lat": loc["lat"], "lng": loc["lng"],
-                "median_rent": loc["rent"],
+                # A staged city may not have sourced rent yet. Omission runs
+                # provisional; it is never replaced with a typed-in guess.
+                "median_rent": loc.get("rent"),
                 # Phase 11 cities carry rent from grounded search with citations.
                 # Absent = curated, so the existing catalog is unchanged.
                 "rentSource": loc.get("rentSource", "curated_market_estimate"),
@@ -648,7 +650,11 @@ def score_india(features: list[dict], weights: dict | None = None, budget: float
         for f in features
     ]
     rel = {
-        "affordability": _minmax([budget - f["median_rent"] for f in features]),
+        # sparse_minmax: a locality with no sourced rent yields None (-> provisional
+        # + reduced coverage) instead of raising on the arithmetic below.
+        "affordability": sparse_minmax(
+            [budget - f["median_rent"] if f.get("median_rent") is not None else None
+             for f in features]),
         # sparse_minmax, not _minmax: a city without a safety source must yield
         # None (-> provisional + reduced coverage) rather than raise. With every
         # value present this delegates to _minmax on an identical list, so the

@@ -35,9 +35,24 @@ class TestCatalog:
             assert INDIA_LNG[0] <= loc["lng"] <= INDIA_LNG[1], (city_id, loc["id"])
 
     def test_rent_and_safety_ranges_are_sane(self):
+        # Rent and safety are optional: a Phase 11 city is onboarded before its
+        # rent is sourced from grounded evidence, and no locality-level crime
+        # source exists for India. When a value IS present it must still be sane.
         for _, loc in all_localities():
-            assert 5000 <= loc["rent"] <= 200000
-            assert 0 <= loc["safety"] <= 100
+            if loc.get("rent") is not None:
+                assert 5000 <= loc["rent"] <= 200000
+            if loc.get("safety") is not None:
+                assert 0 <= loc["safety"] <= 100
+
+    def test_only_the_staged_cities_omit_rent_and_safety(self):
+        # Guards the loosened assertion above: an accidental omission in an
+        # established city must still fail, so absence stays deliberate.
+        staged = {"ahmedabad", "jaipur", "lucknow", "kochi"}
+        for city_id, loc in all_localities():
+            if city_id in staged:
+                continue
+            assert loc.get("rent") is not None, f"{city_id}/{loc['id']} lost its rent"
+            assert loc.get("safety") is not None, f"{city_id}/{loc['id']} lost its safety"
 
     def test_every_locality_has_a_display_accent(self):
         for _, loc in all_localities():

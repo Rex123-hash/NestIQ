@@ -122,6 +122,57 @@ CITIES = {
             {"id": "ashok-nagar-ran", "name": "Ashok Nagar", "short": "Ashok Nagar", "lat": 23.3690, "lng": 85.3110, "rent": 12500, "safety": 71},
         ],
     },
+    # --- Phase 11 onboarded metros -----------------------------------------
+    # Centroids verified against live Google Air Quality, Places and Distance
+    # Matrix (100% resolution on all three). Rent and safety are deliberately
+    # absent: rent is sourced from grounded search with citations rather than
+    # typed in, and no consistent open locality-level crime data exists for
+    # India. Both pillars are excluded from the FitScore, which therefore runs
+    # provisional with a published coverage percentage, rather than estimated.
+    "ahmedabad": {
+        "id": "ahmedabad", "name": "Ahmedabad (Gujarat)",
+        "anchor": {"name": "Ashram Road", "lat": 23.0395, "lng": 72.5660},
+        "localities": [
+            {"id": "satellite-amd", "name": "Satellite, Ahmedabad", "short": "Satellite", "lat": 23.0276, "lng": 72.5075},
+            {"id": "bodakdev", "name": "Bodakdev, Ahmedabad", "short": "Bodakdev", "lat": 23.0395, "lng": 72.5066},
+            {"id": "vastrapur", "name": "Vastrapur, Ahmedabad", "short": "Vastrapur", "lat": 23.0369, "lng": 72.5290},
+            {"id": "prahlad-nagar", "name": "Prahlad Nagar, Ahmedabad", "short": "Prahlad Nagar", "lat": 23.0122, "lng": 72.5108},
+            {"id": "maninagar", "name": "Maninagar, Ahmedabad", "short": "Maninagar", "lat": 22.9967, "lng": 72.6047},
+        ],
+    },
+    "jaipur": {
+        "id": "jaipur", "name": "Jaipur (Rajasthan)",
+        "anchor": {"name": "MI Road", "lat": 26.9124, "lng": 75.8100},
+        "localities": [
+            {"id": "malviya-nagar-jpr", "name": "Malviya Nagar, Jaipur", "short": "Malviya Nagar", "lat": 26.8505, "lng": 75.8060},
+            {"id": "vaishali-nagar", "name": "Vaishali Nagar, Jaipur", "short": "Vaishali Nagar", "lat": 26.9124, "lng": 75.7373},
+            {"id": "c-scheme", "name": "C-Scheme, Jaipur", "short": "C-Scheme", "lat": 26.9088, "lng": 75.7963},
+            {"id": "mansarovar", "name": "Mansarovar, Jaipur", "short": "Mansarovar", "lat": 26.8505, "lng": 75.7628},
+            {"id": "jagatpura", "name": "Jagatpura, Jaipur", "short": "Jagatpura", "lat": 26.8300, "lng": 75.8500},
+        ],
+    },
+    "lucknow": {
+        "id": "lucknow", "name": "Lucknow (Uttar Pradesh)",
+        "anchor": {"name": "Hazratganj", "lat": 26.8500, "lng": 80.9450},
+        "localities": [
+            {"id": "gomti-nagar", "name": "Gomti Nagar, Lucknow", "short": "Gomti Nagar", "lat": 26.8560, "lng": 81.0000},
+            {"id": "hazratganj", "name": "Hazratganj, Lucknow", "short": "Hazratganj", "lat": 26.8500, "lng": 80.9450},
+            {"id": "indira-nagar-lko", "name": "Indira Nagar, Lucknow", "short": "Indira Nagar", "lat": 26.8760, "lng": 80.9950},
+            {"id": "aliganj", "name": "Aliganj, Lucknow", "short": "Aliganj", "lat": 26.8900, "lng": 80.9400},
+            {"id": "alambagh", "name": "Alambagh, Lucknow", "short": "Alambagh", "lat": 26.8100, "lng": 80.9100},
+        ],
+    },
+    "kochi": {
+        "id": "kochi", "name": "Kochi (Kerala)",
+        "anchor": {"name": "Marine Drive, Kochi", "lat": 9.9780, "lng": 76.2760},
+        "localities": [
+            {"id": "kakkanad", "name": "Kakkanad, Kochi", "short": "Kakkanad", "lat": 10.0150, "lng": 76.3420},
+            {"id": "edappally", "name": "Edappally, Kochi", "short": "Edappally", "lat": 10.0250, "lng": 76.3080},
+            {"id": "palarivattom", "name": "Palarivattom, Kochi", "short": "Palarivattom", "lat": 10.0060, "lng": 76.3050},
+            {"id": "vyttila", "name": "Vyttila, Kochi", "short": "Vyttila", "lat": 9.9670, "lng": 76.3180},
+            {"id": "fort-kochi", "name": "Fort Kochi", "short": "Fort Kochi", "lat": 9.9650, "lng": 76.2420},
+        ],
+    },
 }
 
 # Assign a display accent to any locality that doesn't specify one.
