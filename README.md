@@ -174,6 +174,88 @@ Two rules keep this honest rather than theatrical:
 
 ---
 
+## <img src="assets/readme/architecture.svg" height="22" align="center" alt="" /> &nbsp;How it works
+
+End-to-end request flow. The agent hierarchy is in the section above; this is where the
+data comes from, what is cached, and what is written back.
+
+```text
+                    "clean air, safe, under Rs 25,000"
+                                    |
+                                    v
+   +---------------------------------------------------------------+
+   |  Intent parsing                       backend/app/gemini.py    |
+   |  Gemini 2.5 Flash -> Pydantic Criteria: budget + 5 weights     |
+   |  An allowlisted preset overrides the weights server-side       |
+   +------------------------------+--------------------------------+
+                                  |
+                                  v
+   +---------------------------------------------------------------+
+   |  ADK orchestration           backend/app/adk_orchestration.py  |
+   |  planner -> live_signals | analytics | civic_intelligence      |
+   |  falls back to the legacy narrated stream on any ADK error     |
+   +------------------------------+--------------------------------+
+                                  |
+                                  v
+   +---------------------------------------------------------------+
+   |  Live signal fan-out                    backend/app/maps.py    |
+   |  parallel per locality, 30-min stale-while-revalidate cache,   |
+   |  concurrent requests for one city share a single build         |
+   +---------------------------------------------------------------+
+     |               |               |               |
+     v               v               v               v
+  Air Quality     Places (New)   Distance Matrix   Place Photos
+  CPCB AQI +      amenities and  drive time with   locality imagery
+  24h history     essentials     live traffic
+     |               |               |               |
+     +---------------+-------+-------+---------------+
+                             |
+                             v
+   +---------------------------------------------------------------+
+   |  Deterministic scoring    backend/app/fitscore.py, maps.py     |
+   |  air scored on ABSOLUTE CPCB bands (air_quality.py);           |
+   |  other pillars min-max normalized within the city;             |
+   |  missing pillars excluded and renormalized, never zeroed       |
+   +------------------------------+--------------------------------+
+                                  |
+                    +-------------+-------------+
+                    v                           v
+   +-------------------------------+  +----------------------------+
+   |  Evidence envelopes           |  |  Anomaly detection         |
+   |  backend/app/evidence.py      |  |  1.5 sigma cross-sectional |
+   |  source, status, scope,       |  |  + temporal AQI spikes     |
+   |  confidence, limitation       |  |  backend/app/maps.py       |
+   +---------------+---------------+  +-------------+--------------+
+                   |                                |
+                   +----------------+---------------+
+                                    |
+                                    v
+   +---------------------------------------------------------------+
+   |  Validator -> Explainer                                        |
+   |  contradiction and coverage checks, then a summary drawn       |
+   |  only from validated evidence                                  |
+   +------------------------------+--------------------------------+
+                                  |
+              +-------------------+-------------------+
+              v                                       v
+   +------------------------+            +----------------------------+
+   |  SSE to the browser    |            |  BigQuery snapshot         |
+   |  agent events, then    |            |  backend/app/bq_india.py   |
+   |  ranked final results  |            |  feeds ARIMA_PLUS forecast |
+   +------------------------+            +----------------------------+
+                                                     |
+                                                     v
+                                          the warehouse and the
+                                          forecast grow with use
+```
+
+**On the detail page**, three further evidence sources load independently and never block
+the score: grounded resident sentiment, civic Locality Pulse, and citation-locked civic
+documents. Each fails to an explicit unavailable state rather than an empty one, and none
+of them can alter a FitScore.
+
+---
+
 ## <img src="assets/readme/security.svg" height="22" align="center" alt="" /> &nbsp;Security and reliability
 
 Each choice below is stated with its reasoning, because the reasoning is the part that generalizes.
@@ -379,6 +461,88 @@ npm run dev                                             # http://localhost:5173
 Optional: set `VITE_GOOGLE_CLIENT_ID` in a root `.env` to enable Google sign-in. Guest mode works without it.
 
 > `.env` files are gitignored. Restrict the browser Maps key by HTTP referrer, and the server key by API, before any public deployment.
+
+---
+
+## <img src="assets/readme/resilience.svg" height="22" align="center" alt="" /> &nbsp;Resilience and performance
+
+Production behaviour under load and partial failure, each item verifiable in code or covered by a test.
+
+- **Stale-while-revalidate caching** (`backend/app/maps.py`). Locality metrics carry a 30-minute TTL; an expired entry is served immediately while a background thread refreshes it, so a user never waits on Google. Covered by `test_expired_cache_served_instantly_and_refreshed_in_background`.
+- **Parallel fan-out.** Air quality, amenities, essentials, commute and imagery are fetched concurrently per locality via `ThreadPoolExecutor`, rather than serially.
+- **Concurrent-build de-duplication.** Simultaneous cold requests for the same city share one build instead of each calling Google, asserted by `test_concurrent_cold_requests_share_one_build`.
+- **Failure caches, not endless spinners** (`backend/app/main.py`). A failed grounding attempt for pulse, reviews or rent verification is recorded for 60 seconds, so the UI reaches an honest unavailable state with a retry action instead of loading forever, and a known-failing source is not re-hit on every page view.
+- **Background refresh with single-flight locks.** Grounded work runs off the request thread behind a refresh lock, so one slow source cannot block a response or trigger duplicate calls.
+- **Evidence prefetched on intent** (`src/lib/api.js`). Hovering or tapping a locality card starts the slow evidence fetches before the click lands, guarded per locality so repeated hovers do not re-fire.
+- **Non-blocking snapshot writes.** BigQuery snapshots are written off the request path and only when a city's data was genuinely rebuilt (`maybe_log_snapshot`).
+- **Warm start.** The default city's signals and the Vertex client are pre-warmed at startup so the first user request does not pay cold-start cost.
+
+---
+
+## <img src="assets/readme/structure.svg" height="22" align="center" alt="" /> &nbsp;Project structure
+
+```text
+NestIQ/
+├── src/                              React frontend (Vite)
+│   ├── pages/
+│   │   ├── Home.jsx                  landing, search entry, Family Health preset
+│   │   ├── Results.jsx               ranked matches, filters, SSE agent progress
+│   │   ├── Compare.jsx               side-by-side pillar comparison
+│   │   ├── Saved.jsx                 watchlist of saved localities
+│   │   ├── Alerts.jsx                watchlist alerts + city-wide pulse
+│   │   ├── AskNestIQ.jsx             NL to BigQuery SQL, query shown with the answer
+│   │   ├── SignIn.jsx                Google Identity Services, guest mode
+│   │   └── neighborhood/
+│   │       ├── NeighborhoodDetail.jsx  locality shell, 7 tabs, lazy evidence loads
+│   │       └── detailTabs.jsx          per-pillar tabs and evidence rendering
+│   ├── components/
+│   │   ├── layout/                   sidebar, topbar, mobile nav, city picker
+│   │   ├── results/                  cards, agent progress, filters, map
+│   │   ├── ui/                       score gauge, logo, cursor halo
+│   │   ├── LocalityMap.jsx           Maps JS SDK wrapper
+│   │   └── PulseEvents.jsx           shared civic-event renderer, honest empty states
+│   └── lib/
+│       ├── api.js                    API client, prefetch on intent, soft failures
+│       ├── adapt.js                  API model to UI model, currency formatting
+│       ├── fitscore.js               client-side reweighting with the backend policy
+│       ├── presets.js                allowlisted search presets
+│       ├── essentials.js             essential-services cards, never scored
+│       ├── citySnapshot.js           averages that return null rather than zero
+│       ├── watchlistPulse.js         alert aggregation, no-alerts requires evidence
+│       ├── cityStore.jsx             city selection and detection
+│       └── saved.js · recent.js      localStorage watchlist and question history
+├── backend/
+│   ├── app/
+│   │   ├── main.py                   FastAPI endpoints, CORS allowlist, presets,
+│   │   │                             rate limiting, pulse and review caches
+│   │   ├── adk_orchestration.py      ADK coordinator, 3 specialists, validator, explainer
+│   │   ├── gemini.py                 NL to weights, NL to SQL, explanations,
+│   │   │                             grounded reviews, pulse and rent verification
+│   │   ├── maps.py                   Air Quality, Places, Distance Matrix, India
+│   │   │                             scoring, anomalies, essentials, safety profile
+│   │   ├── air_quality.py            absolute CPCB bands, health scoring, risk flags
+│   │   ├── evidence.py               provenance envelopes for every pillar
+│   │   ├── civic_rag.py              citation-locked civic document retrieval
+│   │   ├── evaluation.py             offline responsible-AI scorecard, no billable calls
+│   │   ├── sql_guard.py              NL to SQL table allowlist, paren-aware scanner
+│   │   ├── rate_limit.py             per-instance fixed-window limiting
+│   │   ├── secrets.py                optional Secret Manager backing, fail-safe
+│   │   ├── bq_india.py               snapshots, AQI history, ARIMA_PLUS, byte caps
+│   │   ├── bq.py                     BigQuery client and the NYC reference pipeline
+│   │   ├── india.py                  13 cities, 73 localities, default pillar weights
+│   │   ├── market_data.py            source-backed rent baselines with citation URLs
+│   │   ├── fitscore.py               normalization and weighted scoring engine
+│   │   ├── config.py                 settings, feature flags, timeouts
+│   │   └── schemas.py                request models
+│   ├── tools/
+│   │   └── validate_city.py          city onboarding validator and coverage report
+│   ├── data/
+│   │   ├── civic_knowledge.json      civic document corpus
+│   │   └── city_coverage_report.md   generated validation artifact
+│   └── tests/                        322 tests across 31 modules, fully offline
+├── assets/readme/                    themed section icons
+└── README.md
+```
 
 ---
 
