@@ -14,6 +14,7 @@ from typing import Any
 CITY_ANALYTICS = "city_analytics"
 CITY_EVIDENCE = "city_evidence"
 LOCALITY_EVIDENCE = "locality_evidence"
+GENERAL_GUIDANCE = "general_guidance"
 
 _ANALYTICS_PATTERNS = (
     r"\bcompare\b",
@@ -23,6 +24,15 @@ _ANALYTICS_PATTERNS = (
     r"\b(?:highest|lowest|most|least|top|bottom)\b",
     r"\b(?:average|median|how many)\b",
     r"\bacross (?:the )?(?:city|localities|areas|neighbou?rhoods)\b",
+)
+
+_GENERAL_PATTERNS = (
+    r"\bwhat (?:is|does|are)\b",
+    r"\bhow (?:does|do|can)\b",
+    r"\bwhy does\b",
+    r"\bexplain\b",
+    r"\bmeaning of\b",
+    r"\bdifference between\b",
 )
 
 
@@ -45,6 +55,8 @@ def route_intent(
         prior_users = [turn.get("content", "") for turn in (history or []) if turn.get("role") == "user"]
         if prior_users and any(re.search(pattern, prior_users[-1].lower()) for pattern in _ANALYTICS_PATTERNS):
             return CITY_ANALYTICS
+    if any(re.search(pattern, normalized) for pattern in _GENERAL_PATTERNS):
+        return GENERAL_GUIDANCE
     return CITY_EVIDENCE
 
 
@@ -71,6 +83,10 @@ def tool_receipt(mode: str, *, used_bigquery: bool = False) -> list[dict[str, st
             {"id": "bigquery", "label": "BigQuery analytics", "status": "used", "sourceType": "analytics"},
             {"id": "gemini", "label": "Gemini explanation", "status": "used", "sourceType": "model"},
         ]
+    if mode == GENERAL_GUIDANCE:
+        return [
+            {"id": "gemini", "label": "Gemini general guidance", "status": "used", "sourceType": "model"},
+        ]
     scope = "Locality evidence" if mode == LOCALITY_EVIDENCE else "City evidence"
     return [
         {"id": "nestiq_evidence", "label": scope, "status": "used", "sourceType": "structured_evidence"},
@@ -91,6 +107,12 @@ def follow_ups(mode: str) -> list[str]:
             "How does this locality compare with nearby alternatives?",
             "What is the biggest trade-off for this locality?",
             "Which evidence is live, estimated, or unavailable?",
+        ]
+    if mode == GENERAL_GUIDANCE:
+        return [
+            "What do the CPCB AQI bands mean?",
+            "How should I compare rent and commute trade-offs?",
+            "Which current city data can NestIQ verify for me?",
         ]
     return [
         "Which locality has the cleanest air?",
@@ -128,7 +150,7 @@ def envelope(
     """Additive Copilot metadata; legacy answer fields remain unchanged."""
     return {
         "mode": mode,
-        "evidenceStatus": "available",
+        "evidenceStatus": "not_applicable" if mode == GENERAL_GUIDANCE else "available",
         "scope": {
             "city": city,
             "neighborhoodId": neighborhood_id,

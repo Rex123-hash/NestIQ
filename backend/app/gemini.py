@@ -182,6 +182,11 @@ def ask(question: str, context: str) -> str:
         prompt = (
             "You are NestIQ, an AI neighborhood assistant for Indian cities. Answer concisely (2-4 sentences) "
             "using ONLY the data context (rent in INR, AQI where lower is cleaner). "
+            "Treat rankings as relative: say 'lowest AQI among the compared localities', never call the lowest "
+            "reading clean or safe unless its stated CPCB health band supports that. Always mention the available "
+            "AQI health band alongside an AQI comparison. A current AQI snapshot can establish a ranking, not the "
+            "cause of that reading; if asked why, clearly say causal evidence is unavailable before giving the "
+            "supported comparison. "
             "NestIQ compares localities; it does not have individual hostels, PGs, hotels, flats-to-let or "
             "gender-specific listings. If the question asks for something the data doesn't cover, do NOT just "
             "refuse: in one short clause note that NestIQ compares localities rather than individual listings, "
@@ -197,6 +202,27 @@ def ask(question: str, context: str) -> str:
         telemetry.event("tool_fallback", tool="gemini_ask", fallbackUsed=True,
                         errorType=type(e).__name__)
         return "I couldn't reach the assistant just now. Explore the locality's scores and AQI on its detail page."
+
+
+def ask_general(question: str, conversation: str = "") -> str:
+    """Answer stable livability concepts without implying that live tools were used."""
+    try:
+        prompt = (
+            "You are NestIQ, a careful neighborhood-decision assistant for Indian cities. Answer the general "
+            "question clearly in 2-4 sentences using stable background knowledge. You may explain concepts such "
+            "as CPCB AQI bands, rent-versus-commute trade-offs, evidence confidence, and neighborhood evaluation. "
+            "Do not claim current conditions, current prices, local incidents, or a locality-specific cause unless "
+            "verified evidence is supplied. If the user asks for a current or locality-specific fact, explain that "
+            "NestIQ must check live evidence and suggest the precise live comparison they can ask for. Never equate "
+            "'lowest AQI among options' with clean or risk-free air. Do not use em dashes."
+            f"\n\n{conversation}\n\nQuestion: {question}"
+        )
+        resp = _generate(model=settings.gemini_model, contents=prompt)
+        return (resp.text or "").strip()
+    except Exception as e:  # noqa: BLE001
+        telemetry.event("tool_fallback", tool="gemini_general_guidance", fallbackUsed=True,
+                        errorType=type(e).__name__)
+        return "I couldn't reach the general guidance assistant just now. You can still ask NestIQ to compare current locality evidence."
 
 
 def _grounding_citations(resp, limit: int = 8) -> list[dict]:

@@ -7,7 +7,7 @@ import { useRecent, pushRecent, removeRecent, clearRecent, relativeTime } from '
 import CityPicker from '../components/layout/CityPicker.jsx'
 
 const POPULAR = [
-  ['Which locality has the best air quality?', 'Find the lowest-AQI areas with cleaner air to breathe.', TreePine, '#3FB984'],
+  ['Which locality has the best air quality?', 'Compare the lowest AQI readings together with their health bands.', TreePine, '#3FB984'],
   ['Where is rent most affordable?', 'See localities with the lowest median rent for your budget.', DollarSign, '#7C5CF6'],
   ['Which area has the shortest commute?', 'Compare driving time to the city work hub across localities.', Train, '#4F86F7'],
   ['What is the safest locality here?', 'See the safety index across localities in this city.', ShieldCheck, '#F5A63B'],
@@ -20,7 +20,7 @@ const SUGGESTIONS = [
   ['Is the air safe to go out today?', 'Get an AQI-based health read for this area.', TreePine],
   ['Which localities are similar on air + rent?', 'Compare AQI, rent and commute side by side.', Building2],
   ['Best area for a family on a budget?', 'Balance air quality, safety, rent and amenities.', Home],
-  ['Rank localities by air quality', 'Cleanest-air areas first.', TrendingUp],
+  ['Rank localities by air quality', 'Lowest-AQI areas first, with their health bands.', TrendingUp],
 ]
 
 const STEPS = [
@@ -33,6 +33,7 @@ const MODE_LABELS = {
   city_analytics: 'City data analysis',
   city_evidence: 'City evidence',
   locality_evidence: 'Locality evidence',
+  general_guidance: 'General guidance',
   image_evidence: 'Image evidence',
 }
 
@@ -222,11 +223,11 @@ export default function AskNestIQ() {
       const cheap = [...list].sort((a, b) => (a.median_rent ?? 1e9) - (b.median_rent ?? 1e9))[0]
       const sug = []
       if (clean) {
-        const risky = (clean.criticalRisks || []).length > 0
+        const healthyBand = ['good', 'satisfactory'].includes(String(clean.airHealthBand || '').toLowerCase())
         sug.push(
-          risky
+          !healthyBand
             ? [`Is the air in ${clean.name} safe right now?`, `Even the least-polluted area in ${cityName} is AQI ${clean.aqi} (${clean.airHealthBand || 'poor'}).`, TreePine]
-            : [`Why is ${clean.name} the cleanest-air area right now?`, `AQI ${clean.aqi}, the lowest in ${cityName} today.`, TreePine],
+            : [`How does ${clean.name}'s air quality compare right now?`, `AQI ${clean.aqi} (${clean.airHealthBand || 'health band unavailable'}), the lowest measured reading among current ${cityName} options.`, TreePine],
         )
       }
       // Only suggest a budget prompt when a rent is actually sourced; Number(null)

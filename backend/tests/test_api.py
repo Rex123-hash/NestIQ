@@ -141,6 +141,18 @@ class TestAsk:
         assert body["mode"] == "city_evidence"
         assert "sql" not in body
 
+    def test_general_question_uses_guidance_without_claiming_live_tools(self, client, monkeypatch):
+        from app import main
+        monkeypatch.setattr(main.gemini, "ask_general", lambda question, conversation="": "AQI guidance.")
+        body = client.post("/api/ask", json={
+            "question": "What does AQI 110 mean?", "city": "lucknow",
+        }).json()
+        assert body["answer"] == "AQI guidance."
+        assert body["mode"] == "general_guidance"
+        assert body["evidenceStatus"] == "not_applicable"
+        assert [tool["id"] for tool in body["tools"]] == ["gemini"]
+        assert "sql" not in body
+
     def test_bounded_history_supports_analytical_follow_ups(self, client):
         body = client.post("/api/ask", json={
             "question": "What about the second option?",
@@ -177,6 +189,9 @@ class TestAgentStream:
                 raw = "".join(chunk for chunk in resp.iter_text())
         finally:
             monkeypatch.setattr(main.settings, "use_adk_orchestration", False)
+        first_event = raw.split("\n\n", 1)[0]
+        assert "NestIQ Planner" in first_event
+        assert '"status": "running"' in first_event
         assert "NestIQ Planner" in raw
         assert "Live Signals Agent" in raw
         assert "Analytics Agent" in raw

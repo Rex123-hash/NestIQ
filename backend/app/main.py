@@ -581,6 +581,15 @@ def search_stream(q: str = "", city: str = DEFAULT_CITY, preset: str | None = No
 
     def gen():
         if settings.use_adk_orchestration:
+            # The ADK runner currently returns its validated payloads together.
+            # Emit the first truthful state before that work begins so the SSE
+            # connection is visibly alive during Gemini intent parsing.
+            yield sse("agent", {
+                "id": "planner",
+                "name": "NestIQ Planner",
+                "status": "running",
+                "msg": "Understanding your request and selecting tools...",
+            })
             # Run the whole ADK workflow first; if it fails for any reason, fall
             # through to the legacy narrated stream so search never breaks.
             payloads = None
@@ -900,6 +909,17 @@ def _ask(city: str, req: AskRequest) -> dict:
     mode = copilot.route_intent(req.question, req.neighborhoodId, history)
     telemetry.event("copilot_route_selected", city=city, route=mode,
                     locality=req.neighborhoodId)
+
+    if mode == copilot.GENERAL_GUIDANCE:
+        conversation = copilot.conversation_context(history)
+        return {
+            "answer": gemini.ask_general(req.question, conversation),
+            "sources": ["Gemini on Vertex AI (general guidance)"],
+            **copilot.envelope(
+                mode=mode, city=city, neighborhood_id=None,
+                used_bigquery=False,
+            ),
+        }
 
     # Comparative/aggregate India questions -> guarded NL->SQL over BigQuery.
     # Ordinary city questions stay on structured evidence, avoiding an unnecessary

@@ -10,6 +10,10 @@ class TestCopilotRouting:
     def test_ordinary_city_question_avoids_an_unnecessary_analytics_job(self):
         assert copilot.route_intent("Is the air safe to go out today?") == copilot.CITY_EVIDENCE
 
+    def test_general_concept_question_uses_general_guidance(self):
+        assert copilot.route_intent("What does AQI 110 mean?") == copilot.GENERAL_GUIDANCE
+        assert copilot.route_intent("How does CPCB classify air quality?") == copilot.GENERAL_GUIDANCE
+
     def test_explicit_locality_always_uses_locality_evidence(self):
         assert copilot.route_intent("Compare it with alternatives", "powai") == copilot.LOCALITY_EVIDENCE
 
@@ -51,3 +55,13 @@ class TestCopilotEnvelope:
         )
         assert "bigquery" not in [tool["id"] for tool in result["tools"]]
         assert result["scope"]["level"] == "locality"
+
+    def test_general_guidance_discloses_model_only_and_no_live_evidence(self):
+        result = copilot.envelope(
+            mode=copilot.GENERAL_GUIDANCE,
+            city="lucknow",
+            neighborhood_id=None,
+            used_bigquery=False,
+        )
+        assert result["evidenceStatus"] == "not_applicable"
+        assert [tool["id"] for tool in result["tools"]] == ["gemini"]
