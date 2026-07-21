@@ -22,7 +22,10 @@ function categorize(q) {
 
 export function getRecent() {
   try {
-    return JSON.parse(localStorage.getItem(KEY)) || []
+    const stored = JSON.parse(localStorage.getItem(KEY)) || []
+    return Array.isArray(stored)
+      ? [...stored].sort((a, b) => Number(b.at || b.id || 0) - Number(a.at || a.id || 0))
+      : []
   } catch {
     return []
   }
