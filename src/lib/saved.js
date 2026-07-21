@@ -24,6 +24,8 @@ const SCORE_FIELDS = [
   'match', 'matchDisplay', 'criticalRisk', 'healthQualifier', 'airHealthBand',
   'airHealthScore', 'airDataStatus', 'airStale', 'fitScoreDataStatus', 'isProvisional',
   'missingPillars', 'coveragePercent', 'amenity_count', 'amenity_breakdown', 'evidence',
+  // Keep the Places photo resource name current without storing an expiring URL.
+  'photo',
 ]
 
 export function mergeFresh(saved, fresh) {

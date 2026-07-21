@@ -1,11 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Heart, ArrowLeftRight, Trash2, Search, RefreshCw } from 'lucide-react'
+import { Heart, ArrowLeftRight, Trash2, Search, RefreshCw, MapPin } from 'lucide-react'
 import ScoreGauge from '../components/ui/ScoreGauge.jsx'
 import CityPicker from '../components/layout/CityPicker.jsx'
 import { useSaved, removeSaved, getSaved, refreshSaved, isOutdated } from '../lib/saved.js'
 import { apiNeighborhoods, prefetchLocality } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
+import { useMapsKey, placesPhotoUrl } from '../lib/gmaps.js'
 
 const PILLARS = [
   ['affordability', 'Affordability'],
@@ -15,8 +16,47 @@ const PILLARS = [
   ['air_quality', 'Air Quality'],
 ]
 
+function SavedPhoto({ locality, mapsKey }) {
+  const [imageFailed, setImageFailed] = useState(false)
+  const accent = locality.accent || '#7C5CF6'
+  const photo = placesPhotoUrl(locality.photo, mapsKey, 640)
+
+  useEffect(() => {
+    setImageFailed(false)
+  }, [photo])
+
+  return (
+    <div
+      className="relative h-32 overflow-hidden rounded-xl"
+      style={{ background: `linear-gradient(135deg, ${accent}33, ${accent}0d)` }}
+    >
+      {photo && !imageFailed ? (
+        <img
+          src={photo}
+          alt={`${locality.name} locality`}
+          loading="lazy"
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-brand-700">
+          <span className="grid h-10 w-10 place-items-center rounded-full bg-white/80 shadow-sm">
+            <MapPin size={20} aria-hidden="true" />
+          </span>
+          <span className="max-w-full truncate text-xs font-semibold">{locality.name}</span>
+          <span className="text-[10px] text-muted">Locality photo unavailable</span>
+        </div>
+      )}
+      <span className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-white shadow-card">
+        <Heart size={14} style={{ color: accent }} fill={accent} />
+      </span>
+    </div>
+  )
+}
+
 export default function Saved() {
   const saved = useSaved()
+  const mapsKey = useMapsKey()
 
   // Migrate/refresh saved snapshots against the current backend, so records
   // saved under the old scoring model (which could show AQI 500 with an air
@@ -68,11 +108,7 @@ export default function Saved() {
             <div className="flex flex-col gap-4">
               {saved.map((n) => (
                 <div key={n.id} className="grid items-center gap-4 rounded-2xl border border-line bg-white p-4 lg:grid-cols-[220px_1fr_auto_auto]">
-                  <div className="relative h-32 overflow-hidden rounded-xl" style={{ background: `linear-gradient(135deg, ${n.accent}33, ${n.accent}0d)` }}>
-                    <span className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-white shadow-card">
-                      <Heart size={14} style={{ color: n.accent }} fill={n.accent} />
-                    </span>
-                  </div>
+                  <SavedPhoto locality={n} mapsKey={mapsKey} />
 
                   <div className="min-w-0">
                     <h3 className="text-lg font-semibold text-ink">{n.name}</h3>
@@ -122,9 +158,10 @@ export default function Saved() {
 
                   <div className="flex flex-col gap-2">
                     <Link to={`/neighborhood/${n.id}`}
-                      onMouseEnter={() => prefetchLocality(n.id, n.city || city)}
-                      onFocus={() => prefetchLocality(n.id, n.city || city)}
-                      onTouchStart={() => prefetchLocality(n.id, n.city || city)}
+                      onMouseEnter={() => prefetchLocality(n.id, n.city || 'delhi-ncr')}
+                      onFocus={() => prefetchLocality(n.id, n.city || 'delhi-ncr')}
+                      onTouchStart={() => prefetchLocality(n.id, n.city || 'delhi-ncr')}
+                      onClick={() => prefetchLocality(n.id, n.city || 'delhi-ncr')}
                       className="btn-primary py-2 text-xs">View Details</Link>
                     <Link to="/compare" className="btn-ghost py-2 text-xs"><ArrowLeftRight size={14} /> Compare</Link>
                     <button onClick={() => removeSaved(n.id)} className="btn-ghost py-2 text-xs text-ink-soft"><Trash2 size={14} /> Remove</button>

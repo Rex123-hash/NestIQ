@@ -48,6 +48,15 @@ describe('mergeFresh', () => {
     expect(merged.savedAt).toBe(123) // identity preserved
     expect(isOutdated(merged)).toBe(false)
   })
+
+  it('adds a refreshed Places photo to an older saved record', () => {
+    const merged = mergeFresh(
+      { id: 'a', name: 'A', savedAt: 123 },
+      { photo: 'places/example/photos/abc' },
+    )
+    expect(merged.photo).toBe('places/example/photos/abc')
+    expect(merged.savedAt).toBe(123)
+  })
 })
 
 describe('refreshSaved', () => {
