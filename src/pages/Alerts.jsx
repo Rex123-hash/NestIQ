@@ -7,7 +7,7 @@ import { adaptList } from '../lib/adapt.js'
 import { useCity } from '../lib/cityStore.jsx'
 import CityPicker from '../components/layout/CityPicker.jsx'
 import PulseEvents from '../components/PulseEvents.jsx'
-import { aggregateWatchlistPulse } from '../lib/watchlistPulse.js'
+import { aggregateWatchlistPulse, runPulseQueue } from '../lib/watchlistPulse.js'
 
 // Re-fetch current live data for every city the user has saved from, and merge
 // the fresh air-quality/rent/commute onto the saved snapshots — so "Live" is
@@ -66,7 +66,7 @@ function useLiveSaved() {
 // Grounded civic search on a cold cache typically takes 20-60s. The old budget here was
 // 5 x 4s = 20s, which usually expired mid-search and left an endless grey skeleton (the
 // locality detail page already allowed 30 attempts). Poll for ~60s, then stop and say so.
-const PULSE_POLL_ATTEMPTS = 15
+const PULSE_POLL_ATTEMPTS = 30
 const PULSE_POLL_INTERVAL = 4000
 
 // Never end a wait on a silent skeleton: if the source is still working when the budget
@@ -85,7 +85,7 @@ function useCityPulse(city) {
     let attempts = 0
     setPulse(null)
     async function run() {
-      const data = await apiCityPulse(city)
+      const data = await apiCityPulse(city, tick > 0 && attempts === 0)
       if (!alive) return
       setPulse(data)
       if (data?.status === 'pending') {
@@ -119,34 +119,58 @@ function useWatchlistEvents(saved) {
       return
     }
     let alive = true
-    let timer
-    let attempts = 0
-    setPulse(null)
-    async function run() {
-      const results = await Promise.all(
-        saved.map((n) => apiLocalityPulse(n.id, n.city).then((p) => ({ n, p }))),
-      )
+    const current = new Map(saved.map((n) => [`${n.city}:${n.id}`, { n, p: { status: 'pending', items: [] } }]))
+    setPulse({ status: 'pending', items: [] })
+    const publish = () => {
       if (!alive) return
-      // Aggregation lives in lib so its honesty rules are unit-tested: "no alerts" is
-      // only claimed when a source positively confirmed it, never as a fallback.
-      const { status, items } = aggregateWatchlistPulse(results)
-      setPulse({ status, items })
-      if (status === 'pending' && !items.length) {
-        if (attempts < PULSE_POLL_ATTEMPTS) {
-          attempts += 1
-          timer = setTimeout(run, PULSE_POLL_INTERVAL)
-        } else {
-          setPulse({ ...PULSE_GAVE_UP })
-        }
-      }
+      setPulse(aggregateWatchlistPulse([...current.values()]))
     }
-    run()
+    const fetchUntilTerminal = async (n) => {
+      let data = null
+      for (let attempt = 0; attempt <= PULSE_POLL_ATTEMPTS && alive; attempt += 1) {
+        data = await apiLocalityPulse(n.id, n.city, tick > 0 && attempt === 0)
+        current.set(`${n.city}:${n.id}`, { n, p: data })
+        publish()
+        if (data?.status !== 'pending') return data
+        await new Promise((resolve) => setTimeout(resolve, PULSE_POLL_INTERVAL))
+      }
+      return { ...PULSE_GAVE_UP }
+    }
+    runPulseQueue(saved, fetchUntilTerminal, 2).then((results) => {
+      if (alive) setPulse(aggregateWatchlistPulse(results))
+    })
     return () => {
       alive = false
-      clearTimeout(timer)
     }
   }, [key, tick])
   return [pulse, () => setTick((t) => t + 1)]
+}
+
+// A prepared result still gets a short, predictable transition when its view is
+// opened. This avoids a suspicious instant flash while never hiding a slow job.
+function usePreparedPulse(pulse, active, identity) {
+  const [minimumElapsed, setMinimumElapsed] = useState(false)
+  const [softWaitElapsed, setSoftWaitElapsed] = useState(false)
+  useEffect(() => {
+    if (!active) return undefined
+    setMinimumElapsed(false)
+    setSoftWaitElapsed(false)
+    const minimum = setTimeout(() => setMinimumElapsed(true), 2000)
+    const softWait = setTimeout(() => setSoftWaitElapsed(true), 5000)
+    return () => {
+      clearTimeout(minimum)
+      clearTimeout(softWait)
+    }
+  }, [active, identity])
+  if (!active || !minimumElapsed || !pulse || pulse.status === 'pending') {
+    return [
+      { status: 'pending', items: [] },
+      softWaitElapsed
+        ? 'Still checking verified civic sources—you can continue browsing.'
+        : 'Preparing verified civic evidence…',
+    ]
+  }
+  return [pulse, null]
 }
 
 function aqiSignal(aqi) {
@@ -169,8 +193,7 @@ const VIEWS = [
   { id: 'city', label: 'City Pulse' },
 ]
 
-function WatchlistView({ saved, isLive }) {
-  const [events, retryEvents] = useWatchlistEvents(saved)
+function WatchlistView({ saved, isLive, events, retryEvents, pendingLabel }) {
   const aqis = saved.map((n) => n.aqi).filter((v) => v != null)
   const avgAqi = aqis.length ? Math.round(aqis.reduce((a, b) => a + b, 0) / aqis.length) : null
   const highCount = saved.filter((n) => (n.aqi ?? 0) > 200).length
@@ -248,6 +271,7 @@ function WatchlistView({ saved, isLive }) {
         <PulseEvents
           pulse={events}
           onRetry={retryEvents}
+          pendingLabel={pendingLabel}
           showLocality
           emptyLabel="No important (moderate or higher) civic alerts for your saved localities in the last 30 days. This is different from a source failure."
         />
@@ -262,8 +286,7 @@ function WatchlistView({ saved, isLive }) {
   )
 }
 
-function CityPulseView({ city, cityName }) {
-  const [pulse, retry] = useCityPulse(city)
+function CityPulseView({ cityName, pulse, retry, pendingLabel }) {
   return (
     <div className="mt-5">
       <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
@@ -276,6 +299,7 @@ function CityPulseView({ city, cityName }) {
       <PulseEvents
         pulse={pulse}
         onRetry={retry}
+        pendingLabel={pendingLabel}
         categories
         emptyLabel={`No verified civic updates for ${cityName} in the last 30 days. This is different from a source failure.`}
       />
@@ -288,6 +312,13 @@ export default function Alerts() {
   const [saved, isLive] = useLiveSaved()
   const { city, cities } = useCity()
   const cityName = cities?.find((c) => c.id === city)?.name || 'this city'
+  // Both evidence paths start as soon as Alerts opens. Switching views only
+  // controls presentation; it never starts a cold Gemini request.
+  const [cityPulse, retryCityPulse] = useCityPulse(city)
+  const [watchlistPulse, retryWatchlistPulse] = useWatchlistEvents(saved)
+  const watchlistKey = saved.map((n) => `${n.city}:${n.id}`).join(',')
+  const [shownCityPulse, cityPendingLabel] = usePreparedPulse(cityPulse, view === 'city', city)
+  const [shownWatchlistPulse, watchlistPendingLabel] = usePreparedPulse(watchlistPulse, view === 'watchlist', watchlistKey)
 
   return (
     <div className="px-6 py-6 lg:px-8">
@@ -320,8 +351,8 @@ export default function Alerts() {
       </div>
 
       {view === 'watchlist'
-        ? <WatchlistView saved={saved} isLive={isLive} />
-        : <CityPulseView city={city} cityName={cityName} />}
+        ? <WatchlistView saved={saved} isLive={isLive} events={shownWatchlistPulse} retryEvents={retryWatchlistPulse} pendingLabel={watchlistPendingLabel} />
+        : <CityPulseView cityName={cityName} pulse={shownCityPulse} retry={retryCityPulse} pendingLabel={cityPendingLabel} />}
     </div>
   )
 }

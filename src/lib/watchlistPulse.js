@@ -11,6 +11,25 @@
 
 const SEVERE = new Set(['moderate', 'high'])
 
+// Run expensive locality jobs with a small worker pool. Each worker keeps its
+// slot until that locality reaches a terminal state, so a fast `pending`
+// response cannot accidentally start every Gemini job at once.
+export async function runPulseQueue(localities, fetchUntilTerminal, concurrency = 2) {
+  const source = localities || []
+  const results = new Array(source.length)
+  let nextIndex = 0
+  async function worker() {
+    while (nextIndex < source.length) {
+      const index = nextIndex++
+      const n = source[index]
+      results[index] = { n, p: await fetchUntilTerminal(n) }
+    }
+  }
+  const workerCount = Math.min(Math.max(1, concurrency), source.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  return results
+}
+
 export function aggregateWatchlistPulse(results) {
   const items = []
   let anyPending = false

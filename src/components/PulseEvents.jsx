@@ -59,12 +59,18 @@ export default function PulseEvents({
   onRetry,
   categories = false,
   showLocality = false,
+  pendingLabel = 'Checking verified civic sources…',
   emptyLabel = 'No verified civic updates from the last 30 days were found. This is different from a source failure.',
 }) {
   const [cat, setCat] = useState('all')
 
   if (!pulse || pulse.status === 'pending') {
-    return <div className="h-20 animate-pulse rounded-xl bg-gray-100" />
+    return (
+      <div className="rounded-xl bg-gray-100 p-4">
+        <div className="h-3 w-4/5 animate-pulse rounded bg-white/80" />
+        <p className="mt-3 text-xs font-medium text-brand-700">{pendingLabel}</p>
+      </div>
+    )
   }
   if (pulse.status === 'temporarily_unavailable') {
     return (

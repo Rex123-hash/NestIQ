@@ -6,7 +6,7 @@
 // the source had in fact failed. Confident claims must require positive evidence;
 // anything unknown must degrade to "temporarily unavailable".
 import { describe, it, expect } from 'vitest'
-import { aggregateWatchlistPulse } from './watchlistPulse.js'
+import { aggregateWatchlistPulse, runPulseQueue } from './watchlistPulse.js'
 
 const loc = (name) => ({ name })
 const item = (severity) => ({ severity, headline: 'x' })
@@ -85,5 +85,22 @@ describe('aggregateWatchlistPulse', () => {
 
   it('handles an empty list without claiming a failure', () => {
     expect(aggregateWatchlistPulse([]).status).toBe('no_evidence')
+  })
+})
+
+describe('runPulseQueue', () => {
+  it('never runs more than two locality jobs at once and preserves order', async () => {
+    let active = 0
+    let peak = 0
+    const localities = ['A', 'B', 'C', 'D', 'E'].map((name) => ({ name }))
+    const results = await runPulseQueue(localities, async (n) => {
+      active += 1
+      peak = Math.max(peak, active)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      active -= 1
+      return { status: 'no_evidence', name: n.name }
+    }, 2)
+    expect(peak).toBe(2)
+    expect(results.map(({ n }) => n.name)).toEqual(['A', 'B', 'C', 'D', 'E'])
   })
 })
