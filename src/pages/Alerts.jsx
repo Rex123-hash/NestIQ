@@ -65,7 +65,7 @@ function useLiveSaved() {
 
 // Grounded pulse for the whole selected city. Polls while the background source
 // check is still running, so a "pending" resolves to real evidence.
-function useCityPulse(city) {
+function useCityPulse(city, active) {
   const [pulse, setPulse] = useState(null)
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -80,7 +80,11 @@ function useCityPulse(city) {
     }
     run()
     return () => controller.abort()
-  }, [city, tick])
+  // Re-check the shared Firestore result when City Pulse becomes visible. The
+  // preload may have seen a transient provider failure that another generation
+  // subsequently recovered from; keeping the old terminal response on screen
+  // would be stale even though the backend now has a valid result.
+  }, [city, tick, active])
   return [pulse, () => setTick((t) => t + 1)]
 }
 
@@ -286,7 +290,7 @@ export default function Alerts() {
   const cityName = cities?.find((c) => c.id === city)?.name || 'this city'
   // Both evidence paths start as soon as Alerts opens. Switching views only
   // controls presentation; it never starts a cold Gemini request.
-  const [cityPulse, retryCityPulse] = useCityPulse(city)
+  const [cityPulse, retryCityPulse] = useCityPulse(city, view === 'city')
   const [watchlistPulse, retryWatchlistPulse] = useWatchlistEvents(saved)
   const watchlistKey = saved.map((n) => `${n.city}:${n.id}`).join(',')
   const [shownCityPulse, cityPendingLabel] = usePreparedPulse(cityPulse, view === 'city', city)

@@ -35,4 +35,19 @@ describe('Alerts preloading', () => {
     fireEvent.click(screen.getByRole('button', { name: /city pulse/i }))
     expect(screen.getByText(/preparing verified civic evidence/i)).toBeTruthy()
   })
+
+  it('rechecks shared City Pulse state when its view opens', async () => {
+    apiCityPulse
+      .mockResolvedValueOnce({ status: 'temporarily_unavailable', items: [] })
+      .mockResolvedValueOnce({ status: 'no_evidence', items: [] })
+
+    render(<MemoryRouter><Alerts /></MemoryRouter>)
+    await waitFor(() => expect(apiCityPulse).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: /city pulse/i }))
+    await waitFor(() => expect(apiCityPulse).toHaveBeenCalledTimes(2))
+    expect(apiCityPulse).toHaveBeenLastCalledWith(
+      'delhi-ncr', false, expect.any(AbortSignal),
+    )
+  })
 })

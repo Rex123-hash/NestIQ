@@ -7,7 +7,7 @@ import ResultsMap from '../components/results/ResultsMap.jsx'
 import FiltersPanel from '../components/results/FiltersPanel.jsx'
 import AgentProgress from '../components/results/AgentProgress.jsx'
 import { preferences as defaultPrefs, WEIGHTS as INDIA_DEFAULT, SUBSCORES } from '../data/neighborhoods.js'
-import { streamSearch, apiNeighborhoods } from '../lib/api.js'
+import { streamSearch, apiNeighborhoods, apiSearch } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
 import { reweight } from '../lib/fitscore.js'
 import { citySnapshot } from '../lib/citySnapshot.js'
@@ -115,35 +115,6 @@ function computeBounds(items) {
   return { minRent, maxRent, minAqi, maxAqi, minCommute, maxCommute }
 }
 
-function SkeletonCard() {
-  return (
-    <div className="rounded-2xl border border-line bg-white p-4 shadow-card">
-      <div className="flex animate-pulse gap-4">
-        <div className="h-[104px] w-[104px] shrink-0 rounded-xl bg-gray-100" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-2">
-              <div className="h-5 w-40 rounded bg-gray-100" />
-              <div className="h-3 w-52 rounded bg-gray-100" />
-            </div>
-            <div className="h-8 w-12 rounded bg-gray-100" />
-          </div>
-          <div className="mt-4 flex gap-4">
-            <div className="h-3 w-24 rounded bg-gray-100" />
-            <div className="h-3 w-24 rounded bg-gray-100" />
-            <div className="h-3 w-24 rounded bg-gray-100" />
-          </div>
-          <div className="mt-4 flex gap-2">
-            <div className="h-6 w-16 rounded-full bg-gray-100" />
-            <div className="h-6 w-16 rounded-full bg-gray-100" />
-            <div className="h-6 w-16 rounded-full bg-gray-100" />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export default function Results() {
   const [view, setView] = useState('list')
   const [items, setItems] = useState([])
@@ -198,6 +169,7 @@ export default function Results() {
   useEffect(() => {
     let alive = true
     let es = null
+    let settled = false
     setLoading(true)
     setShowAll(false)
     setAgents([])
@@ -209,6 +181,7 @@ export default function Results() {
 
     function apply(res) {
       if (!alive) return
+      settled = true
       const list = res?.results || []
       if (list.length) {
         const adapted = adaptList(list)
@@ -248,7 +221,15 @@ export default function Results() {
             return [...prev, a]
           }),
         onFinal: (data) => apply(data),
-        onError: () => alive && apply(null),
+        onError: async () => {
+          if (!alive || settled) return
+          // Cloud Run or the browser may interrupt a long-lived SSE connection
+          // even though the ordinary search endpoint is healthy. Recover the
+          // final ranked result instead of turning that transport failure into
+          // an empty page.
+          const fallback = await apiSearch(query, searchCity, preset)
+          if (alive && !settled) apply(fallback)
+        },
         preset,
       })
     } else {
@@ -320,11 +301,7 @@ export default function Results() {
   const resultsList = (
     <div className="flex flex-col gap-4">
       {loading ? (
-        agents.length ? (
-          <AgentProgress agents={agents} />
-        ) : (
-          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-        )
+        <AgentProgress agents={agents} />
       ) : visible.length ? (
         <>
           {visible.map((n, i) => (
@@ -358,7 +335,7 @@ export default function Results() {
         <div className="rounded-2xl border border-line bg-white p-8 text-center">
           <p className="text-sm font-medium text-ink">Couldn't load live results just now.</p>
           <p className="mt-1 text-sm text-muted">
-            The data service isn't responding. Check the backend is running on :8080, then refresh.
+            NestIQ couldn't reach the evidence service. Please refresh and try again shortly.
           </p>
         </div>
       )}

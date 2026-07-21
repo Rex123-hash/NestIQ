@@ -145,11 +145,23 @@ export async function apiNeighborhood(id, city) {
   const key = `nestiq:snapshot:detail:${city}:${id}`
   const cached = sessionValue(key)
   if (cached) return cached
+  const path = `/api/neighborhood/${id}?city=${encodeURIComponent(city)}`
   try {
-    return rememberSession(key, await timedJson(BASE, `/api/neighborhood/${id}?city=${encodeURIComponent(city)}`))
+    return rememberSession(key, await timedJson(BASE, path))
   } catch (e) {
+    // A brief Cloud Run/network wobble should not replace the entire detail page
+    // with an error. Retry once; a genuine 404 remains immediate and distinct.
+    if (e.status !== 404) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        return rememberSession(key, await timedJson(BASE, path))
+      } catch (retryError) {
+        console.warn('[api] neighborhood retry failed:', retryError.message)
+        return { __error: retryError.status === 404 ? 'not_found' : 'temporarily_unavailable' }
+      }
+    }
     console.warn('[api] neighborhood fallback:', e.message)
-    return { __error: e.status === 404 ? 'not_found' : 'temporarily_unavailable' }
+    return { __error: 'not_found' }
   }
 }
 
