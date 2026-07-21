@@ -159,6 +159,25 @@ describe('NestIQ Copilot composer', () => {
     expect(recentHeading.compareDocumentPosition(popularHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('shows the newest question-and-answer exchange first', async () => {
+    apiAsk
+      .mockResolvedValueOnce({ answer: 'First answer', mode: 'city_evidence' })
+      .mockResolvedValueOnce({ answer: 'Second answer', mode: 'city_evidence' })
+    render(<MemoryRouter><AskNestIQ /></MemoryRouter>)
+    const composer = screen.getByLabelText('Ask NestIQ Copilot')
+    fireEvent.change(composer, { target: { value: 'First question' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+    await screen.findByText('First answer')
+    fireEvent.change(composer, { target: { value: 'Second question' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+    await screen.findByText('Second answer')
+
+    const visibleText = screen.getByLabelText('Copilot conversation').textContent
+    expect(visibleText.indexOf('Second question')).toBeLessThan(visibleText.indexOf('Second answer'))
+    expect(visibleText.indexOf('Second answer')).toBeLessThan(visibleText.indexOf('First question'))
+    expect(visibleText.indexOf('First question')).toBeLessThan(visibleText.indexOf('First answer'))
+  })
+
   it('previews and analyzes an attached image without persisting it', async () => {
     const createObjectURL = vi.fn(() => 'blob:preview')
     const revokeObjectURL = vi.fn()

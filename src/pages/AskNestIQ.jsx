@@ -43,6 +43,14 @@ function RichText({ children }) {
     : <span key={index}>{part}</span>)
 }
 
+function conversationExchanges(messages) {
+  return messages.reduce((exchanges, message) => {
+    if (message.role === 'user' || exchanges.length === 0) exchanges.push([message])
+    else exchanges[exchanges.length - 1].push(message)
+    return exchanges
+  }, []).reverse()
+}
+
 function CopilotAnswer({ answer, onFollowUp }) {
   const modeLabel = MODE_LABELS[answer.mode] || 'Grounded answer'
   const tools = Array.isArray(answer.tools) ? answer.tools : []
@@ -517,24 +525,28 @@ export default function AskNestIQ() {
               <MessageSquarePlus size={14} /> New conversation
             </button>
           </div>
-          <div className="mt-2 space-y-3">
-            {messages.map((message, index) => message.role === 'user' ? (
-              <div key={`user:${index}`} className="flex justify-end">
-                <div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-sm leading-6 text-white shadow-sm">
-                  {message.content}
-                  {message.imageName && <span className="mt-1 block text-[11px] text-white/75">Image: {message.imageName}</span>}
-                </div>
+          <div className="mt-2 space-y-5">
+            {conversationExchanges(messages).map((exchange, exchangeIndex) => (
+              <div key={`exchange:${exchangeIndex}`} className="space-y-3">
+                {exchange.map((message, messageIndex) => message.role === 'user' ? (
+                  <div key={`user:${messageIndex}`} className="flex justify-end">
+                    <div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-sm leading-6 text-white shadow-sm">
+                      {message.content}
+                      {message.imageName && <span className="mt-1 block text-[11px] text-white/75">Image: {message.imageName}</span>}
+                    </div>
+                  </div>
+                ) : (
+                  <CopilotAnswer key={`assistant:${messageIndex}`} answer={message.response} onFollowUp={submit} />
+                ))}
+                {loading && exchangeIndex === 0 && exchange.every((message) => message.role !== 'assistant') && (
+                  <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-card" role="status">
+                    <p className="flex items-center gap-2 text-sm text-muted">
+                      <LoaderCircle size={16} className="animate-spin text-brand-500" /> NestIQ is selecting tools and checking grounded evidence…
+                    </p>
+                  </div>
+                )}
               </div>
-            ) : (
-              <CopilotAnswer key={`assistant:${index}`} answer={message.response} onFollowUp={submit} />
             ))}
-            {loading && (
-              <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-card" role="status">
-                <p className="flex items-center gap-2 text-sm text-muted">
-                  <LoaderCircle size={16} className="animate-spin text-brand-500" /> NestIQ is selecting tools and checking grounded evidence…
-                </p>
-              </div>
-            )}
           </div>
         </section>
       )}
