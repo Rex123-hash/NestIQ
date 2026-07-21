@@ -486,7 +486,9 @@ export function AffordabilityTab({ n }) {
         sub={`Cost of living and value for money in ${n.name}.`}
         score={aff}
         band={aff >= 75 ? 'Excellent' : aff >= 55 ? 'Good' : 'Moderate'}
-        why={`At ${n.rentDisplay}/month, ${n.name} is ${rankLabel(ins.rent, 'cheapest')} in the city, an affordability score of ${aff}/100.`}
+        why={Number.isFinite(aff)
+          ? `At ${n.rentDisplay}/month, ${n.name} is ${rankLabel(ins.rent, 'cheapest')} in the city, an affordability score of ${aff}/100.`
+          : `Rent evidence has not been sourced for ${n.name} yet, so affordability is excluded from the FitScore rather than estimated. Select Verify current rent to search for cited market evidence.`}
       />
       <Panel
         title="Rent compared with other localities"
@@ -581,6 +583,9 @@ export function AffordabilityTab({ n }) {
 /* --------------------------------- Safety --------------------------------- */
 export function SafetyTab({ n }) {
   const s = n.subscores.safety
+  // A newly onboarded city has no curated safety profile at all. The copy below must
+  // not describe a source that does not exist, so every claim keys off this.
+  const hasCurated = Number.isFinite(s)
   const ins = n.insights || { peers: [] }
   const profile = n.safety_profile || n.evidence?.safety?.supportingEvidence
   const safetySignals = profile?.signals || {}
@@ -596,17 +601,32 @@ export function SafetyTab({ n }) {
         sub={`Safety and well-being in ${n.name}.`}
         score={s}
         band={s >= 75 ? 'Excellent' : s >= 55 ? 'Good' : 'Moderate'}
-        why={`${n.name} is ${rankLabel(ins.safety, 'safest')} in the city, based on a curated locality safety profile normalized across localities.`}
+        why={hasCurated
+          ? `${n.name} is ${rankLabel(ins.safety, 'safest')} in the city, based on a curated locality safety profile normalized across localities.`
+          : `No curated safety profile exists for ${n.name}, so safety is excluded from the FitScore rather than estimated. The live emergency-access evidence below is context, not a crime-safety measure.`}
       />
       <Panel title="Safety compared with other localities">
-        <p className="mb-4 text-xs text-muted">Higher bars are safer · {n.short || n.name} is highlighted.</p>
-        <PeerBars peers={ins.peers} metricKey="safety" currentId={n.id} color="#7C5CF6" unit="/100" />
+        {hasCurated ? (
+          <>
+            <p className="mb-4 text-xs text-muted">Higher bars are safer · {n.short || n.name} is highlighted.</p>
+            <PeerBars peers={ins.peers} metricKey="safety" currentId={n.id} color="#7C5CF6" unit="/100" />
+          </>
+        ) : (
+          <p className="mb-4 text-sm text-muted">
+            No locality-level safety dataset is published for this city, so there is nothing to
+            compare. This is a gap in the available data, not a temporary outage.
+          </p>
+        )}
         {profile && (
           <div className="mt-5 border-t border-line pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-ink">Live emergency-access evidence</p>
-                <p className="text-xs text-muted">Supporting context only; it does not replace the curated safety score.</p>
+                <p className="text-xs text-muted">
+                  {hasCurated
+                    ? 'Supporting context only; it does not replace the curated safety score.'
+                    : 'Emergency-service access only. This is not a crime-safety measure and is not scored.'}
+                </p>
               </div>
               <span className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold capitalize text-brand-700">
                 {profile.confidence} evidence confidence
