@@ -46,8 +46,9 @@ function MarketingNav() {
         </div>
 
         <nav className="hidden items-center gap-8 lg:flex">
+          <a className="nav-link" href="#why">Why NestIQ</a>
           <a className="nav-link" href="#how">How it Works</a>
-          <a className="nav-link" href="#features">Features</a>
+          <a className="nav-link" href="#proof">Proof</a>
           <a className="nav-link" href="#data">Data Sources</a>
           <a className="nav-link" href="#about">About</a>
         </nav>
@@ -251,17 +252,17 @@ function Hero() {
 
   const checks = ['Adapts to your priorities', 'Cited & explainable', 'Trusted public data']
   return (
-    <section className="relative">
+    <section id="home-search" className="relative scroll-mt-24">
       <div className="mx-auto max-w-[1400px] px-6 py-12 md:px-10 lg:py-20">
       <div className="relative z-10 ml-[0.5cm] lg:max-w-[480px] 2xl:max-w-[620px]">
         <h1 className="font-serif text-4xl leading-[1.05] tracking-tight text-ink md:text-5xl lg:max-w-[440px]">
-          Find the right neighborhood.
+          Find a neighborhood that fits your life—
           <br />
-          <span className="text-brand-500">For your life.</span>
+          <span className="text-brand-500">not just your budget.</span>
         </h1>
         <p className="mt-6 max-w-md text-base leading-relaxed text-muted">
-          NestIQ analyzes rent, safety, commute, amenities, and real community insights to help you
-          choose the perfect place to live, backed by data and powered by AI.
+          NestIQ brings affordability, air quality, commute, safety, essential services, and
+          community evidence into one personalized and explainable neighborhood decision.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2">
@@ -420,6 +421,156 @@ function Hero() {
   )
 }
 
+/* --------------------------- Human problem story -------------------------- */
+const FAMILY_NEEDS = [
+  [Wind, 'Cleaner air evidence'],
+  [Building2, 'Hospitals & pharmacies'],
+  [Coffee, 'Schools & essentials'],
+  [ShieldCheck, 'Safety context'],
+  [TrainFront, 'Manageable commute'],
+  [PiggyBank, 'Sustainable budget'],
+]
+
+function ProblemStory() {
+  return (
+    <section id="why" className="scroll-mt-24 border-y border-line bg-gradient-to-br from-brand-50/80 via-white to-[#EEF9F4] py-16 lg:py-20">
+      <div className="mx-auto grid max-w-[1240px] gap-10 px-6 md:px-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+        <div>
+          <span className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700">
+            <Heart size={14} /> A real housing decision is more than a listing
+          </span>
+          <h2 className="mt-5 max-w-xl font-serif text-3xl leading-tight text-ink md:text-4xl">
+            A family with an asthmatic child should not have to choose a home using rent and photos alone.
+          </h2>
+          <p className="mt-5 max-w-xl text-base leading-7 text-muted">
+            The answers normally live across disconnected maps, pollution dashboards, property portals,
+            civic notices, and local conversations. NestIQ brings the available evidence together so the
+            family can compare trade-offs without mistaking an estimate for a guarantee.
+          </p>
+          <p className="mt-4 text-sm font-medium text-ink-soft">
+            Every household has different non-negotiables. NestIQ adapts the evidence and ranking to yours.
+          </p>
+          <a href="#home-search" className="btn-primary mt-6 w-fit">
+            Try Family Health &amp; Resilience Mode <ArrowRight size={16} />
+          </a>
+          <p className="mt-3 max-w-lg text-xs leading-5 text-muted">
+            NestIQ supports housing research. It does not diagnose conditions or guarantee health outcomes.
+          </p>
+        </div>
+
+        <div className="rounded-[28px] border border-white bg-white/90 p-5 shadow-float backdrop-blur md:p-7">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-600">Family priorities</p>
+              <p className="mt-1 text-sm text-muted">Six questions that should be considered together</p>
+            </div>
+            <span className="rounded-full bg-[#EAF7F0] px-3 py-1 text-xs font-semibold text-aff">Health-sensitive preset</span>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {FAMILY_NEEDS.map(([Icon, label]) => (
+              <div key={label} className="flex items-center gap-3 rounded-2xl border border-line bg-band/40 p-3.5">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-brand-600 shadow-sm"><Icon size={17} /></span>
+                <span className="text-sm font-medium text-ink-soft">{label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-5 rounded-2xl border border-brand-100 bg-brand-50/70 p-4">
+            <p className="flex items-center gap-2 text-sm font-semibold text-ink"><Sparkles size={16} className="text-brand-600" /> One explainable decision</p>
+            <p className="mt-1.5 text-sm leading-6 text-muted">Priorities are weighted transparently, missing evidence stays missing, and important risks remain visible.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/* ------------------------------ Product proof ----------------------------- */
+function ProductProof() {
+  const signals = [
+    ['Affordability', '₹24,000 indicative rent', 'Estimated', 'text-aff bg-[#EAF7F0]'],
+    ['Air quality', 'AQI 72 · Moderate', 'Live signal', 'text-trend bg-[#FDF0DF]'],
+    ['Commute', '28 min to work hub', 'Live signal', 'text-commute bg-[#EAF1FD]'],
+    ['Essentials', 'Hospital, pharmacy & school nearby', 'Additive', 'text-brand-700 bg-brand-50'],
+  ]
+  return (
+    <section id="proof" className="scroll-mt-24 py-16 lg:py-20">
+      <div className="mx-auto max-w-[1240px] px-6 md:px-10">
+        <div className="mx-auto max-w-3xl text-center">
+          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-600">See the decision, not another listing</span>
+          <h2 className="mt-3 font-serif text-3xl text-ink md:text-4xl">A recommendation with the trade-offs left visible.</h2>
+          <p className="mt-3 text-base leading-7 text-muted">This illustrative preview mirrors the real NestIQ result structure. It is labelled demonstration data—not a live claim.</p>
+        </div>
+
+        <div className="mx-auto mt-10 max-w-5xl overflow-hidden rounded-[30px] border border-line bg-white shadow-float">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line bg-gradient-to-r from-brand-50 via-white to-[#EEF9F4] px-6 py-5 md:px-8">
+            <div>
+              <span className="rounded-full border border-brand-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700">Illustrative NestIQ result</span>
+              <h3 className="mt-3 font-serif text-2xl text-ink">Indiranagar, Bengaluru</h3>
+              <p className="mt-1 text-sm text-muted">Strong everyday access with an air-quality trade-off to review.</p>
+            </div>
+            <div className="rounded-2xl border border-brand-100 bg-white px-5 py-3 text-center shadow-card">
+              <p className="text-xs font-medium text-muted">FitScore</p>
+              <p className="font-serif text-4xl text-brand-700">82<span className="text-base text-muted">/100</span></p>
+              <p className="text-xs font-semibold text-aff">Excellent Match</p>
+            </div>
+          </div>
+          <div className="grid gap-6 p-6 md:grid-cols-[1.15fr_0.85fr] md:p-8">
+            <div className="space-y-3">
+              {signals.map(([label, value, status, tint]) => (
+                <div key={label} className="grid gap-2 rounded-2xl border border-line p-4 sm:grid-cols-[120px_1fr_auto] sm:items-center">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted">{label}</span>
+                  <span className="text-sm font-semibold text-ink">{value}</span>
+                  <span className={`w-fit rounded-full px-2.5 py-1 text-[11px] font-semibold ${tint}`}>{status}</span>
+                </div>
+              ))}
+            </div>
+            <aside className="rounded-2xl bg-[#17172A] p-5 text-white">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-200">Why this match?</p>
+              <p className="mt-4 text-lg font-semibold leading-7">Strong commute and essential-service access fit the family’s priorities.</p>
+              <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-[#FFC76B]"><TriangleAlert size={16} /> Trade-off to verify</p>
+                <p className="mt-2 text-sm leading-6 text-white/70">Moderate AQI needs current review for a health-sensitive household. The FitScore does not hide that risk.</p>
+              </div>
+              <a href="#home-search" className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-brand-200 hover:text-white">Find my match <ArrowRight size={15} /></a>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+const COMPARISON_ROWS = [
+  ['Rent and listing price', 'Affordability relative to your budget'],
+  ['Bedrooms and photos', 'Air quality and clearly labelled health-relevant evidence'],
+  ['Generic amenity list', 'Hospitals, pharmacies, schools and lifestyle essentials'],
+  ['Distance in kilometres', 'Commute time weighed against your other priorities'],
+  ['Popularity signals', 'Personalized priorities and explainable ranking'],
+  ['Missing information is easy to overlook', 'Missing evidence is labelled and never silently guessed'],
+]
+
+function Comparison() {
+  return (
+    <section className="bg-band py-16">
+      <div className="mx-auto max-w-[1100px] px-6 md:px-10">
+        <h2 className="text-center font-serif text-3xl text-ink md:text-4xl">Property search finds homes. NestIQ helps evaluate the life around them.</h2>
+        <div className="mt-10 overflow-hidden rounded-3xl border border-line bg-white shadow-card">
+          <div className="grid grid-cols-2 border-b border-line bg-white text-sm font-semibold">
+            <div className="p-4 text-muted md:px-6">Ordinary property search</div>
+            <div className="border-l border-line bg-brand-50/70 p-4 text-brand-700 md:px-6">NestIQ</div>
+          </div>
+          {COMPARISON_ROWS.map(([ordinary, nestiq]) => (
+            <div key={ordinary} className="grid grid-cols-2 border-b border-line/70 text-sm last:border-0">
+              <div className="p-4 leading-6 text-muted md:px-6">{ordinary}</div>
+              <div className="flex gap-2 border-l border-line bg-brand-50/25 p-4 leading-6 text-ink-soft md:px-6"><CircleCheck size={16} className="mt-1 shrink-0 text-aff" /> {nestiq}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 /* ------------------------------ Feature band ------------------------------ */
 const FEATURES = [
   { icon: PiggyBank, tint: 'bg-[#E8F6EF] text-aff', title: 'Affordability', sub: 'Rent vs. your budget' },
@@ -454,9 +605,10 @@ function FeatureBand() {
 
 /* ------------------------------ How it works ----------------------------- */
 const STEPS = [
-  { icon: Search, title: 'Tell us what matters', desc: 'Describe your ideal home in plain words: clean air, budget, short commute, safety.' },
-  { icon: Cpu, title: 'ADK agents analyze sourced evidence', desc: 'NestIQ\'s Google ADK agents combine live Google signals with clearly labelled rent estimates and safety proxies, with a Validator checking for contradictions; missing data is never guessed.' },
-  { icon: ListChecks, title: 'Get ranked, explainable matches', desc: 'A weighted FitScore ranks localities for you, with every number cited and every match explained.' },
+  { icon: Search, title: 'Tell NestIQ what matters', desc: 'Describe your priorities in plain language or begin with a transparent preset.' },
+  { icon: Database, title: 'Collect and label evidence', desc: 'Available locality signals retain their provenance: live, estimated, proxied, verified, or unavailable.' },
+  { icon: Cpu, title: 'Rank the trade-offs', desc: 'ADK agents coordinate evidence while deterministic FitScore logic compares localities using your priorities.' },
+  { icon: ListChecks, title: 'Explain the recommendation', desc: 'See why a locality fits, what the risks are, which sources were used, and what evidence is missing.' },
 ]
 
 function HowItWorks() {
@@ -464,8 +616,8 @@ function HowItWorks() {
     <section id="how" className="scroll-mt-24 py-16">
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
         <h2 className="text-center font-serif text-2xl text-ink md:text-3xl">How it works</h2>
-        <p className="mx-auto mt-2 max-w-xl text-center text-sm text-muted">From a plain-English wish to a data-backed decision in seconds.</p>
-        <div className="mt-10 grid gap-6 md:grid-cols-3">
+        <p className="mx-auto mt-2 max-w-2xl text-center text-sm text-muted">From a plain-English wish to a transparent, evidence-backed decision.</p>
+        <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((s, i) => (
             <div key={s.title} className="relative rounded-2xl border border-line bg-white p-6 shadow-card">
               <span className="absolute right-5 top-4 font-serif text-3xl text-brand-100">{i + 1}</span>
@@ -475,6 +627,67 @@ function HowItWorks() {
             </div>
           ))}
         </div>
+      </div>
+    </section>
+  )
+}
+
+/* -------------------------- Phase 13 trust proof -------------------------- */
+const EVAL_METRICS = [
+  ['15/15', 'evaluation cases passed'],
+  ['441', 'automated tests passed'],
+  ['100%', 'groundedness in the offline suite'],
+  ['0%', 'unsupported claims in the offline suite'],
+]
+
+const TRUST_CARDS = [
+  [Database, 'Grounded evidence', 'Sources and evidence states stay visible. Estimates and proxies are never presented as verified live facts.'],
+  [ShieldCheck, 'Safer decisions', 'The suite checks health-sensitive scoring, contradictions, missing data, tool behavior, citations, and SQL guards.'],
+  [TriangleAlert, 'Honest failures', 'When evidence cannot be established, NestIQ reports the limitation instead of manufacturing a confident answer.'],
+]
+
+function TrustProof() {
+  return (
+    <section className="relative overflow-hidden bg-[#17172A] py-16 text-white lg:py-20">
+      <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-brand-500/20 blur-3xl" aria-hidden="true" />
+      <div className="relative mx-auto max-w-[1240px] px-6 md:px-10">
+        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+          <div className="max-w-3xl">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-brand-200"><CircleCheck size={14} /> Phase 13 verified · 21 July 2026</span>
+            <h2 className="mt-5 font-serif text-3xl md:text-4xl">Tested for trust—not just designed for it.</h2>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-white/65">NestIQ is evaluated for grounded evidence, citation quality, decision safety, tool behaviour, and honest handling of missing data.</p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs font-semibold text-brand-100">
+            {['Grounded', 'Tested', 'Explainable', 'Sources visible', 'Missing data never guessed'].map((label) => <span key={label} className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5">{label}</span>)}
+          </div>
+        </div>
+
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {EVAL_METRICS.map(([value, label]) => (
+            <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.06] p-5 backdrop-blur">
+              <p className="font-serif text-4xl text-brand-200">{value}</p>
+              <p className="mt-2 text-sm leading-5 text-white/65">{label}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          {TRUST_CARDS.map(([Icon, title, desc]) => (
+            <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-500/20 text-brand-200"><Icon size={19} /></span>
+              <h3 className="mt-4 text-base font-semibold">{title}</h3>
+              <p className="mt-2 text-sm leading-6 text-white/60">{desc}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-6 text-xs leading-5 text-white/45">Offline deterministic evaluation: 15 cases, 0 billable calls. Automated-test total reflects the verified build published on 21 July 2026; future releases must update this evidence.</p>
+        <a
+          href="https://github.com/Rex123-hash/NestIQ/blob/main/PHASE13_HANDOFF.md"
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-brand-200 transition hover:text-white"
+        >
+          View evaluation methodology <ArrowRight size={15} />
+        </a>
       </div>
     </section>
   )
@@ -494,7 +707,7 @@ function DataSources() {
     <section id="data" className="scroll-mt-24 py-16">
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
         <h2 className="text-center font-serif text-2xl text-ink md:text-3xl">Trusted data, cited sources</h2>
-        <p className="mx-auto mt-2 max-w-xl text-center text-sm text-muted">Every score is grounded in live, verifiable data, with no black boxes.</p>
+        <p className="mx-auto mt-2 max-w-2xl text-center text-sm leading-6 text-muted">Every signal is sourced, dated, or clearly labelled as live, estimated, proxied, verified, or unavailable.</p>
         <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {SOURCES.map((s) => (
             <div key={s.title} className="flex items-start gap-4 rounded-2xl border border-line bg-white p-5">
@@ -513,9 +726,9 @@ function DataSources() {
 
 /* --------------------------------- About --------------------------------- */
 const STATS = [
-  ['9', 'Indian cities covered'],
-  ['5', 'live signals per locality'],
-  ['100%', 'cited & explainable scores'],
+  ['13', 'Indian cities covered'],
+  ['73', 'validated localities'],
+  ['15/15', 'Phase 13 evaluation cases'],
 ]
 
 function About() {
@@ -526,8 +739,8 @@ function About() {
         <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-muted">
           Choosing where to live is one of life's biggest decisions, yet most people make it on gut feel and a
           few listings. NestIQ turns rent, air quality, safety, commute, and amenities into one clear, explainable
-          FitScore, so you can decide with data. Built air-quality-first, covering metros down to Tier-2 cities like
-          Patna and Ranchi.
+          FitScore, so you can decide with data. Built air-quality-first, with validated catalog coverage across
+          13 Indian cities and 73 localities.
         </p>
         <div className="mt-8 grid gap-6 sm:grid-cols-3">
           {STATS.map(([n, l]) => (
@@ -536,6 +749,22 @@ function About() {
               <p className="mt-1 text-sm text-muted">{l}</p>
             </div>
           ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function FinalCTA() {
+  return (
+    <section className="px-6 py-16 md:px-10 lg:py-20">
+      <div className="mx-auto max-w-[1100px] overflow-hidden rounded-[32px] bg-gradient-to-br from-brand-600 via-brand-700 to-[#242044] px-6 py-12 text-center text-white shadow-float md:px-12">
+        <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-white/10 text-brand-100"><House size={23} /></span>
+        <h2 className="mx-auto mt-5 max-w-3xl font-serif text-3xl leading-tight md:text-4xl">Your best neighborhood is not the most popular one. It is the one that fits the life you are building.</h2>
+        <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/70">Start with your real priorities. NestIQ will show the match, the trade-offs, the sources, and what it still cannot know.</p>
+        <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
+          <a href="#home-search" className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">Find my neighborhood <ArrowRight size={16} /></a>
+          <a href="#how" className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10">See how NestIQ works</a>
         </div>
       </div>
     </section>
@@ -562,10 +791,15 @@ export default function Home() {
     <div className="min-h-screen scroll-smooth overflow-x-hidden bg-white">
       <MarketingNav />
       <Hero />
+      <ProblemStory />
+      <ProductProof />
+      <Comparison />
       <HowItWorks />
       <FeatureBand />
+      <TrustProof />
       <DataSources />
       <About />
+      <FinalCTA />
       <Footer />
     </div>
   )
