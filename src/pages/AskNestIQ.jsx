@@ -54,7 +54,10 @@ export default function AskNestIQ() {
             : [`Why is ${clean.name} the cleanest-air area right now?`, `AQI ${clean.aqi}, the lowest in ${cityName} today.`, TreePine],
         )
       }
-      if (cheap) sug.push([`Is ${cheap.name} a good budget pick?`, `Lowest median rent in ${cityName} at ₹${Number(cheap.median_rent).toLocaleString('en-IN')}.`, DollarSign])
+      // Only suggest a budget prompt when a rent is actually sourced; Number(null)
+      // is 0, which would advertise a fabricated price.
+      if (cheap && Number.isFinite(cheap.median_rent))
+        sug.push([`Is ${cheap.name} a good budget pick?`, `Lowest median rent in ${cityName} at ₹${cheap.median_rent.toLocaleString('en-IN')}.`, DollarSign])
       setLiveSug(sug)
     })
     return () => {

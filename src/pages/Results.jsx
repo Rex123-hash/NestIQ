@@ -10,6 +10,7 @@ import { preferences as defaultPrefs, WEIGHTS as INDIA_DEFAULT, SUBSCORES } from
 import { streamSearch, apiNeighborhoods, prefetchLocality } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
 import { reweight } from '../lib/fitscore.js'
+import { citySnapshot } from '../lib/citySnapshot.js'
 import { useCity } from '../lib/cityStore.jsx'
 import { FAMILY_HEALTH, isPreset } from '../lib/presets.js'
 
@@ -102,7 +103,6 @@ function prioritiesText(weights) {
     .join(', ')
 }
 
-const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0)
 const rng = (arr, lo, hi) => (arr.length ? [Math.min(...arr), Math.max(...arr)] : [lo, hi])
 
 function computeBounds(items) {
@@ -305,13 +305,7 @@ export default function Results() {
   const sources = isNYC ? SOURCES_NYC : SOURCES_INDIA
   const filtersOn = weightsDirty || (limits && (limits.maxRent < bounds.maxRent || limits.maxAqi < bounds.maxAqi || limits.maxCommute < bounds.maxCommute || limits.minFit > 0))
 
-  const snap = items.length
-    ? {
-        rent: Math.round(avg(items.map((n) => n.rent).filter(Number.isFinite))),
-        aqi: Math.round(avg(items.map((n) => n.aqi).filter(Number.isFinite))),
-        commute: Math.round(avg(items.map((n) => n.commuteMin).filter(Number.isFinite))),
-      }
-    : null
+  const snap = items.length ? citySnapshot(items) : null
 
   function resetFilters() {
     setWeights(baseWeights)
@@ -520,17 +514,18 @@ export default function Results() {
                 <li className="flex items-center justify-between">
                   <span className="text-muted">Avg. median rent</span>
                   <span className="font-semibold text-ink">
-                    {currency}
-                    {snap.rent.toLocaleString(isNYC ? 'en-US' : 'en-IN')}/mo
+                    {Number.isFinite(snap.rent)
+                      ? `${currency}${snap.rent.toLocaleString(isNYC ? 'en-US' : 'en-IN')}/mo`
+                      : 'Not available'}
                   </span>
                 </li>
                 <li className="flex items-center justify-between">
                   <span className="text-muted">Avg. live AQI</span>
-                  <span className="font-semibold text-ink">{snap.aqi || '—'}</span>
+                  <span className="font-semibold text-ink">{Number.isFinite(snap.aqi) ? snap.aqi : 'Not available'}</span>
                 </li>
                 <li className="flex items-center justify-between">
                   <span className="text-muted">Avg. commute to hub</span>
-                  <span className="font-semibold text-ink">{Number.isFinite(snap.commute) ? `${snap.commute} min` : 'Unavailable'}</span>
+                  <span className="font-semibold text-ink">{Number.isFinite(snap.commute) ? `${snap.commute} min` : 'Not available'}</span>
                 </li>
                 <li className="flex items-center justify-between">
                   <span className="text-muted">Localities analyzed</span>
