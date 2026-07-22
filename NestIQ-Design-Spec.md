@@ -35,10 +35,23 @@ ranking page.
 A renter or household moving within or between Indian cities, often under time, budget,
 health, or commute pressure.
 
+### Human stakes
+
+For a parent whose child has asthma, or an older adult already struggling with respiratory
+health, choosing a home is not only a rent-and-commute decision. A locality that appears
+convenient can still mean repeated exposure to unhealthy air, while a cleaner option may be
+unaffordable or too far from care. NestIQ makes those trade-offs visible together, with
+absolute CPCB health bands and nearby-service evidence, so a family can ask better questions
+before committing to a home. It supports an informed housing decision; it does not provide
+medical diagnosis or treatment advice.
+
 ### Important scenarios
 
 - A professional balancing monthly rent against travel time to a work hub.
-- A family prioritizing air quality, safety, and access to hospitals or schools.
+- A parent seeking a lower-pollution locality for a child with asthma while staying near
+  schools and hospitals.
+- An older adult with respiratory vulnerability balancing cleaner air, nearby care, rent,
+  and family access.
 - A renter deciding whether a cheaper locality creates an unacceptable commute trade-off.
 - A resident monitoring saved localities for verified civic or environmental updates.
 - A user who wants a data answer such as “Which locality has the lowest AQI?” without

@@ -171,7 +171,11 @@ def _clean_sql(text: str) -> str:
     t = (text or "").strip()
     if "```" in t:
         t = t.split("```")[1] if len(t.split("```")) > 1 else t
-    t = t.replace("sql\n", "").replace("SQL\n", "").strip().strip("`").strip()
+    # Gemini sometimes quotes ordinary BigQuery identifiers even when asked not
+    # to. Normalize that harmless formatting before the strict table allowlist;
+    # a qualified or foreign target remains foreign after the quotes are removed
+    # and is still rejected by validate_analytics_sql.
+    t = t.replace("sql\n", "").replace("SQL\n", "").replace("`", "").strip()
     return t.split(";")[0].strip()
 
 
@@ -181,15 +185,15 @@ def nl_to_sql(question: str, city: str, table_ref: str) -> str:
 
     prompt = (
         "You translate a question into exactly ONE BigQuery Standard SQL SELECT over a single table of "
-        f"Indian residential localities.\nTable: `{table_ref}`\nColumns: {INDIA_SQL_COLUMNS}\n"
+        f"Indian residential localities.\nTable alias: {table_ref}\nColumns: {INDIA_SQL_COLUMNS}\n"
         f"Selected city identifier: {city}\n"
-        "Rules: output ONLY the SQL (no markdown, no prose, no semicolon); it MUST be a single SELECT; "
+        "Rules: output ONLY the SQL (no markdown, no prose, no semicolon or backticks); it MUST be a single SELECT; "
         "ALWAYS include WHERE city = @city; the backend binds @city and independently scopes the source CTE. "
         "Return about 5 rows (LIMIT 5) so the answer has context, "
         "use LIMIT 1 ONLY if the question is explicitly about a single top/bottom item; remember LOWER aqi = "
         "cleaner air and rent is INR/month. For every ranked, comparison, or locality-row result, the SELECT "
-        "MUST include `id` and `name`; omit them only for a true single-row city aggregate such as COUNT or AVG. "
-        "Whenever the SELECT includes `aqi`, it MUST also include `aqi_category`. Select only the other columns "
+        "MUST include id and name; omit them only for a true single-row city aggregate such as COUNT or AVG. "
+        "Whenever the SELECT includes aqi, it MUST also include aqi_category. Select only the other columns "
         "needed to answer.\n"
         f'Question: "{question}"'
     )

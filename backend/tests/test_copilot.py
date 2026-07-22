@@ -1,6 +1,9 @@
 """NestIQ Copilot routing and additive response contract."""
+import pytest
+
 from app import copilot, gemini
 from app.india import get_city
+from app.sql_guard import SqlGuardError, validate_analytics_sql
 
 
 CHENNAI_LOCALITIES = get_city("chennai")["localities"]
@@ -127,7 +130,7 @@ def test_nl_to_sql_requests_navigation_identity_and_aqi_context(monkeypatch):
     calls = []
 
     class Response:
-        text = "SELECT id, name, aqi, aqi_category FROM india_localities_latest WHERE city = @city LIMIT 5"
+        text = "SELECT `id`, `name`, `aqi`, `aqi_category` FROM `india_localities_latest` WHERE city = @city LIMIT 5"
 
     def generate(**kwargs):
         calls.append(kwargs)
@@ -137,10 +140,15 @@ def test_nl_to_sql_requests_navigation_identity_and_aqi_context(monkeypatch):
     sql = gemini.nl_to_sql("Which locality has the lowest AQI?", "chennai", "india_localities_latest")
 
     assert sql.startswith("SELECT id, name, aqi, aqi_category")
+    assert "`" not in sql
+    assert validate_analytics_sql(sql)
+    with pytest.raises(SqlGuardError):
+        validate_analytics_sql(gemini._clean_sql("SELECT * FROM `other-project.data.secret`"))
     sql_call = calls[-1]
     prompt = sql_call["contents"]
-    assert "MUST include `id` and `name`" in prompt
-    assert "MUST also include `aqi_category`" in prompt
+    assert "MUST include id and name" in prompt
+    assert "MUST also include aqi_category" in prompt
+    assert "no semicolon or backticks" in prompt
     assert "ALWAYS include WHERE city = @city" in prompt
     assert sql_call["config"].temperature == 0.0
     assert sql_call["config"].max_output_tokens == 512
