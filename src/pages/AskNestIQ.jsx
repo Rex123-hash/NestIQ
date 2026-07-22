@@ -34,6 +34,7 @@ const MODE_LABELS = {
   city_evidence: 'City evidence',
   locality_evidence: 'Locality evidence',
   general_guidance: 'General guidance',
+  temporarily_unavailable: 'Assistant unavailable',
   image_evidence: 'Image evidence',
 }
 

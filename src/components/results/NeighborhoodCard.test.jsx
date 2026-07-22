@@ -4,9 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import NeighborhoodCard from './NeighborhoodCard.jsx'
-import { apiLocalityPulse, apiRentVerification, apiReviews } from '../../lib/api.js'
+import { apiLocalityPulse, apiRentVerification, apiReviews, prefetchNeighborhood } from '../../lib/api.js'
 
 vi.mock('../../lib/api.js', () => ({
+  prefetchNeighborhood: vi.fn().mockResolvedValue([]),
   apiLocalityPulse: vi.fn().mockResolvedValue({ status: 'pending' }),
   apiRentVerification: vi.fn().mockResolvedValue({ status: 'pending' }),
   apiReviews: vi.fn().mockResolvedValue({ status: 'pending' }),
@@ -29,36 +30,24 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('NeighborhoodCard evidence warmup', () => {
-  it('warms rent, reviews and pulse at 1.5-second intervals', async () => {
-    vi.useFakeTimers()
+describe('NeighborhoodCard request discipline', () => {
+  it('does not start grounded jobs from hover or keyboard focus', () => {
     render(<MemoryRouter><NeighborhoodCard n={locality} rank={1} /></MemoryRouter>)
     const card = screen.getByRole('link', { name: /powai/i })
-
     fireEvent.mouseEnter(card)
-    expect(apiRentVerification).toHaveBeenCalledWith('powai', 'mumbai', false, false)
+    fireEvent.focus(card)
+    fireEvent.mouseLeave(card)
+    fireEvent.blur(card)
+    expect(prefetchNeighborhood).not.toHaveBeenCalled()
+    expect(apiRentVerification).not.toHaveBeenCalled()
     expect(apiReviews).not.toHaveBeenCalled()
     expect(apiLocalityPulse).not.toHaveBeenCalled()
-
-    await vi.advanceTimersByTimeAsync(1500)
-    expect(apiReviews).toHaveBeenCalledWith('powai', 'mumbai')
-    expect(apiLocalityPulse).not.toHaveBeenCalled()
-
-    await vi.advanceTimersByTimeAsync(1500)
-    expect(apiLocalityPulse).toHaveBeenCalledWith('powai', 'mumbai')
   })
 
-  it('cancels stages that have not started when hover ends', async () => {
-    vi.useFakeTimers()
+  it('starts the shared detail request on click before navigation', () => {
     render(<MemoryRouter><NeighborhoodCard n={locality} rank={1} /></MemoryRouter>)
-    const card = screen.getByRole('link', { name: /powai/i })
-
-    fireEvent.mouseEnter(card)
-    fireEvent.mouseLeave(card)
-    await vi.advanceTimersByTimeAsync(4000)
-
-    expect(apiRentVerification).toHaveBeenCalledTimes(1)
-    expect(apiReviews).not.toHaveBeenCalled()
-    expect(apiLocalityPulse).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('link', { name: /powai/i }))
+    expect(prefetchNeighborhood).toHaveBeenCalledTimes(1)
+    expect(prefetchNeighborhood).toHaveBeenCalledWith('powai', 'mumbai')
   })
 })

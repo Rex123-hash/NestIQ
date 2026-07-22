@@ -2,6 +2,7 @@
 and deduplicated BigQuery snapshot logging."""
 import asyncio
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from app import maps, main, gemini
 
@@ -31,6 +32,53 @@ def _wait_for_reviews(client, path, terminal=("available", "temporarily_unavaila
             return body
         time.sleep(0.01)
     raise AssertionError("reviews background job did not finish")
+
+def test_evidence_locality_lookup_skips_live_city_rebuild(monkeypatch):
+    def fail_rank(*_args, **_kwargs):
+        raise AssertionError("evidence status routes must not rebuild the whole city")
+
+    monkeypatch.setattr(main, "rank", fail_rank)
+    city, locality = main._evidence_locality("delhi-ncr", "noida-62")
+
+    assert city["name"] == "Delhi NCR"
+    assert locality["name"] == "Sector 62, Noida"
+    assert locality["median_rent"] == 19000
+
+
+def test_fast_forecast_route_skips_city_rank_and_gemini(client, monkeypatch):
+    def fail_rank(*_args, **_kwargs):
+        raise AssertionError("the chart endpoint must not rebuild the whole city")
+
+    def fail_explain(*_args, **_kwargs):
+        raise AssertionError("the chart endpoint must not wait for Gemini")
+
+    main._air_forecast_cache.clear()
+    monkeypatch.setattr(main, "rank", fail_rank)
+    monkeypatch.setattr(gemini, "explain", fail_explain)
+    response = client.get("/api/neighborhood/noida-62/air-quality-forecast?city=delhi-ncr")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "available"
+    assert response.json()["forecast"] == [{"label": "12:00", "aqi": 120}]
+
+
+def test_fast_forecast_is_cached_and_concurrent_requests_share_one_call(monkeypatch):
+    calls = {"n": 0}
+    locality = {"lat": 28.6, "lng": 77.2}
+    key = ("delhi-ncr", "concurrent-aqi")
+    main._air_forecast_cache.clear()
+
+    def slow_forecast(*_args, **_kwargs):
+        calls["n"] += 1
+        time.sleep(0.03)
+        return [{"label": "13:00", "aqi": 44}]
+
+    monkeypatch.setattr(maps, "air_quality_forecast", slow_forecast)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        rows = list(pool.map(lambda _index: main._air_forecast(key, locality), range(2)))
+
+    assert rows[0] == rows[1] == [{"label": "13:00", "aqi": 44}]
+    assert calls["n"] == 1
 
 
 def test_amenity_profile_sums_per_category(monkeypatch):

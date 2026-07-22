@@ -60,12 +60,14 @@ def ensure_tables() -> None:
 # Dedup CTE (newest snapshot per locality). Injected in front of NL->SQL queries
 # so analytics run on one row per locality — no VIEW needed (BigQuery sandbox
 # blocks view creation without billing).
-def _latest_cte() -> str:
+def _latest_cte(*, city_scoped: bool = False) -> str:
+    city_filter = "    WHERE city = @city\n" if city_scoped else ""
     return (
         f"WITH {LOCALITIES_LATEST} AS (\n"
         f"  SELECT * EXCEPT(rn) FROM (\n"
         f"    SELECT *, ROW_NUMBER() OVER (PARTITION BY city, id ORDER BY snapshot_ts DESC) rn\n"
         f"    FROM `{_ref(LOCALITIES)}`\n"
+        f"{city_filter}"
         f"  ) WHERE rn = 1\n"
         f")\n"
     )
@@ -84,10 +86,10 @@ def analytics_query(select_sql: str, city: str | None = None) -> list[dict]:
     """
     safe_sql = validate_analytics_sql(select_sql)
 
-    params = []
-    if city and "@city" in safe_sql:
-        params = [bigquery.ScalarQueryParameter("city", "STRING", city)]
-    full_sql = _latest_cte() + safe_sql
+    # Scope the CTE itself, not merely the model-generated WHERE clause. Even
+    # if Gemini omits or contradicts the filter, it cannot see another city.
+    params = [bigquery.ScalarQueryParameter("city", "STRING", city)] if city else []
+    full_sql = _latest_cte(city_scoped=bool(city)) + safe_sql
 
     # Dry run: reject an oversized scan before it is ever billed.
     dry_cfg = bigquery.QueryJobConfig(query_parameters=params, dry_run=True, use_query_cache=False)

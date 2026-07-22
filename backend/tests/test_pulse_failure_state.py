@@ -30,6 +30,60 @@ def test_no_evidence_is_not_service_failure(client, monkeypatch, isolated_pulse_
     assert client.get("/api/neighborhood/clean-cheap/pulse?city=delhi-ncr").json()["status"] == "no_evidence"
 
 
+def test_transient_grounding_failure_retries_within_same_job(client, monkeypatch,
+                                                              isolated_pulse_store):
+    calls = {"n": 0}
+
+    def recovering(*_):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return {"status": "temporarily_unavailable", "items": [], "citations": [],
+                    "errorCode": "grounding_unavailable"}
+        return {"status": "no_evidence", "items": [], "citations": []}
+
+    monkeypatch.setattr(main.gemini, "locality_pulse", recovering)
+    client.get("/api/neighborhood/clean-cheap/pulse?city=delhi-ncr")
+    _drain(isolated_pulse_store)
+    body = client.get("/api/neighborhood/clean-cheap/pulse?city=delhi-ncr").json()
+    assert body["status"] == "no_evidence"
+    assert calls["n"] == 3
+
+
+def test_missing_citations_retries_without_accepting_uncited_data(client, monkeypatch,
+                                                                  isolated_pulse_store):
+    calls = {"n": 0}
+
+    def recovering(*_):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"status": "temporarily_unavailable", "items": [], "citations": [],
+                    "errorCode": "missing_citations"}
+        return {"status": "no_evidence", "items": [], "citations": []}
+
+    monkeypatch.setattr(main.gemini, "locality_pulse", recovering)
+    client.get("/api/neighborhood/clean-cheap/pulse?city=delhi-ncr")
+    _drain(isolated_pulse_store)
+    body = client.get("/api/neighborhood/clean-cheap/pulse?city=delhi-ncr").json()
+    assert body["status"] == "no_evidence"
+    assert calls["n"] == 2
+
+
+def test_unusable_grounding_is_not_blindly_retried(client, monkeypatch,
+                                                    isolated_pulse_store):
+    calls = {"n": 0}
+
+    def unusable(*_):
+        calls["n"] += 1
+        return {"status": "temporarily_unavailable", "items": [], "citations": [],
+                "errorCode": "unusable_grounding"}
+
+    monkeypatch.setattr(main.gemini, "locality_pulse", unusable)
+    client.get("/api/neighborhood/clean-cheap/pulse?city=delhi-ncr")
+    _drain(isolated_pulse_store)
+    assert client.get("/api/neighborhood/clean-cheap/pulse?city=delhi-ncr").json()["status"] == "temporarily_unavailable"
+    assert calls["n"] == 1
+
+
 def test_fresh_failure_deduplicates_retries(client, monkeypatch, isolated_pulse_store):
     calls = 0
     def boom(*_):

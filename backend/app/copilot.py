@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .air_quality import cpcb_band
+
 
 CITY_ANALYTICS = "city_analytics"
 CITY_EVIDENCE = "city_evidence"
@@ -38,9 +40,18 @@ _NESTIQ_DOMAIN_PATTERNS = (
 
 _CONCEPT_PATTERNS = (
     r"\b(?:what does|meaning of|define)\b",
+    r"^what (?:is|are) (?:the )?(?:aqi|air quality index|cpcb|fitscore|match score)\??$",
     r"\bhow (?:does|do) .+ (?:work|classify|calculate|score)\b",
+    r"\bhow (?:should|can) (?:i|we|someone) (?:compare|evaluate|choose|decide|balance|prioriti[sz]e)\b",
+    r"\bwhat should (?:i|we) (?:consider|prioriti[sz]e)\b",
+    r"\bshould i prioriti[sz]e\b",
     r"\bexplain\b",
     r"\bdifference between\b",
+)
+
+_SCALAR_AQI_CONCEPT_PATTERNS = (
+    r"\baqi\s+\d+(?:\.\d+)?\b.*\b(?:cpcb|bands?)\b",
+    r"\b(?:cpcb|bands?)\b.*\baqi\s+\d+(?:\.\d+)?\b",
 )
 
 
@@ -53,15 +64,74 @@ def _is_analytics_question(text: str) -> bool:
     return _matches_any(_ANALYTICS_PATTERNS, text) and _matches_any(_NESTIQ_DOMAIN_PATTERNS, text)
 
 
+def _catalog_text(value: Any) -> str:
+    """Normalize user/catalog text while preserving exact word boundaries."""
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).split())
+
+
+def locality_mentions(
+    question: str,
+    localities: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return only selected-city catalog localities named in the question."""
+    haystack = f" {_catalog_text(question)} "
+    matches: list[dict[str, Any]] = []
+    for locality in localities or []:
+        aliases = {
+            _catalog_text(locality.get("id")),
+            _catalog_text(locality.get("name")),
+            _catalog_text(locality.get("short")),
+        }
+        if any(alias and f" {alias} " in haystack for alias in aliases):
+            matches.append(locality)
+    return matches
+
+
+def analytics_context_rows(
+    rows: list[dict[str, Any]],
+    localities: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Add deterministic catalog identity and CPCB context to SQL rows."""
+    by_name: dict[str, dict[str, Any]] = {}
+    for locality in localities or []:
+        for value in (locality.get("name"), locality.get("short")):
+            normalized = _catalog_text(value)
+            if normalized:
+                by_name[normalized] = locality
+
+    enriched_rows: list[dict[str, Any]] = []
+    for row in rows:
+        enriched = dict(row)
+        if not enriched.get("id"):
+            locality = by_name.get(_catalog_text(enriched.get("name")))
+            if locality:
+                enriched["id"] = locality.get("id")
+        band = cpcb_band(enriched.get("aqi"))
+        if band and not enriched.get("cpcbBand"):
+            enriched["cpcbBand"] = band
+        enriched_rows.append(enriched)
+    return enriched_rows
+
+
 def route_intent(
     question: str,
     neighborhood_id: str | None = None,
     history: list[dict[str, str]] | None = None,
+    localities: list[dict[str, Any]] | None = None,
 ) -> str:
     """Choose a safe evidence path without asking an LLM to route itself."""
     if neighborhood_id:
         return LOCALITY_EVIDENCE
     normalized = " ".join((question or "").lower().split())
+    mentioned = locality_mentions(question, localities)
+    if mentioned:
+        if len(mentioned) >= 2 or _matches_any(_ANALYTICS_PATTERNS, normalized):
+            return CITY_ANALYTICS
+        return LOCALITY_EVIDENCE
+    if _matches_any(_CONCEPT_PATTERNS, normalized) or _matches_any(
+        _SCALAR_AQI_CONCEPT_PATTERNS, normalized,
+    ):
+        return GENERAL_GUIDANCE
     if _is_analytics_question(normalized):
         return CITY_ANALYTICS
     # Short referential follow-ups inherit an analytical route only from the
@@ -72,8 +142,6 @@ def route_intent(
         prior_users = [turn.get("content", "") for turn in (history or []) if turn.get("role") == "user"]
         if prior_users and _is_analytics_question(prior_users[-1].lower()):
             return CITY_ANALYTICS
-    if _matches_any(_CONCEPT_PATTERNS, normalized):
-        return GENERAL_GUIDANCE
     if _matches_any(_NESTIQ_DOMAIN_PATTERNS, normalized):
         return CITY_EVIDENCE
     # Unknown input must never silently trigger locality evidence. General

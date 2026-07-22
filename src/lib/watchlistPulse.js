@@ -11,7 +11,9 @@
 
 const SEVERE = new Set(['moderate', 'high'])
 
-export const PULSE_POLL_INTERVAL = 4000
+// Status reads are cheap and deduplicated; checking every two seconds removes
+// up to four seconds of avoidable UI lag after a grounded job has completed.
+export const PULSE_POLL_INTERVAL = 2000
 // Slightly outlast the server's 70-second job lease so a completion near the
 // boundary receives one final poll instead of being mislabeled as a client wait expiry.
 export const PULSE_POLL_DEADLINE = 74000

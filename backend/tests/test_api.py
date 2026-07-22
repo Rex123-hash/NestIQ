@@ -115,6 +115,38 @@ class TestAsk:
         assert [tool["id"] for tool in body["tools"]] == ["bigquery", "gemini"]
         assert len(body["followUps"]) == 3
 
+    def test_verified_name_only_comparison_restores_bigquery_board(self, client):
+        body = client.post("/api/ask", json={
+            "question": "Compare Adyar and Velachery.", "city": "chennai",
+        }).json()
+
+        assert body["mode"] == "city_analytics"
+        assert body["sql"].lstrip().upper().startswith("SELECT")
+        assert body["rows"]
+        assert [tool["id"] for tool in body["tools"]] == ["bigquery", "gemini"]
+
+    def test_name_only_locality_question_resolves_verified_scope(self, client, monkeypatch):
+        from app import main
+        captured = {}
+        monkeypatch.setattr(main, "rank", lambda *_args: [{
+            "id": "kankarbagh", "name": "Kankarbagh", "aqi": 110,
+            "aqi_category": "Moderate", "fitScore": 70,
+        }])
+
+        def answer(_question, context):
+            captured["context"] = context
+            return "Kankarbagh evidence."
+
+        monkeypatch.setattr(main.gemini, "ask", answer)
+        body = client.post("/api/ask", json={
+            "question": "Tell me about Kankarbagh", "city": "patna",
+        }).json()
+
+        assert body["mode"] == "locality_evidence"
+        assert body["scope"]["neighborhoodId"] == "kankarbagh"
+        assert "Locality Kankarbagh" in captured["context"]
+        assert body["actions"][0]["localityId"] == "kankarbagh"
+
     def test_single_locality_question_uses_grounded_context(self, client):
         body = client.post("/api/ask", json={
             "question": "is it safe?", "neighborhoodId": "middle", "city": "delhi-ncr"}).json()
@@ -164,6 +196,18 @@ class TestAsk:
         assert body["evidenceStatus"] == "not_applicable"
         assert [tool["id"] for tool in body["tools"]] == ["gemini"]
         assert "sql" not in body
+
+    def test_unknown_city_is_rejected_before_any_copilot_tool_runs(self, client, monkeypatch):
+        from app import main
+
+        def unexpected(*_args, **_kwargs):
+            raise AssertionError("an invalid city must not reach Gemini")
+
+        monkeypatch.setattr(main.gemini, "ask_general", unexpected)
+        response = client.post("/api/ask", json={
+            "question": "hello", "city": "not-a-catalog-city",
+        })
+        assert response.status_code == 404
 
     def test_bounded_history_supports_analytical_follow_ups(self, client):
         body = client.post("/api/ask", json={

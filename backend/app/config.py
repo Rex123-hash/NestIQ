@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     # keep a small coordination margin while remaining firmly bounded.
     pulse_job_deadline_seconds: int = 70
     pulse_failure_ttl_seconds: int = 60
+    # A grounded generation can occasionally fail before returning any usable
+    # response even though an immediate identical attempt succeeds. Retry only
+    # that generic provider failure, never permission/quota/validation errors.
+    pulse_provider_attempts: int = 3
+    # Reversible validator upgrade. True binds each ledger line to Google's
+    # grounding-support chunk index; false restores the legacy exact-title
+    # matcher without a code rollback.
+    pulse_use_grounding_supports: bool = True
     # Grounded rent evidence shares the cross-instance job protocol with Pulse.
     rent_verification_ttl_seconds: int = 86_400
     rent_job_deadline_seconds: int = 70

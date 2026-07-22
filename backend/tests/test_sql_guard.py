@@ -57,6 +57,10 @@ class TestRejects:
         self._bad("SELECT name FROM india_localities_latest WHERE city IN "
                   "(SELECT city FROM secret_table) LIMIT 5")
 
+    @pytest.mark.parametrize("alias", ["secret_table", "AS secret_table"])
+    def test_subquery_alias_cannot_shadow_a_foreign_table(self, alias):
+        self._bad(f"SELECT * FROM (SELECT * FROM secret_table) {alias} LIMIT 5")
+
     def test_unknown_bare_table(self):
         self._bad("SELECT * FROM some_other_table LIMIT 5")
 
@@ -83,6 +87,12 @@ class TestRejects:
 
     def test_line_comment(self):
         self._bad("SELECT name FROM india_localities_latest -- drop everything\nLIMIT 5")
+
+    def test_hash_comment_cannot_hide_a_foreign_comma_join(self):
+        self._bad("SELECT * FROM india_localities_latest # hidden target\n, secret_table LIMIT 5")
+
+    def test_hash_comment_cannot_disable_the_safe_limit(self):
+        self._bad("SELECT * FROM india_localities_latest LIMIT 5000 # hide appended limit")
 
     def test_block_comment(self):
         self._bad("SELECT name /* sneaky */ FROM india_localities_latest LIMIT 5")

@@ -1,235 +1,361 @@
-# NestIQ — Design Specification
+# NestIQ — Product and System Design Specification
 
-**Tagline:** *A Where-Should-I-Live Decision Intelligence Platform.*
-**Hackathon:** Gen AI Academy APAC Edition (Cohort 2) — Grand Hackathon
-**Problem Statement:** PS1 — "AI for Better Living and Smarter Communities" / *AI-Powered Decision Intelligence Platform*
-**Date:** 2026-07-01
-**Status:** LOCKED (design approved)
+| Field | Value |
+|---|---|
+| Product | NestIQ — AI-powered neighborhood decision intelligence |
+| Team | WebHackers |
+| Owner | Amaan Khan |
+| Hackathon | Google Cloud Gen AI Academy APAC, Cohort 2 |
+| Problem statement | AI for Better Living and Smarter Communities |
+| Product status | Implemented, verified, and deployed |
+| Primary market | India-first, 13 cities and 73 catalog localities |
+| Updated | 22 July 2026 |
 
----
+## 1. Product definition
 
-## 1. One-line summary
+NestIQ helps a renter answer one high-stakes question: **where should I live?** It turns a
+plain-language need into a personalized, evidence-labelled shortlist of localities. The
+experience combines affordability, safety, commute, essential services, lifestyle, and
+air-quality evidence without allowing a language model to silently invent or modify the
+score.
 
-NestIQ takes a person's relocation needs in plain English and returns a ranked shortlist of
-neighborhoods — each with a transparent **FitScore**, a **rent-trend forecast**, a **safety
-briefing**, and **cited community insight** — turning hours of tab-juggling into a one-minute,
-data-grounded decision.
+The product supports two connected decisions:
 
----
+1. **Move:** discover and compare localities in an unfamiliar city.
+2. **Renew or move:** compare a current area with alternatives when a lease decision is due.
 
-## 2. The user & the felt problem
+After discovery, Saved Localities, Alerts, City Pulse, Locality Pulse, rent verification,
+and Copilot turn NestIQ into an ongoing neighborhood-awareness tool rather than a one-time
+ranking page.
 
-**Persona:** *Aisha*, moving to a new city (NYC for the prototype) for a job. She has 3 weeks,
-a budget, and a dozen browser tabs open — rent on one site, crime maps on another, commute times
-on Google Maps, "is this area actually nice?" threads on Reddit. She is making one of the
-highest-stakes decisions of her year on gut feel and scattered data.
+## 2. Intended users and outcomes
 
-**Why this is a strong problem (the "who wakes up needing this?" test):**
-- Happens to nearly everyone (renters/movers), repeatedly across life.
-- High stakes: money (rent) + safety + daily quality of life.
-- Current process is manual, fragmented, and stressful.
-- Genuinely improvable by AI: fuse many data sources, reason over preferences, forecast, explain.
-- It is a **decision**, not a dashboard — there is one user making one concrete choice: *where do I live?*
+### Primary user
 
-**On decision frequency (honest note):** Relocation is high-stakes but episodic. (So was the
-Cohort-1 winner's travel planning — high value *per use* can beat low-stakes daily tools.) We
-strengthen recurring engagement two ways, at near-zero extra build:
-- **"Renew or move?" framing** — the *same* FitScore engine scores a user's *current* neighborhood
-  and compares it to alternatives. Every renter faces this at lease renewal (annual, and a genuinely
-  stressful "my rent just jumped" moment) — a more frequent, equally relatable decision on the same core.
-- **Ongoing neighborhood alerts** (enhancement layer) — after choosing, NestIQ watches the user's
-  area and pings them when rent trend or safety shifts, or an up-and-coming area emerges — turning a
-  one-shot tool into a companion with repeat engagement. Reuses the forecast/anomaly infra already in scope.
+A renter or household moving within or between Indian cities, often under time, budget,
+health, or commute pressure.
 
-**Why not just use Niche / AreaVibes?** Those are static, one-size-fits-all rating sites. NestIQ is
-**personalized** (your priorities reweight the score via natural language), **predictive** (rent
-forecast + up-and-coming detection, not just today's snapshot), **conversational** (ask follow-ups,
-refine live), and **explainable** (every score shows its "why," grounded in live civic data).
+### Important scenarios
 
-**Measurable outcome (the "so what"):** collapses a ~15–20-hour, 12-tab manual search into a
-~60-second, data-grounded, personalized decision.
+- A professional balancing monthly rent against travel time to a work hub.
+- A family prioritizing air quality, safety, and access to hospitals or schools.
+- A renter deciding whether a cheaper locality creates an unacceptable commute trade-off.
+- A resident monitoring saved localities for verified civic or environmental updates.
+- A user who wants a data answer such as “Which locality has the lowest AQI?” without
+  learning SQL.
 
----
+### Product outcome
 
-## 3. Signature feature — the FitScore
+NestIQ replaces fragmented research across maps, market pages, civic notices, and community
+sources with one reviewable decision trail: a ranked result, visible pillar evidence,
+explicit uncertainty, and links to the sources used.
 
-A personalized **0–100** neighborhood match score with a **transparent, weighted breakdown** so
-users trust and understand it (this is our memorable "index," the thing judges remember).
+## 3. Design principles
 
-**FitScore = weighted sum of five normalized sub-scores:**
+1. **Decision intelligence, not a generic dashboard.** Every view helps a user choose,
+   compare, verify, or monitor a locality.
+2. **Deterministic scoring.** Gemini may parse preferences and explain evidence; it cannot
+   set arbitrary scores or override source validation.
+3. **Evidence before confidence.** Live, grounded, curated, provisional, unavailable, and
+   refreshing states remain visibly distinct.
+4. **Health is absolute.** Air quality uses CPCB health bands and cannot look “clean” only
+   because every option in a city is polluted.
+5. **Missing stays missing.** An unavailable pillar is excluded and disclosed, never replaced
+   with zero or a typical value.
+6. **AI tools are selective.** A question invokes only the tools needed to answer it, and the
+   response discloses which tools contributed.
+7. **Slow evidence does not block browsing.** Independent sources load progressively, reuse
+   verified cache entries, and reach bounded failure states.
+8. **Temporary evidence never changes FitScore.** Civic events, community sentiment, and
+   verification panels remain evidence beside the score.
 
-| Sub-score | What it measures | Data source |
+## 4. Information architecture
+
+| Surface | Purpose |
+|---|---|
+| Home | Capture natural-language priorities, budget, city, or the Family Health preset |
+| Search & Results | Stream the ADK workflow and show ranked locality cards and map context |
+| Locality detail | Explain FitScore across Overview, Affordability, Safety, Commute, Essentials & Lifestyle, Air Quality, and Community Insights |
+| Compare | Place saved localities side by side and emphasize meaningful differences |
+| Saved | Maintain a browser-local shortlist of locality snapshots |
+| Alerts | Aggregate verified saved-locality alerts and a separate city-wide Pulse |
+| Ask NestIQ | Provide multimodal general guidance, structured evidence, and BigQuery analytics |
+| Sign in / Guest | Offer optional Google identity UI while keeping the public decision tools usable in guest mode |
+
+Desktop and mobile navigation expose the same core routes. Major routes are lazy-loaded and
+protected by loading, chunk-recovery, not-found, and retry states.
+
+## 5. FitScore specification
+
+### Formula
+
+```text
+FitScore = Σ(pillar sub-score × user weight) / Σ(available pillar weights)
+```
+
+| Pillar | Signal | Primary source | Default weight |
+|---|---|---|---:|
+| Air quality | Live AQI mapped to absolute CPCB health bands | Google Air Quality API | 25 |
+| Affordability | Locality median rent relative to the user budget | Grounded market evidence or labelled curated baseline | 20 |
+| Safety | Curated locality proxy or emergency-access resilience | Curated evidence or Google Places | 20 |
+| Commute | Drive time with traffic to the city work hub | Google Distance Matrix | 20 |
+| Essentials & lifestyle | Nearby amenities within the locality radius | Google Places (New) | 15 |
+
+Gemini converts the user's words into bounded preference weights through a Pydantic schema.
+The final arithmetic, missing-pillar renormalization, band assignment, tie handling, and
+match label are deterministic Python operations.
+
+### Air-quality rule
+
+| CPCB band | AQI | Permitted air sub-score range |
+|---|---:|---:|
+| Good | 0–50 | 90–100 |
+| Satisfactory | 51–100 | 75–89 |
+| Moderate | 101–200 | 55–74 |
+| Poor | 201–300 | 35–54 |
+| Very Poor | 301–400 | 15–34 |
+| Severe | 401+ | 0–14 |
+
+Relative AQI rank is displayed separately and never lifts a locality out of its absolute
+health band. Poor, Very Poor, and Severe readings create visible health-risk qualifiers.
+
+### Evidence envelope
+
+Every scored metric carries a structured envelope with:
+
+`metric`, `value`, `unit`, `source`, `sourceType`, `status`, `fetchedAt`,
+`geographicScope`, `confidence`, and `limitation`.
+
+The UI renders these fields beside the metric. A provisional FitScore reports its coverage
+and missing pillars, while a missing metric remains `null` rather than becoming a fabricated
+number.
+
+## 6. Core intelligent systems
+
+### 6.1 Search and ADK orchestration
+
+The Results flow can run an authentic Google Agent Development Kit workflow:
+
+1. **NestIQ Planner** coordinates the fixed evidence-and-validation trajectory.
+2. **Live Signals Agent** invokes the real locality ranking path.
+3. **Analytics Agent** summarizes result counts, anomalies, and provisional coverage.
+4. **Civic Intelligence Agent** retrieves controlled official evidence for the top result.
+5. **Validator Agent** checks contradictions and incomplete evidence.
+6. **Explainer** emits the final validated result.
+
+The browser receives these events over Server-Sent Events. If ADK orchestration fails, the
+same deterministic search capability remains available through a bounded fallback path.
+
+### 6.2 NestIQ Copilot
+
+Copilot uses a deterministic router before invoking any model or data tool:
+
+| Question type | Route | Result |
 |---|---|---|
-| **Affordability** | Median rent vs. user budget | Zillow Research ZORI |
-| **Safety** | Inverse of crime + collision density | NYPD complaints / MV collisions |
-| **Commute** | Travel time to the user's anchor (workplace) | Google Maps Distance Matrix + transit |
-| **Lifestyle/Vibe** | Amenity fit + community sentiment | Google Places + Reddit/reviews (RAG) |
-| **Trend** | Rent trajectory (rising cost risk / up-and-coming upside) | BigQuery ML forecast on ZORI |
+| Greeting, calculation, or stable concept | General guidance | Normal Gemini answer, no claim of live evidence |
+| Current city question | City evidence | Structured NestIQ evidence plus Gemini explanation |
+| One verified selected-city locality name | Locality evidence | That locality's structured evidence and navigation action |
+| Ranking, aggregate, or verified locality comparison | City analytics | Guarded BigQuery SQL, result rows, and Gemini explanation |
+| Image question | Image evidence | Bounded in-memory Gemini image analysis |
 
-**Weights are personalized** from the user's stated priorities via natural language
-("I care most about safety and a short commute" → safety and commute weights increase).
-Every FitScore is shown with its breakdown and a plain-language **"why."**
+Locality names are resolved against the selected city's catalog. BigQuery can read only
+catalog-backed snapshot rows, so an unknown name cannot create or expose a non-catalog
+locality. Analytics SQL is read-only, table-allowlisted, row-limited, dry-run cost checked,
+maximum-bytes capped, and scoped to the selected city in the CTE with a bound parameter.
+The response exposes the SQL and result board only when BigQuery actually contributes.
 
----
+When AQI is present, deterministic code adds the CPCB band to the explanation context.
+SQL generation and evidence summarization use short, low-temperature, no-thinking model
+configurations; the general path retains normal Gemini behavior.
 
-## 4. Core features
+### 6.3 Community and civic evidence
 
-### MVP (essential — must ship)
-1. **Natural-language needs input** → parsed into structured criteria + weights (Gemini).
-2. **Multi-source neighborhood dataset** joined in BigQuery (rent, safety, 311, transit, amenities).
-3. **FitScore engine** → ranks neighborhoods for the user.
-4. **Rent-trend forecast** per neighborhood (BigQuery ML `ARIMA_PLUS`).
-5. **Map + ranked result cards** with FitScore breakdown.
-6. **Explainable "why"** for each recommendation (Gemini over the score components).
-7. **Deployed** on Cloud Run (public URL).
+- **Community Reviews** summarize grounded resident sentiment with source links.
+- **Locality Pulse** checks recent, locality-scoped civic evidence.
+- **City Pulse** runs the same validated pipeline with an explicitly city-wide scope.
+- **Official Civic Knowledge** retrieves from a controlled official-document catalog and
+  returns citation-locked, extractive answers.
 
-### Enhancement layer (optional — build if time allows, in this order)
-8. **Multi-agent orchestration** (ADK): Affordability · Safety · Commute · Vibe(RAG) agents + orchestrator.
-9. **Live agent dashboard** (streaming progress) — high demo impact.
-10. **Community-vibe RAG** with citations (Reddit / Places reviews).
-11. **Anomaly flags:** over/under-priced areas vs. predicted; "up-and-coming" detection.
-12. **Refine loop** ("bump budget to $2,200") + **Ask NestIQ** grounded follow-up Q&A.
-13. **"Renew or move?" mode** — score the user's current neighborhood vs. alternatives (same engine).
-14. **Ongoing neighborhood alerts** — watch a chosen area; notify on rent/safety shifts (reuses forecast).
-15. Firestore saved searches; multi-city.
+Pulse items require validated citations. With grounding-support validation enabled, each
+ledger line is tied to the exact grounding chunk linked to its response span. Unsupported
+items are rejected. An explicit no-update signal is distinct from an unavailable source.
 
----
+### 6.4 Rent verification
 
-## 5. Data sources (with legitimacy / friction notes)
+Affordability begins with a clearly labelled locality-level baseline. A user can request a
+grounded current check that returns cited observations, median, range, sample size, source
+count, home-size context, and confidence. Deterministic code validates observations and
+calculates the range; the model does not write a price into FitScore.
 
-| Source | Grain | Access | Friction |
-|---|---|---|---|
-| **Zillow Research (ZORI)** — observed rent index | ZIP / neighborhood, monthly | Public CSV download (legit, aggregate — no scraping) | Low (one download) |
-| **NYC 311 service requests** | Complaint-level | `bigquery-public-data.new_york_311` | None (already in BQ) |
-| **NYC MV collisions** | Incident-level | `bigquery-public-data.new_york_mv_collisions` | None (already in BQ) |
-| **NYPD complaint (crime) data** *(optional, richer safety)* | Incident-level | NYC Open Data (Socrata API/CSV) → BigQuery | Medium (one ingest) |
-| **MTA subway stations / GTFS** | Station-level | Public GTFS | Low |
-| **Google Places** — amenities & reviews | POI-level | Places API | API (free credit) |
-| **Reddit** — neighborhood sentiment *(optional RAG)* | Thread-level | Public search / API | Medium |
+The grounded job may be prepared after a locality click, but its green verification panel
+remains hidden until the user selects **Verify current rent**.
 
-> Deliberately **no live rental listings** (scraping/ToS risk). NestIQ is a *decision* tool for
-> *where* to live, at neighborhood grain — cleaner, legally safe, and a better fit for the brief.
+### 6.5 Family Health and Resilience
 
----
+This optional server-resolved profile prioritizes:
 
-## 6. Architecture
-
-```
-                         ┌─────────────────────────────────────────────┐
-  User (NL needs)  ─────► │  Frontend (React + Vite + Tailwind + Map)   │
-                         │  NL input · agent dashboard · FitScore cards │
-                         └───────────────────────┬─────────────────────┘
-                                                 │ REST / SSE
-                         ┌───────────────────────▼─────────────────────┐
-                         │        Backend (FastAPI on Cloud Run)        │
-                         │  ┌────────────────────────────────────────┐  │
-                         │  │  Orchestrator (ADK)                     │  │
-                         │  │   ├── Affordability agent               │  │
-                         │  │   ├── Safety agent                      │  │
-                         │  │   ├── Commute agent (Maps Distance Mtx) │  │
-                         │  │   └── Vibe agent (RAG, cited)           │  │
-                         │  └────────────────────────────────────────┘  │
-                         │  FitScore engine · explanation (Gemini)      │
-                         └───────┬───────────────────────┬──────────────┘
-                                 │                       │
-                 ┌───────────────▼──────┐     ┌──────────▼───────────┐
-                 │  BigQuery + BQML     │     │  Vertex AI (Gemini)  │
-                 │  joined neighborhood │     │  NL→criteria, reason,│
-                 │  features + rent     │     │  explain, RAG synth  │
-                 │  forecast (ARIMA+)   │     └──────────────────────┘
-                 └──────────────────────┘
+```text
+Air quality 35 · Safety 28 · Commute 20 · Affordability 12 · Essentials 5
 ```
 
-**Data pipeline (ingest → clean → analyze/model → serve):**
-1. **Ingest:** Zillow CSV + NYC open data → BigQuery (collisions/311 already there).
-2. **Clean/normalize:** map everything to a common neighborhood grain (ZIP or NTA), dedup, time-window.
-3. **Precompute features:** safety density, amenity counts, base affordability per neighborhood (BigQuery SQL).
-4. **Model:** BigQuery ML `ARIMA_PLUS` rent forecast per neighborhood; anomaly = actual vs predicted.
-5. **Serve (per query):** parse NL → weights → score → agents enrich (commute, vibe) → rank → explain → return.
+The client sends only the preset identifier. The server resolves an allowlisted profile and
+rejects an unknown preset. Essential-service proximity is shown as context and remains
+separate from the ordinary lifestyle score unless an explicit server feature flag enables it.
 
----
+### 6.6 Saved localities and alerts
 
-## 7. Tech stack & cost
+Saved locality snapshots remain in browser storage and can be added or removed at any time.
+Alert checks use a bounded worker pool: four locality checks may progress concurrently, but
+the watchlist itself is not capped at four. Results appear independently as each locality
+finishes. City evidence is never substituted for failed locality evidence.
 
-| Layer | Choice | Cost tag | GCP trial? |
-|---|---|---|---|
-| Warehouse + ML | BigQuery + BigQuery ML | 🟡 Free tier (1TB/mo query) | ✅ |
-| LLM / reasoning | Gemini via Vertex AI | 💳 pennies per run | ✅ |
-| Agents | Agent Development Kit (ADK) | ✅ Free framework | ✅ (runs on Cloud Run) |
-| Maps / commute / amenities | Google Maps Platform | 🟡 $200/mo free credit | ✅ |
-| Backend | FastAPI on Cloud Run | 🟡 Generous free tier | ✅ |
-| Frontend | React + Vite + Tailwind + map lib | ✅ Free | n/a |
-| Sessions (optional) | Firestore | 🟡 Free tier | ✅ |
-| Analytics view (optional) | Looker Studio | ✅ Always free | n/a |
+## 7. Data and model architecture
 
-**No GPU. No NVIDIA/RAPIDS** (not required by PS1). **Estimated total credit burn: a few dollars.**
-**Fallback if frontend time runs short:** Streamlit (fully free, fast to build).
+| Data or capability | System of record / provider | Use |
+|---|---|---|
+| City and locality catalog | Versioned application data | Verified IDs, names, centroids, labelled baselines |
+| Live AQI and forecast | Google Air Quality API | Air pillar, history, 24-hour forecast |
+| Amenities and essentials | Google Places (New) | Lifestyle and contextual proximity |
+| Commute | Google Distance Matrix | Drive-time pillar |
+| Current locality snapshots | BigQuery `india_localities` | Analytics and accumulated evidence history |
+| Latest snapshot view | Runtime BigQuery CTE `india_localities_latest` | Guarded Copilot comparisons |
+| AQI history | BigQuery `india_aqi_history` | Time-series accumulation |
+| AQI forecast model | BigQuery ML `ARIMA_PLUS` | Model forecast with confidence bounds |
+| Grounded generation | Gemini 2.5 Flash on Vertex AI with Google Search | Pulse, reviews, and market evidence |
+| Durable evidence coordination | Cloud Firestore | Pulse and rent generation leases/results |
+| Official civic corpus | Controlled application catalog | Citation-locked civic retrieval |
 
----
+The platform does not scrape individual rental listings into a property marketplace and does
+not present locality estimates as quoted offers.
 
-## 8. PS1 requirement → feature mapping (the "100% alignment")
+## 8. System architecture
 
-| PS1 core requirement | NestIQ feature |
-|---|---|
-| Ingest & analyze data from **multiple sources** | Rent + crime/collisions + 311 + transit + amenities + reviews |
-| **Structured + unstructured** data | Numeric datasets + review/Reddit text via RAG |
-| **Natural-language** interaction with data | NL needs → criteria; "Ask NestIQ" grounded Q&A |
-| Generate insights / **forecasts** / alerts | Ranked recs + rent-trend forecast + rising-area alerts |
-| Identify patterns, trends, **anomalies** | Up-and-coming detection; over/under-priced flags |
-| **Support decision-making** via AI assistance | Multi-agent ranking + explainable "why" |
-| Deploy a **scalable GCP** application | BigQuery + Vertex/Gemini + ADK + Cloud Run + Maps |
+```mermaid
+flowchart LR
+    U["User"] --> F["React + Vite on Firebase Hosting"]
+    F --> API["FastAPI on Cloud Run"]
+    API --> ROUTER["Deterministic routing and validation"]
+    ROUTER --> ADK["Google ADK search workflow"]
+    ROUTER --> GEM["Gemini 2.5 Flash on Vertex AI"]
+    ROUTER --> BQ["BigQuery + BigQuery ML"]
+    ROUTER --> MAPS["Google Maps Platform"]
+    ROUTER --> RAG["Controlled civic retrieval"]
+    API --> FS["Firestore evidence job state"]
+    API --> TEL["Privacy-filtered structured telemetry"]
+```
 
-**Goal fit** ("better living, more efficient, sustainable communities"): improves a major life
-decision + surfaces housing affordability. **Use cases hit:** Community Intelligence & Engagement;
-Education & Economic Development.
+### Search request flow
 
-**Rubric (5 × 20%):** Solution quality (working end-to-end) · Architecture (multi-source BQ +
-agents + BQML) · Impact (universal, high-stakes, affordability) · Technical choices (managed GCP,
-legit data, feasible) · Demo/UX (map + NL + live agents + FitScore).
+```text
+Natural-language need
+  → schema-bound preference extraction
+  → live city signals and deterministic scoring
+  → ADK specialists and validator
+  → ranked results + evidence envelopes + explanation
+```
 
----
+### Grounded evidence flow
 
-## 9. Demo storyboard (4 beats)
+```text
+Locality/city request
+  → Firestore generation lease
+  → one bounded grounded search
+  → deterministic citation and schema validation
+  → durable terminal result
+  → stale-while-revalidate reuse on later visits
+```
 
-1. **User + need (with stakes)** — *"I start at Google in 10 days. Budget $2,000. I don't know this
-   city, and as a woman living alone, safety comes first."* Aisha types exactly this — real deadline,
-   real stress, real stakes. NestIQ parses it into criteria + weights. (Emotion first, tech second.)
-2. **Live agents** — dashboard shows Affordability/Safety/Commute/Vibe agents working, citations streaming.
-3. **Result** — map with ranked-neighborhood heat + top-3 FitScore cards (with breakdown) + rent-forecast chart + cited community insight.
-4. **Decision** — "Ask NestIQ" follow-up ("why is Astoria safer than X?") grounded answer; refine ("budget → $2,200") re-ranks live.
+## 9. API design
 
----
+| Method | Route | Responsibility |
+|---|---|---|
+| GET | `/api/config` | Public browser configuration only |
+| GET | `/api/cities` | Supported city catalog |
+| GET | `/api/search/stream` | SSE ADK search trajectory and final ranking |
+| GET | `/api/neighborhoods` | Ranked city snapshot |
+| GET | `/api/neighborhood/{id}` | Full locality detail |
+| GET | `/api/neighborhood/{id}/air-quality-forecast` | Fast Google-only AQI forecast |
+| GET | `/api/neighborhood/{id}/reviews` | Grounded community review evidence |
+| GET | `/api/neighborhood/{id}/pulse` | Locality-scoped civic Pulse |
+| GET | `/api/city/{city}/pulse` | City-scoped Pulse |
+| GET | `/api/neighborhood/{id}/rent-verification` | Grounded rent evidence job/status |
+| GET | `/api/neighborhood/{id}/civic-knowledge` | Controlled official civic retrieval |
+| POST | `/api/ask` | Selectively routed Copilot |
+| POST | `/api/copilot/transcribe` | Bounded speech-to-text input |
+| POST | `/api/copilot/analyze-image` | Bounded in-memory image analysis |
 
-## 10. Development roadmap (~5 days)
+## 10. Security and privacy design
 
-| Day | Goal |
-|---|---|
-| **1** | Lock scope. Ingest Zillow + NYC data to BigQuery; join to neighborhood grain; base feature table. |
-| **2** | FitScore engine + NL→criteria parsing (Gemini); baseline ranking end-to-end (even unstyled). |
-| **3** | BQML rent forecast + anomaly flags; commute via Maps; ADK agent structure. |
-| **4** | Vibe RAG (cited) + explanations; frontend map + FitScore cards. |
-| **5** | Live agent dashboard + Ask/refine + polish; deploy to Cloud Run; record demo video; build deck. **Freeze 24h before deadline.** |
+The public security posture is defined in [`SECURITY.md`](SECURITY.md). Core controls include:
 
----
+- separate browser and server configuration paths;
+- fail-closed CORS configuration for production origins;
+- read-only, allowlisted, city-scoped, and cost-capped analytics SQL;
+- schema validation and deterministic evidence validation around model output;
+- bounded request sizes, timeouts, retries, and per-instance abuse controls;
+- no model authority over FitScore arithmetic;
+- structured telemetry that excludes prompts, answers, SQL, authorization data, secrets,
+  document content, and provider error bodies;
+- memory-only processing for uploaded audio and images;
+- browser-local profile, saved-locality, and recent-question state with user-facing clear or
+  remove controls.
 
-## 11. Risks & mitigations
+The optional Google profile is presentation state only. It grants no backend authorization,
+and public API responses do not contain user-specific server data.
 
-| Risk | Mitigation |
-|---|---|
-| Data-ingestion eats time | Core on datasets already in BigQuery (collisions, 311); Zillow is one small CSV. |
-| Gemini hallucination on stage | Constrain NL parsing to a structured schema; RAG answers cited; rehearse fixed demo queries; recorded fallback video. |
-| Maps API cost | Stay within $200/mo free credit; cache distance-matrix results. |
-| Scope creep | Build the structured scoring path first; agents/RAG/live-dashboard are enhancement layers, each independently demoable. |
-| "Looks like PropTech, not civic" | Lead with the affordability + relocation-stress + community angle. |
-| Frontend polish time | Streamlit fallback if the React build lags. |
-| Frontend/backend integration late | Deploy a thin end-to-end slice by Day 2; layer features onto a working deployment. |
+## 11. Performance and resilience
 
----
+- Route-level code splitting keeps the initial application bundle bounded.
+- City snapshots use stale-while-revalidate caching.
+- Concurrent cold requests for the same resource share one in-flight operation.
+- Maps signal fan-out runs concurrently rather than serially.
+- Locality click begins the independent detail, AQI, Pulse, and hidden rent-preparation paths.
+- The AQI chart uses a dedicated route that skips city ranking and Gemini.
+- Pulse and rent use Firestore-backed, generation-safe single-flight coordination.
+- Community, Pulse, rent, AQI, and Copilot paths have finite loading and retry states.
+- Identical Copilot questions reuse a short-lived response cache.
+- Provider failures preserve previously validated evidence where available.
 
-## 12. Essential vs optional (scope discipline)
+These optimizations change scheduling and reuse, not evidence acceptance rules.
 
-**Essential (cut everything else before cutting these):** data pipeline in BigQuery · FitScore ·
-NL query · ranking · map + cards · one working forecast · explainability · deployed public URL.
+## 12. Verification and acceptance gates
 
-**Optional (in priority order):** multi-agent + live dashboard · vibe RAG with citations ·
-anomaly flags · refine + Ask loop · saved searches · multi-city.
+The implementation is accepted only when all of the following pass:
+
+| Gate | Current verified result |
+|---|---:|
+| Backend test suite | 396 passing tests across 37 modules |
+| Frontend test suite | 122 passing tests across 19 files |
+| Combined automated checks | 518 passing tests |
+| Responsible-agent scorecard | 18 / 18, zero billable calls |
+| City publication validator | 0 structural errors across 13 cities |
+| Production frontend build | Passing with Vite 8.1.5 |
+
+The responsible-agent scorecard covers CPCB boundaries, missing-data honesty, unsupported
+source rejection, SQL security, controlled RAG, Copilot tool routing, ADK trajectory,
+contradiction control, and graceful degradation.
+
+## 13. Demo sequence for judges
+
+1. Launch **Family Health & Resilience** and show the changed server-confirmed priorities.
+2. Open the top result and inspect its evidence envelope, CPCB band, and missing-data state.
+3. Open **Community Insights** to show Locality Pulse and citation-locked civic knowledge.
+4. Select **Verify current rent** and distinguish the baseline from grounded observations.
+5. Ask Copilot “What does AQI 110 mean?” to show the normal Gemini path.
+6. Ask “Which locality has the lowest AQI?” to show guarded BigQuery and the SQL board.
+7. Ask a name-only comparison such as “Compare Adyar and Velachery” to demonstrate
+   catalog-aware routing.
+8. Save several localities and open Alerts to show independent locality results plus the
+   separate City Pulse.
+
+## 14. Product boundaries
+
+- NestIQ compares localities, not individual flats, hostels, or quoted rental offers.
+- Safety is a labelled proxy or resilience signal, not a prediction of individual crime risk.
+- Community and civic evidence informs the user but never modifies FitScore.
+- An unavailable provider produces an unavailable or refreshing state, not synthetic evidence.
+- The public API is a shared catalog service; optional client identity does not create a
+  privileged backend session.
+
+These boundaries are part of the design contract and protect the product from overstating
+what its evidence can support.

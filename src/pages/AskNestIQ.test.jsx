@@ -88,6 +88,27 @@ describe('NestIQ Copilot composer', () => {
     ))
   })
 
+  it('shows the BigQuery SQL and result board whenever analytics returns SQL', async () => {
+    apiAsk.mockResolvedValue({
+      answer: 'Adyar has the lower AQI.',
+      mode: 'city_analytics',
+      sql: "SELECT id, name, aqi FROM india_localities_latest WHERE city = 'chennai'",
+      rows: [{ id: 'adyar', name: 'Adyar', aqi: 69 }],
+      tools: [{ id: 'bigquery', label: 'BigQuery analytics' }],
+    })
+    render(<MemoryRouter><AskNestIQ /></MemoryRouter>)
+    fireEvent.change(screen.getByLabelText('Ask NestIQ Copilot'), {
+      target: { value: 'Compare Adyar and Velachery' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+
+    const summary = await screen.findByText('View BigQuery analysis')
+    fireEvent.click(summary)
+    expect(screen.getByText('india_localities_latest', { exact: false })).toBeTruthy()
+    expect(screen.getByRole('cell', { name: 'Adyar' })).toBeTruthy()
+    expect(screen.getByRole('cell', { name: '69' })).toBeTruthy()
+  })
+
   it('starts a new in-memory conversation without clearing recent questions', async () => {
     render(<MemoryRouter><AskNestIQ /></MemoryRouter>)
     const composer = screen.getByLabelText('Ask NestIQ Copilot')

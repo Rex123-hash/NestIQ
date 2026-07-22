@@ -3,7 +3,7 @@ import { useParams, NavLink, Link } from 'react-router-dom'
 import { Bookmark, LayoutGrid, PiggyBank, ShieldCheck, TrainFront, Heart, Wind, Users, Dot, TriangleAlert } from 'lucide-react'
 import AppTopbar from '../../components/layout/AppTopbar.jsx'
 import ScoreGauge from '../../components/ui/ScoreGauge.jsx'
-import { apiNeighborhood, apiNeighborhoods, apiReviews, apiRentVerification, apiLocalityPulse, apiEssentials } from '../../lib/api.js'
+import { apiNeighborhood, apiNeighborhoodForecast, apiNeighborhoods, apiEssentials } from '../../lib/api.js'
 import { adaptNeighborhood, cityInsights } from '../../lib/adapt.js'
 import { useCity } from '../../lib/cityStore.jsx'
 import { useSaved, toggleSaved } from '../../lib/saved.js'
@@ -40,60 +40,83 @@ const TAB_CONTENT = {
 export default function NeighborhoodDetail() {
   const { id, tab } = useParams()
   const { city } = useCity()
+  const active = tab || 'overview'
   const [n, setN] = useState(null)
   const [detailStatus, setDetailStatus] = useState('loading')
   const [retryKey, setRetryKey] = useState(0)
+  const [forecastRetryKey, setForecastRetryKey] = useState(0)
+  const [fastForecast, setFastForecast] = useState([])
+  const [forecastStatus, setForecastStatus] = useState('loading')
   const [essentials, setEssentials] = useState(null)
   const [showFullExplanation, setShowFullExplanation] = useState(false)
   const saved = useSaved().some((x) => x.id === id)
 
   useEffect(() => {
-    // Warm the expensive evidence paths in a deliberate order instead of
-    // starting several grounded Gemini requests at once. Their panels keep
-    // controlling when prepared results become visible.
-    apiRentVerification(id, city, false, false)
-    const reviewsTimer = setTimeout(() => apiReviews(id, city), 5000)
-    const pulseTimer = setTimeout(() => apiLocalityPulse(id, city), 10000)
-    return () => {
-      clearTimeout(reviewsTimer)
-      clearTimeout(pulseTimer)
-    }
-  }, [id, city])
-
-  useEffect(() => {
     let alive = true
     setEssentials(null)
+    if (active !== 'lifestyle') return () => { alive = false }
     apiEssentials(id, city).then((profile) => {
       if (alive) setEssentials(profile)
     })
     return () => {
       alive = false
     }
-  }, [id, city])
+  }, [id, city, active])
 
   useEffect(() => {
     let alive = true
+    setFastForecast([])
+    setForecastStatus('loading')
+    apiNeighborhoodForecast(id, city).then((result) => {
+      if (!alive) return
+      if (result?.status === 'available' && result.forecast?.length) {
+        setFastForecast(result.forecast)
+        setForecastStatus('ready')
+      } else {
+        setForecastStatus('temporarily_unavailable')
+      }
+    })
+    return () => {
+      alive = false
+    }
+  }, [id, city, forecastRetryKey])
+
+  useEffect(() => {
+    let alive = true
+    let detail = null
+    let peers = null
     setN(null)
     setDetailStatus('loading')
-    ;(async () => {
-      // The locality itself (with AI summary + AQI series) plus its city peers,
-      // so the tabs can rank it against the rest of the city.
-      const [d, peers] = await Promise.all([apiNeighborhood(id, city), apiNeighborhoods(city)])
-      if (!alive) return
-      if (d?.__error) {
-        setDetailStatus(d.__error)
-        return
-      }
-      if (!d) {
-        setDetailStatus('temporarily_unavailable')
-        return
-      }
-      const adapted = adaptNeighborhood(d)
-      adapted.insights = cityInsights(peers || [], id)
+
+    const show = (raw, cityPeers = peers || []) => {
+      if (!alive || !raw || raw.__error) return false
+      const adapted = adaptNeighborhood(raw)
+      adapted.insights = cityInsights(cityPeers || [], id)
       adapted.cityId = city
       setN(adapted)
       setDetailStatus('ready')
-    })()
+      return true
+    }
+
+    const detailRequest = apiNeighborhood(id, city).then((result) => {
+      detail = result
+      show(result)
+      return result
+    })
+    const peersRequest = apiNeighborhoods(city).then((result) => {
+      peers = result
+      const peer = (result || []).find((item) => item.id === id)
+      show(detail?.__error ? peer : (detail || peer), result)
+      return result
+    })
+
+    Promise.allSettled([detailRequest, peersRequest]).then(() => {
+      if (!alive) return
+      const peer = (peers || []).find((item) => item.id === id)
+      if (show(detail?.__error ? peer : (detail || peer), peers)) return
+      setDetailStatus(detail?.__error === 'not_found' ? 'not_found' : 'temporarily_unavailable')
+    })
+
     return () => {
       alive = false
     }
@@ -130,8 +153,11 @@ export default function NeighborhoodDetail() {
     )
   }
 
-  const active = tab || 'overview'
   const ActiveTab = TAB_CONTENT[active] || OverviewTab
+  const displayedNeighborhood = fastForecast.length && !n.aqiSeries?.forecast?.length
+    ? { ...n, aqiSeries: { ...(n.aqiSeries || {}), forecast: fastForecast } }
+    : n
+  const displayedForecastStatus = displayedNeighborhood.aqiSeries?.forecast?.length ? 'ready' : forecastStatus
   const evidence = Object.values(n.evidence || {})
   const googleSignals = evidence
     .filter((e) => e.sourceType === 'live_google' || e.sourceType === 'cached_google')
@@ -230,16 +256,18 @@ export default function NeighborhoodDetail() {
                   !showFullExplanation && 'line-clamp-2',
                 )}
               >
-                {n.why}
+                {n.why || 'Preparing the evidence-backed explanation...'}
               </p>
-              <button
-                type="button"
-                aria-expanded={showFullExplanation}
-                onClick={() => setShowFullExplanation((shown) => !shown)}
-                className="mt-2 text-xs font-medium text-brand-700 hover:underline"
-              >
-                {showFullExplanation ? 'Show less' : 'Show more'}
-              </button>
+              {n.why && (
+                <button
+                  type="button"
+                  aria-expanded={showFullExplanation}
+                  onClick={() => setShowFullExplanation((shown) => !shown)}
+                  className="mt-2 text-xs font-medium text-brand-700 hover:underline"
+                >
+                  {showFullExplanation ? 'Show less' : 'Show more'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -275,7 +303,7 @@ export default function NeighborhoodDetail() {
         </div>
 
         {/* content */}
-        <div className="mt-6"><ActiveTab n={n} essentials={essentials} /></div>
+        <div className="mt-6"><ActiveTab n={displayedNeighborhood} essentials={essentials} forecastStatus={displayedForecastStatus} onRetryForecast={() => setForecastRetryKey((value) => value + 1)} /></div>
       </div>
     </div>
   )

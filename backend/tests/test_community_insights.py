@@ -89,6 +89,76 @@ def test_pulse_uses_one_grounded_call_when_ledger_is_machine_readable(monkeypatc
     assert calls["n"] == 1
 
 
+def _supported_pulse_response(lines, chunks, support_end=None):
+    text = "\n".join(lines)
+    support_end = len(lines[0]) if support_end is None else support_end
+    supports = [SimpleNamespace(
+        segment=SimpleNamespace(start_index=0, end_index=support_end, text=text[:support_end]),
+        grounding_chunk_indices=[0],
+    )]
+    return SimpleNamespace(
+        text=text,
+        candidates=[SimpleNamespace(grounding_metadata=SimpleNamespace(
+            grounding_chunks=chunks, grounding_supports=supports,
+        ))],
+    )
+
+
+def test_pulse_uses_google_support_mapping_when_written_title_differs(monkeypatch):
+    today = date.today().isoformat()
+    line = (f"{today} | civic | moderate | Adyar | Water-supply maintenance | "
+            "Scheduled work may affect supply. | Short model title")
+    chunks = [SimpleNamespace(web=SimpleNamespace(
+        uri="https://chennaicorporation.gov.in/notice", title="Greater Chennai Corporation Official Notice",
+    ))]
+    monkeypatch.setattr(gemini.settings, "pulse_use_grounding_supports", True)
+    monkeypatch.setattr(gemini, "_generate", lambda **_kwargs: _supported_pulse_response([line], chunks))
+
+    result = gemini.locality_pulse("Adyar", "Chennai")
+
+    assert result["status"] == "available"
+    assert result["items"][0]["source"] == "Greater Chennai Corporation Official Notice"
+    assert result["items"][0]["sourceUrl"] == "https://chennaicorporation.gov.in/notice"
+    assert result["items"][0]["sourceUrl"] in {citation["uri"] for citation in result["citations"]}
+
+
+def test_support_mode_rejects_an_unsupported_line_even_with_matching_title(monkeypatch):
+    today = date.today().isoformat()
+    supported = (f"{today} | mobility | moderate | Adyar | Bus diversion | "
+                 "A temporary diversion affects local travel. | Different written title")
+    unsupported = (f"{today} | civic | low | Adyar | Unsupported notice | "
+                   "This line has no grounding support. | Second Official Notice")
+    chunks = [
+        SimpleNamespace(web=SimpleNamespace(uri="https://official.example/one", title="First Official Notice")),
+        SimpleNamespace(web=SimpleNamespace(uri="https://official.example/two", title="Second Official Notice")),
+    ]
+    monkeypatch.setattr(gemini.settings, "pulse_use_grounding_supports", True)
+    monkeypatch.setattr(gemini, "_generate", lambda **_kwargs: _supported_pulse_response(
+        [supported, unsupported], chunks, support_end=len(supported),
+    ))
+
+    result = gemini.locality_pulse("Adyar", "Chennai")
+
+    assert result["status"] == "available"
+    assert [item["headline"] for item in result["items"]] == ["Bus diversion"]
+
+
+def test_pulse_support_validator_can_be_rolled_back_to_title_matching(monkeypatch):
+    today = date.today().isoformat()
+    line = (f"{today} | civic | moderate | Adyar | Water-supply maintenance | "
+            "Scheduled work may affect supply. | Nonmatching title")
+    chunks = [SimpleNamespace(web=SimpleNamespace(
+        uri="https://chennaicorporation.gov.in/notice", title="Greater Chennai Corporation Official Notice",
+    ))]
+    monkeypatch.setattr(gemini.settings, "pulse_use_grounding_supports", False)
+    monkeypatch.setattr(gemini, "_generate", lambda **_kwargs: _supported_pulse_response([line], chunks))
+
+    result = gemini.locality_pulse("Adyar", "Chennai")
+
+    assert result["status"] == "temporarily_unavailable"
+    assert result["errorCode"] == "unusable_grounding"
+
+
 def test_pulse_does_not_chain_a_second_model_call_for_malformed_ledger(monkeypatch):
     chunks = [SimpleNamespace(web=SimpleNamespace(
         uri="https://authority.example/notice", title="Noida Authority",
@@ -115,11 +185,21 @@ def test_pulse_accepts_only_explicit_completed_search_as_no_evidence(monkeypatch
         text="NO_VERIFIED_UPDATES",
         candidates=[SimpleNamespace(grounding_metadata=SimpleNamespace(grounding_chunks=[]))],
     )
-    monkeypatch.setattr(gemini, "_generate", lambda **_kwargs: response)
+    captured = {}
+
+    def generate(**kwargs):
+        captured.update(kwargs)
+        return response
+
+    monkeypatch.setattr(gemini, "_generate", generate)
 
     result = gemini.locality_pulse("Vyttila", "Kochi")
 
     assert result == {"status": "no_evidence", "items": [], "citations": []}
+    config = captured["config"]
+    assert config.temperature == 0.0
+    assert config.max_output_tokens == 1400
+    assert config.thinking_config.thinking_budget == 0
 
 
 def test_pulse_does_not_mislabel_missing_citations_as_no_evidence(monkeypatch):
@@ -132,7 +212,7 @@ def test_pulse_does_not_mislabel_missing_citations_as_no_evidence(monkeypatch):
     result = gemini.locality_pulse("Vyttila", "Kochi")
 
     assert result["status"] == "temporarily_unavailable"
-    assert result["errorCode"] == "unusable_grounding"
+    assert result["errorCode"] == "missing_citations"
 
 def test_pulse_endpoint_returns_pending_without_duplicate_jobs(client, monkeypatch,
                                                                isolated_pulse_store):

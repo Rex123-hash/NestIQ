@@ -14,6 +14,7 @@ def test_offline_scorecard_passes_every_guardrail_without_billable_calls():
         "api_contract", "tool_trajectory", "contradiction_control", "graceful_degradation",
     }
     assert report["metrics"]["toolTrajectoryAccuracy"] == 100
+    assert report["metrics"]["selectiveToolRoutingAccuracy"] == 100
     assert report["metrics"]["groundedness"] == 100
     assert report["metrics"]["citationPrecision"] == 100
     assert report["metrics"]["unsupportedClaimRate"] == 0

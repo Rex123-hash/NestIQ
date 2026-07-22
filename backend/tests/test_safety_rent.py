@@ -91,10 +91,11 @@ def test_verify_rent_uses_grounded_search_then_structured_extraction(monkeypatch
         text="\n".join(f"INR {18000 + i * 500} | 2026-07-10 | Listing {i}" for i in range(8)),
         candidates=[SimpleNamespace(grounding_metadata=SimpleNamespace(grounding_chunks=chunks))],
     )
-    calls = {"n": 0}
+    calls = {"n": 0, "config": None}
 
     def generate(**kwargs):
         calls["n"] += 1
+        calls["config"] = kwargs["config"]
         return grounded
 
     monkeypatch.setattr(gemini, "_generate", generate)
@@ -106,6 +107,9 @@ def test_verify_rent_uses_grounded_search_then_structured_extraction(monkeypatch
     assert result["sampleSize"] == 8
     assert result["sourceCount"] == 3
     assert calls["n"] == 1
+    assert calls["config"].temperature == 0.0
+    assert calls["config"].max_output_tokens == 1800
+    assert calls["config"].thinking_config.thinking_budget == 0
 
 
 def test_verify_rent_does_not_chain_an_extraction_call_for_malformed_evidence(monkeypatch):

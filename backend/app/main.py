@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -108,6 +109,15 @@ _last_logged_lock = threading.Lock()
 _detail_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 _DETAIL_TTL = 1800
 
+# The overview chart has its own small cache and single-flight lock. It must not
+# wait for the full detail payload (which also asks Gemini for an explanation).
+# Only successful Google forecast rows are cached; an empty/provider-failure
+# response remains retryable instead of becoming a 30-minute false result.
+_air_forecast_cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}
+_air_forecast_locks: dict[tuple[str, str], threading.Lock] = {}
+_air_forecast_locks_guard = threading.Lock()
+_AIR_FORECAST_TTL = 1800
+
 # Web-review summaries are grounded Google-Search calls; cache 24h per locality
 # so we make at most one such (billable) call per locality per day.
 _reviews_cache: dict[tuple[str, str], tuple[float, dict]] = {}
@@ -126,6 +136,10 @@ REVIEWS_UNAVAILABLE = {
 _PULSE_TTL = settings.pulse_ttl_seconds
 _PULSE_FAILURE_TTL = settings.pulse_failure_ttl_seconds
 _PULSE_DEADLINE = settings.pulse_job_deadline_seconds
+_PULSE_PROVIDER_ATTEMPTS = max(1, settings.pulse_provider_attempts)
+_PULSE_RETRYABLE_PROVIDER_ERRORS = {
+    "grounding_unavailable", "empty_grounding", "missing_citations",
+}
 # Tests replace this with InMemoryPulseStore. Production resolves the official
 # Firestore client lazily so importing the app never performs network I/O.
 _pulse_store: pulse_store.PulseStore | None = None
@@ -192,7 +206,13 @@ def _pulse_failure_category(data: dict) -> str:
     code = str(data.get("errorCode") or "")
     if "timeout" in code:
         return "timeout"
-    return "grounding_unavailable" if code else "unusable_grounding"
+    if code in {"unusable_grounding", "empty_grounding", "missing_citations"} or not code:
+        return "unusable_grounding"
+    if code == "vertex_permission_denied":
+        return "permission_denied"
+    if code == "vertex_quota_exhausted":
+        return "quota_exhausted"
+    return "grounding_unavailable"
 
 
 def _refresh_pulse_in_background(store: pulse_store.PulseStore, key: tuple[str, str],
@@ -207,12 +227,31 @@ def _refresh_pulse_in_background(store: pulse_store.PulseStore, key: tuple[str, 
     deadline.start()
     try:
         data = gemini.locality_pulse(name, city_name)
+        attempt = 1
+        # The SDK already retries transient HTTP status codes. This additional
+        # bounded attempt covers grounding sessions that fail without a usable
+        # response, which production has shown can immediately recover for the
+        # same locality. Never retry permission, quota, timeout, or validation
+        # failures, and leave ten seconds for the shared job to commit safely.
+        while (
+            data.get("status") == "temporarily_unavailable"
+            and data.get("errorCode") in _PULSE_RETRYABLE_PROVIDER_ERRORS
+            and attempt < _PULSE_PROVIDER_ATTEMPTS
+            and time.perf_counter() - started < _PULSE_DEADLINE - 10
+        ):
+            attempt += 1
+            telemetry.event(
+                "pulse_provider_retry", request_id=request_id, city=key[0], locality=key[1],
+                jobId=job_id, attemptCount=attempt, errorType=data.get("errorCode"),
+            )
+            data = gemini.locality_pulse(name, city_name)
         if data.get("status") in {"available", "no_evidence"}:
             validator = "passed" if data.get("status") == "available" else "no_qualifying_evidence"
             written = store.complete(key[0], key[1], job_id, data, validator)
             event_name = "pulse_job_completed" if written else "pulse_late_result_discarded"
             telemetry.event(event_name, request_id=request_id, city=key[0], locality=key[1],
                             jobId=job_id, status=data.get("status"), validatorResult=validator,
+                            validationMethod=data.get("validationMethod", "explicit_no_evidence"),
                             retrievalCount=len(data.get("citations", [])),
                             latencyMs=telemetry.elapsed_ms(started))
         else:
@@ -221,7 +260,8 @@ def _refresh_pulse_in_background(store: pulse_store.PulseStore, key: tuple[str, 
             telemetry.event("pulse_job_failed" if written else "pulse_late_result_discarded",
                             request_id=request_id, city=key[0], locality=key[1], jobId=job_id,
                             status="temporarily_unavailable", errorType=category,
-                            validatorResult="failed", latencyMs=telemetry.elapsed_ms(started))
+                            validatorResult="failed", validationMethod=data.get("validationMethod"),
+                            latencyMs=telemetry.elapsed_ms(started))
     except Exception as error:  # noqa: BLE001
         category = "timeout" if "timeout" in type(error).__name__.lower() else "service_error"
         try:
@@ -508,6 +548,72 @@ def rank(city: str, weights: dict, budget: float | None) -> list[dict]:
     return maps.score_india(feats, weights, budget or 30000)
 
 
+def _evidence_locality(city: str, nid: str) -> tuple[dict | None, dict]:
+    """Resolve identity fields without rebuilding every live city signal.
+
+    Pulse, rent, reviews and civic-document routes only need the catalog name,
+    coordinates and curated rent. Calling ``rank`` for those fields can fan out
+    to Air Quality, Places and Distance Matrix on a cold Cloud Run instance,
+    turning a cheap Firestore status poll into a multi-second request. The
+    ranked fallback preserves legacy/test data sources whose ids are not in the
+    India catalog.
+    """
+    city_obj = get_city(city)
+    if city_obj:
+        locality = next((item for item in city_obj["localities"] if item["id"] == nid), None)
+        if locality:
+            return city_obj, {**locality, "median_rent": locality.get("rent")}
+
+    ranked = rank(city, default_weights(city), None)
+    match = next((item for item in ranked if item["id"] == nid), None)
+    if not match:
+        raise HTTPException(404, "neighborhood not found")
+    return city_obj, match
+
+
+def _air_forecast_lock(key: tuple[str, str]) -> threading.Lock:
+    with _air_forecast_locks_guard:
+        return _air_forecast_locks.setdefault(key, threading.Lock())
+
+
+def _air_forecast(key: tuple[str, str], locality: dict) -> list[dict]:
+    """Return a real Google forecast, sharing one request per locality.
+
+    The click-prefetch endpoint and the full detail endpoint can arrive at the
+    same time. This lock makes the slower detail request join the forecast that
+    is already in flight instead of billing Google twice.
+    """
+    cached = _air_forecast_cache.get(key)
+    if cached and time.time() - cached[0] < _AIR_FORECAST_TTL:
+        telemetry.event("cache_access", cache="air_quality_forecast", city=key[0], locality=key[1], cacheState="hit")
+        return cached[1]
+
+    with _air_forecast_lock(key):
+        cached = _air_forecast_cache.get(key)
+        if cached and time.time() - cached[0] < _AIR_FORECAST_TTL:
+            telemetry.event("cache_access", cache="air_quality_forecast", city=key[0], locality=key[1], cacheState="hit_after_wait")
+            return cached[1]
+
+        telemetry.event("cache_access", cache="air_quality_forecast", city=key[0], locality=key[1], cacheState="miss")
+        rows = maps.air_quality_forecast(locality["lat"], locality["lng"])
+        if rows:
+            _air_forecast_cache[key] = (time.time(), rows)
+        return rows
+
+
+def _india_aqi_series(key: tuple[str, str], locality: dict) -> dict:
+    """Fetch independent chart sources concurrently, preserving every series."""
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        history = pool.submit(maps.air_quality_history, locality["lat"], locality["lng"])
+        forecast = pool.submit(_air_forecast, key, locality)
+        bqml_forecast = pool.submit(bq_india.aqi_forecast_bqml, key[1])
+        return {
+            "history": history.result(),
+            "forecast": forecast.result(),
+            "bqmlForecast": bqml_forecast.result(),
+        }
+
+
 def note_for(city: str, r: dict) -> str:
     if city == NYC:
         return f"a {r.get('forecast_pct', 0)}% predicted 12-month rent trend"
@@ -671,17 +777,47 @@ def neighborhood(nid: str, city: str = DEFAULT_CITY):
 
     telemetry.event("cache_access", cache="neighborhood_detail", city=city, locality=nid, cacheState="miss")
 
-    extra: dict = {"why": gemini.explain(match["name"], match["subscores"], match["median_rent"], note_for(city, match))}
-    if city == NYC:
-        extra["rentSeries"] = bq.get_rent_series(nid)
-    else:
-        extra["aqiSeries"] = {
-            "history": maps.air_quality_history(match["lat"], match["lng"]),
-            "forecast": maps.air_quality_forecast(match["lat"], match["lng"]),
-            "bqmlForecast": bq_india.aqi_forecast_bqml(nid),
-        }
+    # Explanation and chart evidence do not depend on one another. Run them in
+    # parallel so the full payload costs the slower branch, not both branches
+    # added together. The separate forecast route below is even faster for the
+    # overview chart because it skips both city ranking and Gemini entirely.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        explanation = pool.submit(
+            gemini.explain, match["name"], match["subscores"],
+            match["median_rent"], note_for(city, match),
+        )
+        if city == NYC:
+            series = pool.submit(bq.get_rent_series, nid)
+            extra = {"why": explanation.result(), "rentSeries": series.result()}
+        else:
+            series = pool.submit(_india_aqi_series, key, match)
+            extra = {"why": explanation.result(), "aqiSeries": series.result()}
     _detail_cache[key] = (time.time(), extra)
     return {**match, **extra}
+
+
+@app.get("/api/neighborhood/{nid}/air-quality-forecast")
+def neighborhood_air_quality_forecast(nid: str, city: str = DEFAULT_CITY):
+    """Fast path for the Overview chart; never waits for Gemini or city rank."""
+    if city == NYC:
+        return {
+            "status": "not_applicable", "forecast": [],
+            "source": "",
+            "limitation": "This CPCB forecast is available only for supported Indian localities.",
+        }
+
+    _, locality = _evidence_locality(city, nid)
+    rows = _air_forecast((city, nid), locality)
+    if rows:
+        return {
+            "status": "available", "forecast": rows,
+            "source": maps.CPCB_SOURCE,
+        }
+    return {
+        "status": "temporarily_unavailable", "forecast": [],
+        "source": maps.CPCB_SOURCE,
+        "limitation": "Google Air Quality did not return a CPCB forecast just now. No forecast was estimated or substituted.",
+    }
 
 
 @app.get("/api/neighborhood/{nid}/essentials")
@@ -690,27 +826,20 @@ def neighborhood_essentials(nid: str, city: str = DEFAULT_CITY):
     schools, universities) for the locality. Shown for context on the detail
     page; never part of the FitScore. Missing data is an honest unavailable
     state, never a fabricated live-looking number."""
-    ranked = rank(city, default_weights(city), None)
-    match = next((r for r in ranked if r["id"] == nid), None)
-    if not match:
-        raise HTTPException(404, "neighborhood not found")
+    _, match = _evidence_locality(city, nid)
     return maps.essential_profile(match["lat"], match["lng"])
 
 
 @app.get("/api/neighborhood/{nid}/reviews")
 def neighborhood_reviews(nid: str, city: str = DEFAULT_CITY, refresh: bool = False):
     """Start grounded community evidence asynchronously and return immediately."""
-    ranked = rank(city, default_weights(city), None)
-    match = next((r for r in ranked if r["id"] == nid), None)
-    if not match:
-        raise HTTPException(404, "neighborhood not found")
+    city_obj, match = _evidence_locality(city, nid)
 
     key = (city, nid)
     cached = _reviews_cache.get(key)
     if not refresh and cached and time.time() - cached[0] < _REVIEWS_TTL:
         telemetry.event("cache_access", cache="community_reviews", city=city, locality=nid, cacheState="hit")
         return cached[1]
-    city_obj = get_city(city)
     if not refresh and not cached:
         failed = _fresh_reviews_failure(key)
         if failed:
@@ -740,11 +869,7 @@ def neighborhood_reviews(nid: str, city: str = DEFAULT_CITY, refresh: bool = Fal
 @app.get("/api/neighborhood/{nid}/pulse")
 def neighborhood_pulse(nid: str, city: str = DEFAULT_CITY, refresh: bool = False):
     """Grounded current civic updates; never changes FitScore."""
-    ranked = rank(city, default_weights(city), None)
-    match = next((r for r in ranked if r["id"] == nid), None)
-    if not match:
-        raise HTTPException(404, "neighborhood not found")
-    city_obj = get_city(city)
+    city_obj, match = _evidence_locality(city, nid)
     return _serve_pulse((city, nid), match["name"], city_obj["name"] if city_obj else city,
                         refresh, "locality_pulse")
 
@@ -767,10 +892,7 @@ def city_pulse(city: str, refresh: bool = False):
 @app.get("/api/neighborhood/{nid}/civic-knowledge")
 def neighborhood_civic_knowledge(nid: str, q: str, city: str = DEFAULT_CITY):
     """Retrieve citation-locked official civic knowledge for a locality."""
-    ranked = rank(city, default_weights(city), None)
-    match = next((r for r in ranked if r["id"] == nid), None)
-    if not match:
-        raise HTTPException(404, "neighborhood not found")
+    _evidence_locality(city, nid)
     question = (q or "").strip()
     if len(question) < 3:
         raise HTTPException(422, "question must contain at least 3 characters")
@@ -786,13 +908,9 @@ def neighborhood_civic_knowledge(nid: str, q: str, city: str = DEFAULT_CITY):
 @app.get("/api/neighborhood/{nid}/rent-verification")
 def neighborhood_rent_verification(nid: str, city: str = DEFAULT_CITY, refresh: bool = False):
     """Grounded current 1-bedroom rent range, calculated from cited observations."""
-    ranked = rank(city, default_weights(city), None)
-    match = next((r for r in ranked if r["id"] == nid), None)
-    if not match:
-        raise HTTPException(404, "neighborhood not found")
+    city_obj, match = _evidence_locality(city, nid)
 
     key = (city, nid)
-    city_obj = get_city(city)
     city_name = city_obj["name"] if city_obj else city
     return _serve_rent(key, match["name"], city_name, match.get("median_rent"), refresh)
 
@@ -821,6 +939,8 @@ def ask(req: AskRequest, request: Request):
     rate_limit.check("ask", rate_limit.client_id(request), limit=ASK_RATE_LIMIT,
                      window=ASK_RATE_WINDOW)
     city = req.city or DEFAULT_CITY
+    if city != NYC and not get_city(city):
+        raise HTTPException(404, "city not found")
     history = tuple((turn.role, turn.content.strip()) for turn in req.history)
     key = (city, req.neighborhoodId or "", (req.question or "").strip().lower(), history)
     cached = _ask_cache.get(key)
@@ -906,9 +1026,17 @@ async def analyze_copilot_image(
 
 def _ask(city: str, req: AskRequest) -> dict:
     history = [turn.model_dump() for turn in req.history]
-    mode = copilot.route_intent(req.question, req.neighborhoodId, history)
+    city_obj = get_city(city)
+    catalog_localities = city_obj.get("localities", []) if city_obj else []
+    mentioned = copilot.locality_mentions(req.question, catalog_localities)
+    mode = copilot.route_intent(
+        req.question, req.neighborhoodId, history, catalog_localities,
+    )
+    effective_neighborhood_id = req.neighborhoodId
+    if not effective_neighborhood_id and mode == copilot.LOCALITY_EVIDENCE and len(mentioned) == 1:
+        effective_neighborhood_id = mentioned[0]["id"]
     telemetry.event("copilot_route_selected", city=city, route=mode,
-                    locality=req.neighborhoodId)
+                    locality=effective_neighborhood_id)
 
     if mode == copilot.GENERAL_GUIDANCE:
         conversation = copilot.conversation_context(history)
@@ -931,16 +1059,21 @@ def _ask(city: str, req: AskRequest) -> dict:
             sql = gemini.nl_to_sql(analysis_question, city, bq_india.LOCALITIES_LATEST)
             rows = bq_india.analytics_query(sql, city)
             if rows:
-                answer = gemini.ask(req.question, f"BigQuery query returned these rows: {rows}")
                 visible_rows = rows[:8]
+                context_rows = copilot.analytics_context_rows(visible_rows, catalog_localities)
+                answer = gemini.ask(req.question, f"BigQuery query returned these rows: {context_rows}")
+                analytics_sources = ["BigQuery (NL→SQL)", "india_localities_latest view"]
+                if any(row.get("cpcbBand") for row in context_rows):
+                    analytics_sources.append("CPCB AQI bands (deterministic)")
+                analytics_sources.append("Gemini on Vertex AI")
                 return {
                     "answer": answer,
                     "sql": sql,
                     "rows": visible_rows,
-                    "sources": ["BigQuery (NL→SQL)", "india_localities_latest view", "Gemini on Vertex AI"],
+                    "sources": analytics_sources,
                     **copilot.envelope(
-                        mode=mode, city=city, neighborhood_id=req.neighborhoodId,
-                        used_bigquery=True, rows=visible_rows,
+                        mode=mode, city=city, neighborhood_id=None,
+                        used_bigquery=True, rows=context_rows,
                     ),
                 }
         except Exception as e:  # noqa: BLE001
@@ -950,8 +1083,8 @@ def _ask(city: str, req: AskRequest) -> dict:
             )
 
     feats = {f["id"]: f for f in rank(city, default_weights(city), None)}
-    if req.neighborhoodId and req.neighborhoodId in feats:
-        selected = feats[req.neighborhoodId]
+    if effective_neighborhood_id and effective_neighborhood_id in feats:
+        selected = feats[effective_neighborhood_id]
         ctx = f"Locality {selected['name']}: {_slim(selected)}"
     else:
         selected = None
@@ -964,7 +1097,7 @@ def _ask(city: str, req: AskRequest) -> dict:
         "answer": gemini.ask(req.question, ctx),
         "sources": sources,
         **copilot.envelope(
-            mode=mode, city=city, neighborhood_id=req.neighborhoodId,
+            mode=mode, city=city, neighborhood_id=effective_neighborhood_id,
             used_bigquery=False, locality=selected,
         ),
     }

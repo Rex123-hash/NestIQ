@@ -100,7 +100,7 @@ export default function SignIn() {
         </div>
 
         <p className="mt-5 flex items-center justify-center gap-2 text-xs text-muted">
-          <ShieldCheck size={14} className="text-brand-500" /> No sign up required · Your data stays private
+          <ShieldCheck size={14} className="text-brand-500" /> No server-side account required · Saved profile stays in this browser
         </p>
       </div>
     </div>

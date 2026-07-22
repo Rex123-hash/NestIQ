@@ -9,8 +9,19 @@ Honest limitation (documented, not solved here): serving a separate browser key 
 stops server-key LEAKAGE. It is not protection until that browser key is HTTP-referrer
 restricted in the GCP console, which is Phase 9b infrastructure work.
 """
+import pytest
+from pydantic import ValidationError
+
 from app import main
 from app.config import settings
+from app.gemini import Criteria
+
+
+def test_model_generated_preference_weights_are_bounded():
+    with pytest.raises(ValidationError):
+        Criteria(w_affordability=-1)
+    with pytest.raises(ValidationError):
+        Criteria(w_air_quality=101)
 
 
 class TestCorsAllowlist:

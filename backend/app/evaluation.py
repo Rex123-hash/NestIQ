@@ -9,10 +9,11 @@ import json
 from datetime import date
 from time import perf_counter
 
-from . import bq_india, civic_rag, gemini, maps
+from . import bq_india, civic_rag, copilot, gemini, maps
 from .adk_orchestration import run_adk_search
 from .air_quality import CPCB_BANDS, air_health_score, air_relative_ranks, cpcb_band, critical_risks
 from .evidence import metric_evidence
+from .india import get_city
 
 
 def _result(case_id: str, dimension: str, passed: bool, evidence: str) -> dict:
@@ -94,6 +95,29 @@ def run_offline_scorecard() -> dict:
     results.append(_result(
         "nl-sql-write-rejected", "security", sql_rejected,
         "stacked SELECT/DROP rejected before a BigQuery client is constructed",
+    ))
+
+    chennai_localities = get_city("chennai")["localities"]
+    results.append(_result(
+        "copilot-verified-name-comparison-uses-analytics", "tool_routing",
+        copilot.route_intent(
+            "Compare Adyar and Velachery", localities=chennai_localities,
+        ) == copilot.CITY_ANALYTICS,
+        "two selected-city catalog names route to guarded BigQuery analytics",
+    ))
+    results.append(_result(
+        "copilot-general-concept-stays-model-only", "tool_routing",
+        copilot.route_intent(
+            "Compare AQI 110 with CPCB bands", localities=chennai_localities,
+        ) == copilot.GENERAL_GUIDANCE,
+        "a scalar AQI concept question does not launch a BigQuery job",
+    ))
+    results.append(_result(
+        "copilot-invented-localities-cannot-launch-analytics", "tool_routing",
+        copilot.route_intent(
+            "Compare Foo Colony and Bar Nagar", localities=chennai_localities,
+        ) == copilot.GENERAL_GUIDANCE,
+        "unknown names are not treated as verified locality analytics subjects",
     ))
 
     rag = civic_rag.answer("air quality vehicle GRAP rules", "delhi-ncr", "noida-62")
@@ -198,6 +222,11 @@ def run_offline_scorecard() -> dict:
     citation_ids = {"civic-rag-citations-controlled", "civic-rag-response-schema"}
     contradiction_ids = {"adk-missing-data-validator", "air-severe-absolute"}
     fallback_cases = {"unsupported-locality-no-evidence", "adk-empty-result-graceful-degradation"}
+    copilot_routing_ids = {
+        "copilot-verified-name-comparison-uses-analytics",
+        "copilot-general-concept-stays-model-only",
+        "copilot-invented-localities-cannot-launch-analytics",
+    }
 
     def rate(case_ids):
         selected = [by_id[case_id] for case_id in case_ids]
@@ -205,6 +234,7 @@ def run_offline_scorecard() -> dict:
 
     metrics = {
         "toolTrajectoryAccuracy": rate({"adk-health-sensitive-tool-trajectory"}),
+        "selectiveToolRoutingAccuracy": rate(copilot_routing_ids),
         "groundedness": rate(grounded_ids),
         "citationPrecision": rate(citation_ids),
         "unsupportedClaimRate": 0 if rate(grounded_ids) == 100 else 100 - rate(grounded_ids),
@@ -226,7 +256,7 @@ def run_offline_scorecard() -> dict:
             "included": [
                 "FitScore health bands and ties", "missing-data honesty", "provenance",
                 "source validation", "SQL security", "controlled RAG", "ADK tool trajectory",
-                "unsupported-locality handling", "graceful degradation",
+                "Copilot selective tool routing", "unsupported-locality handling", "graceful degradation",
             ],
             "excludedNotImplemented": ["multilingual rendering and multilingual agent equivalents"],
         },

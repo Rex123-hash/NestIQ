@@ -7,7 +7,7 @@ import ResultsMap from '../components/results/ResultsMap.jsx'
 import FiltersPanel from '../components/results/FiltersPanel.jsx'
 import AgentProgress from '../components/results/AgentProgress.jsx'
 import { preferences as defaultPrefs, WEIGHTS as INDIA_DEFAULT, SUBSCORES } from '../data/neighborhoods.js'
-import { streamSearch, apiNeighborhoods, apiSearch } from '../lib/api.js'
+import { streamSearch, apiNeighborhoods, apiSearch, prefetchNeighborhood } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
 import { reweight } from '../lib/fitscore.js'
 import { citySnapshot } from '../lib/citySnapshot.js'
@@ -165,6 +165,7 @@ export default function Results() {
   const searchCity = city
   const isNYC = searchCity === 'new-york'
   const currency = isNYC ? '$' : '₹'
+  const startDetailRequest = (id) => { void prefetchNeighborhood(id, searchCity) }
 
   useEffect(() => {
     let alive = true
@@ -431,7 +432,7 @@ export default function Results() {
             </h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {anomalyItems.map(({ id, name, flags }) => (
-                <Link key={id} to={`/neighborhood/${id}`}
+                <Link key={id} to={`/neighborhood/${id}`} onClick={() => startDetailRequest(id)}
                   className="rounded-xl border border-line p-3 transition hover:border-brand-200">
                   <p className="text-sm font-semibold text-ink">{name}</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -477,7 +478,7 @@ export default function Results() {
               ))}
             </ul>
             {top && (
-              <Link to={`/neighborhood/${top.id}`}
+              <Link to={`/neighborhood/${top.id}`} onClick={() => startDetailRequest(top.id)}
                 className="mt-4 inline-block text-sm font-medium text-brand-700">
                 View Full Explanation →
               </Link>
@@ -525,7 +526,7 @@ export default function Results() {
               ))}
             </ul>
             {top && (
-              <Link to={`/neighborhood/${top.id}`}
+              <Link to={`/neighborhood/${top.id}`} onClick={() => startDetailRequest(top.id)}
                 className="mt-4 inline-block text-sm font-medium text-brand-700">
                 See sources in detail →
               </Link>

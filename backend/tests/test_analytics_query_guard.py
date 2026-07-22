@@ -87,10 +87,11 @@ class TestCostControls:
         bq_india.analytics_query("SELECT name FROM india_localities_latest LIMIT 5")
         assert c.calls[1]["config"].maximum_bytes_billed == bq_india.MAX_QUERY_BYTES
 
-    def test_city_filter_is_parameterised(self, fake_bq):
+    def test_city_scope_is_parameterised_even_if_model_omits_its_filter(self, fake_bq):
         c = fake_bq["install"]()
         bq_india.analytics_query(
-            "SELECT name FROM india_localities_latest WHERE city = @city LIMIT 5",
+            "SELECT name FROM india_localities_latest LIMIT 5",
             city="delhi-ncr")
         params = c.calls[1]["config"].query_parameters
         assert params and params[0].name == "city" and params[0].value == "delhi-ncr"
+        assert "WHERE city = @city" in c.calls[1]["sql"]

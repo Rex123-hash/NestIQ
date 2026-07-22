@@ -4,20 +4,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import NeighborhoodDetail from './NeighborhoodDetail.jsx'
-import { apiLocalityPulse, apiNeighborhood, apiRentVerification, apiReviews } from '../../lib/api.js'
+import { apiEssentials, apiLocalityPulse, apiNeighborhood, apiNeighborhoodForecast, apiNeighborhoods, apiRentVerification, apiReviews } from '../../lib/api.js'
 
 vi.mock('../../lib/api.js', () => ({
   apiNeighborhood: vi.fn(),
+  apiNeighborhoodForecast: vi.fn().mockResolvedValue({ status: 'temporarily_unavailable', forecast: [] }),
   apiNeighborhoods: vi.fn().mockResolvedValue([]),
   apiReviews: vi.fn(),
   apiRentVerification: vi.fn(),
   apiLocalityPulse: vi.fn(),
   apiEssentials: vi.fn().mockResolvedValue({ status: 'temporarily_unavailable' }),
 }))
-vi.mock('../../lib/cityStore.jsx', () => ({ useCity: () => ({ city: 'delhi-ncr' }) }))
+vi.mock('../../lib/cityStore.jsx', () => ({ useCity: () => ({ city: 'delhi-ncr', setCity: vi.fn(), cities: [{ id: 'delhi-ncr', name: 'Delhi NCR' }] }) }))
 vi.mock('../../lib/saved.js', () => ({ useSaved: () => [], toggleSaved: vi.fn() }))
 vi.mock('./detailTabs.jsx', () => ({
-  OverviewTab: () => <div>Overview</div>, AffordabilityTab: () => null,
+  OverviewTab: ({ n, forecastStatus }) => <div>Overview · {forecastStatus} · {n.aqiSeries?.forecast?.[0]?.aqi ?? 'no forecast'}</div>, AffordabilityTab: () => null,
   SafetyTab: () => null, CommuteTab: () => null, LifestyleTab: () => null,
   AirQualityTab: () => null, CommunityTab: () => null,
 }))
@@ -36,7 +37,7 @@ function renderDetail(path = '/neighborhood/missing') {
   )
 }
 
-describe('NeighborhoodDetail failure states', () => {
+describe('NeighborhoodDetail loading and failure states', () => {
   it('renders a real not-found state instead of loading forever', async () => {
     apiNeighborhood.mockResolvedValue({ __error: 'not_found' })
     renderDetail()
@@ -53,25 +54,43 @@ describe('NeighborhoodDetail failure states', () => {
     await waitFor(() => expect(apiNeighborhood).toHaveBeenCalledTimes(2))
   })
 
-  it('warms rent first, community after 5 seconds, and pulse after 10 seconds', async () => {
-    vi.useFakeTimers()
+  it('does not start grounded evidence or essentials on overview load', async () => {
     apiNeighborhood.mockResolvedValue({ __error: 'not_found' })
-
     renderDetail('/neighborhood/opened')
-
-    expect(apiRentVerification).toHaveBeenCalledWith('opened', 'delhi-ncr', false, false)
+    await waitFor(() => expect(screen.getByText(/locality not found/i)).toBeTruthy())
+    expect(apiRentVerification).not.toHaveBeenCalled()
     expect(apiReviews).not.toHaveBeenCalled()
     expect(apiLocalityPulse).not.toHaveBeenCalled()
+    expect(apiEssentials).not.toHaveBeenCalled()
+  })
 
-    await vi.advanceTimersByTimeAsync(4999)
-    expect(apiReviews).not.toHaveBeenCalled()
-    expect(apiLocalityPulse).not.toHaveBeenCalled()
+  it('shows the cached city snapshot while richer detail is still pending', async () => {
+    const peer = {
+      id: 'opened', name: 'Opened Locality', short: 'Opened', lat: 28.6, lng: 77.3,
+      median_rent: 24000, aqi: 90, aqi_category: 'Moderate', commute_min: 25, amenity_count: 8,
+      subscores: { affordability: 80, safety: 70, commute: 75, lifestyle: 65, air_quality: 72 },
+      fitScore: 75, match: 'Good Match', evidence: {},
+    }
+    apiNeighborhood.mockReturnValue(new Promise(() => {}))
+    apiNeighborhoods.mockResolvedValueOnce([peer])
+    renderDetail('/neighborhood/opened')
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Opened Locality' })).toBeTruthy())
+    expect(screen.getByText(/preparing the evidence-backed explanation/i)).toBeTruthy()
+  })
 
-    await vi.advanceTimersByTimeAsync(1)
-    expect(apiReviews).toHaveBeenCalledWith('opened', 'delhi-ncr')
-    expect(apiLocalityPulse).not.toHaveBeenCalled()
-
-    await vi.advanceTimersByTimeAsync(5000)
-    expect(apiLocalityPulse).toHaveBeenCalledWith('opened', 'delhi-ncr')
+  it('adds the fast AQI forecast to the snapshot without waiting for full detail', async () => {
+    const peer = {
+      id: 'fast-aqi', name: 'Fast AQI', short: 'Fast AQI', lat: 28.6, lng: 77.3,
+      median_rent: 24000, aqi: 90, aqi_category: 'Moderate', commute_min: 25, amenity_count: 8,
+      subscores: { affordability: 80, safety: 70, commute: 75, lifestyle: 65, air_quality: 72 },
+      fitScore: 75, match: 'Good Match', evidence: {},
+    }
+    apiNeighborhood.mockReturnValue(new Promise(() => {}))
+    apiNeighborhoods.mockResolvedValueOnce([peer])
+    apiNeighborhoodForecast.mockResolvedValueOnce({
+      status: 'available', forecast: [{ label: '10:00', aqi: 42 }],
+    })
+    renderDetail('/neighborhood/fast-aqi')
+    expect(await screen.findByText(/Overview · ready · 42/i)).toBeTruthy()
   })
 })

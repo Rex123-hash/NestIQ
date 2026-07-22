@@ -162,7 +162,10 @@ def air_quality_forecast(lat: float, lng: float, hours: int = 24) -> list[dict]:
             json={"location": {"latitude": lat, "longitude": lng},
                   "period": {"startTime": start.strftime("%Y-%m-%dT%H:00:00Z"), "endTime": end.strftime("%Y-%m-%dT%H:00:00Z")},
                   "extraComputations": ["LOCAL_AQI"]},
-            timeout=20,
+            # This powers an interactive chart. One bounded retry still exists,
+            # but each attempt must fail quickly enough for the UI to offer an
+            # honest Retry state instead of displaying a minute-long spinner.
+            timeout=8,
         )
         out = []
         for h in r.json().get("hourlyForecasts", []):

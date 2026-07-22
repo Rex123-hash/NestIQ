@@ -1,5 +1,10 @@
 """NestIQ Copilot routing and additive response contract."""
-from app import copilot
+from app import copilot, gemini
+from app.india import get_city
+
+
+CHENNAI_LOCALITIES = get_city("chennai")["localities"]
+PATNA_LOCALITIES = get_city("patna")["localities"]
 
 
 class TestCopilotRouting:
@@ -12,7 +17,14 @@ class TestCopilotRouting:
 
     def test_general_concept_question_uses_general_guidance(self):
         assert copilot.route_intent("What does AQI 110 mean?") == copilot.GENERAL_GUIDANCE
+        assert copilot.route_intent("What is AQI?") == copilot.GENERAL_GUIDANCE
         assert copilot.route_intent("How does CPCB classify air quality?") == copilot.GENERAL_GUIDANCE
+        assert copilot.route_intent(
+            "How should I compare rent and commute?",
+        ) == copilot.GENERAL_GUIDANCE
+        assert copilot.route_intent(
+            "Should I prioritize cleaner air or a shorter commute?",
+        ) == copilot.GENERAL_GUIDANCE
 
     def test_general_chat_and_calculations_never_trigger_city_evidence(self):
         assert copilot.route_intent("2+2") == copilot.GENERAL_GUIDANCE
@@ -21,6 +33,30 @@ class TestCopilotRouting:
 
     def test_unrelated_superlative_does_not_trigger_bigquery(self):
         assert copilot.route_intent("What is the highest mountain in India?") == copilot.GENERAL_GUIDANCE
+
+    def test_verified_name_only_comparison_routes_to_analytics(self):
+        assert copilot.route_intent(
+            "Compare Adyar and Velachery.", localities=CHENNAI_LOCALITIES,
+        ) == copilot.CITY_ANALYTICS
+        assert copilot.route_intent(
+            "Is Kankarbagh better than Boring Road?", localities=PATNA_LOCALITIES,
+        ) == copilot.CITY_ANALYTICS
+
+    def test_one_verified_name_routes_to_that_localitys_evidence(self):
+        assert copilot.route_intent(
+            "Tell me about Kankarbagh", localities=PATNA_LOCALITIES,
+        ) == copilot.LOCALITY_EVIDENCE
+        assert [item["id"] for item in copilot.locality_mentions(
+            "What about Adyar's rent?", CHENNAI_LOCALITIES,
+        )] == ["adyar"]
+
+    def test_unknown_names_and_scalar_concepts_do_not_trigger_bigquery(self):
+        assert copilot.route_intent(
+            "Compare Foo Colony and Bar Nagar", localities=CHENNAI_LOCALITIES,
+        ) == copilot.GENERAL_GUIDANCE
+        assert copilot.route_intent(
+            "Compare AQI 110 with CPCB bands", localities=CHENNAI_LOCALITIES,
+        ) == copilot.GENERAL_GUIDANCE
 
     def test_current_nestiq_subject_still_uses_city_evidence(self):
         assert copilot.route_intent("What is the current rent here?") == copilot.CITY_EVIDENCE
@@ -77,3 +113,47 @@ class TestCopilotEnvelope:
         )
         assert result["evidenceStatus"] == "not_applicable"
         assert [tool["id"] for tool in result["tools"]] == ["gemini"]
+
+    def test_analytics_rows_gain_only_deterministic_catalog_and_cpcb_context(self):
+        rows = copilot.analytics_context_rows(
+            [{"name": "Adyar", "aqi": 110}], CHENNAI_LOCALITIES,
+        )
+        assert rows == [{
+            "name": "Adyar", "aqi": 110, "id": "adyar", "cpcbBand": "Moderate",
+        }]
+
+
+def test_nl_to_sql_requests_navigation_identity_and_aqi_context(monkeypatch):
+    calls = []
+
+    class Response:
+        text = "SELECT id, name, aqi, aqi_category FROM india_localities_latest WHERE city = @city LIMIT 5"
+
+    def generate(**kwargs):
+        calls.append(kwargs)
+        return Response()
+
+    monkeypatch.setattr(gemini, "_generate", generate)
+    sql = gemini.nl_to_sql("Which locality has the lowest AQI?", "chennai", "india_localities_latest")
+
+    assert sql.startswith("SELECT id, name, aqi, aqi_category")
+    sql_call = calls[-1]
+    prompt = sql_call["contents"]
+    assert "MUST include `id` and `name`" in prompt
+    assert "MUST also include `aqi_category`" in prompt
+    assert "ALWAYS include WHERE city = @city" in prompt
+    assert sql_call["config"].temperature == 0.0
+    assert sql_call["config"].max_output_tokens == 512
+    assert sql_call["config"].thinking_config.thinking_budget == 0
+
+    assert gemini.ask("Compare them", "verified rows") == Response.text
+    grounded_call = calls[-1]
+    assert grounded_call["config"].temperature == 0.1
+    assert grounded_call["config"].max_output_tokens == 512
+    assert grounded_call["config"].thinking_config.thinking_budget == 0
+
+    assert gemini.ask_general("What is AQI?") == Response.text
+    assert "config" not in calls[-1]
+
+    assert gemini.explain("Adyar", {"air_quality": 82}, 22000, "Satisfactory air") == Response.text
+    assert "config" not in calls[-1]

@@ -186,12 +186,12 @@ const AMENITY_LABELS = {
 /* -------------------------------- Overview -------------------------------- */
 const SUB_ICON = { affordability: DollarSign, safety: ShieldCheck, commute: Train, lifestyle: Heart, air_quality: Wind }
 
-// Plain-language read of the AQI forecast so the prediction is visible, not
-// buried in a chart. Prefers our BigQuery ML (ARIMA_PLUS) series, falls back to
-// the Google forecast. Returns null when there is nothing to predict from.
-function forecastTrend(n) {
+// Plain-language read of the same Google series drawn directly below it. The
+// separate Air Quality tab still compares BigQuery ML with Google; mixing the
+// BQML sentence with a Google line in this one panel would be misleading.
+export function forecastTrend(n) {
   const series = n.aqiSeries || {}
-  const fc = (series.bqmlForecast?.length ? series.bqmlForecast : series.forecast) || []
+  const fc = series.forecast || []
   const now = n.aqi
   if (!fc.length || !Number.isFinite(now)) return null
   const vals = fc.map((f) => f.aqi).filter(Number.isFinite)
@@ -199,7 +199,7 @@ function forecastTrend(n) {
   const peak = Math.max(...vals)
   const end = vals[vals.length - 1]
   const delta = end - now
-  const source = series.bqmlForecast?.length ? 'BigQuery ML' : 'Google forecast'
+  const source = 'Google forecast'
   // Higher AQI is worse, so a rising value means air quality worsens.
   let dir = 'holding steady around AQI'
   if (delta >= 8) dir = 'worsening toward AQI'
@@ -223,7 +223,7 @@ function aqiSpike(n) {
   return null
 }
 
-export function OverviewTab({ n }) {
+export function OverviewTab({ n, forecastStatus = 'loading', onRetryForecast = () => {} }) {
   const ins = n.insights || { peers: [] }
   const [showMethod, setShowMethod] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -351,15 +351,33 @@ export function OverviewTab({ n }) {
               </p>
             </div>
           )}
-          <ResponsiveContainer width="100%" height={190}>
-            <LineChart data={n.aqiSeries?.forecast || []} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F6" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9AA0AE' }} tickLine={false} axisLine={false} interval={3} />
-              <YAxis tick={{ fontSize: 10, fill: '#9AA0AE' }} tickLine={false} axisLine={false} />
-              <Tooltip />
-              <Line type="monotone" dataKey="aqi" stroke="#F5A63B" strokeWidth={2.5} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+          {n.aqiSeries?.forecast?.length ? (
+            <ResponsiveContainer width="100%" height={190}>
+              <LineChart data={n.aqiSeries.forecast} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F6" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9AA0AE' }} tickLine={false} axisLine={false} interval={3} />
+                <YAxis tick={{ fontSize: 10, fill: '#9AA0AE' }} tickLine={false} axisLine={false} />
+                <Tooltip />
+                <Line type="monotone" dataKey="aqi" stroke="#F5A63B" strokeWidth={2.5} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : forecastStatus === 'loading' ? (
+            <div className="grid h-[190px] place-items-center rounded-xl bg-band/60" role="status">
+              <div className="text-center text-xs text-muted">
+                <span className="mx-auto mb-2 block h-5 w-5 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+                Loading live AQI forecast…
+              </div>
+            </div>
+          ) : (
+            <div className="grid h-[190px] place-items-center rounded-xl border border-amber-200 bg-amber-50 px-4 text-center" role="status">
+              <div className="text-xs text-amber-800">
+                <p>The live CPCB forecast is temporarily unavailable. No values were estimated or substituted.</p>
+                <button type="button" onClick={onRetryForecast} className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-800 hover:bg-amber-100">
+                  Try again
+                </button>
+              </div>
+            </div>
+          )}
           <p className="mt-2 text-xs text-muted">Live AQI forecast · lower is cleaner air.</p>
         </Panel>
 
@@ -401,8 +419,7 @@ export function OverviewTab({ n }) {
 }
 
 /* ------------------------------ Affordability ----------------------------- */
-const RENT_PREPARING_MS = 2000
-const RENT_POLL_INTERVAL_MS = 4000
+const RENT_POLL_INTERVAL_MS = 2000
 const RENT_POLL_DEADLINE_MS = 74000
 
 export function AffordabilityTab({ n }) {
@@ -488,13 +505,8 @@ export function AffordabilityTab({ n }) {
     setVerificationNotice(refresh
       ? 'Refreshing sources in the background. Your current verification remains visible.'
       : 'Preparing grounded rent evidence...')
-    const startedAt = Date.now()
     try {
       const result = await apiRentVerification(n.id, n.cityId, refresh, true, controller.signal)
-      const remainingPreparation = RENT_PREPARING_MS - (Date.now() - startedAt)
-      if (remainingPreparation > 0) {
-        await new Promise((resolve) => setTimeout(resolve, remainingPreparation))
-      }
       if (controller.signal.aborted) return
       if (result?.status === 'pending' || result?.refreshStatus === 'refreshing') {
         if (result?.status === 'available' || verification?.status !== 'available') setVerification(result)
@@ -1043,15 +1055,11 @@ export function ReviewsPanel({ n }) {
   useEffect(() => {
     let alive = true
     let pollTimer
-    let twoSecondTimer
     let fiveSecondTimer
+    const deadlineAt = Date.now() + 90000
     let attempts = 0
-    const startedAt = Date.now()
     setPhase('preparing')
     setReviews(null)
-    twoSecondTimer = setTimeout(() => {
-      if (alive) setPhase((current) => current === 'ready' ? 'visible' : current)
-    }, 2000)
     fiveSecondTimer = setTimeout(() => {
       if (alive) setPhase((current) => current === 'preparing' ? 'checking' : current)
     }, 5000)
@@ -1061,7 +1069,7 @@ export function ReviewsPanel({ n }) {
       if (!alive) return
       if (d?.status === 'pending') {
         attempts += 1
-        if (attempts >= 45) {
+        if (attempts >= 45 || Date.now() >= deadlineAt) {
           setReviews({
             status: 'temporarily_unavailable',
             summary: '',
@@ -1075,13 +1083,12 @@ export function ReviewsPanel({ n }) {
         return
       }
       setReviews(d)
-      setPhase(Date.now() - startedAt >= 2000 ? 'visible' : 'ready')
+      setPhase('visible')
     }
     load(retryKey > 0)
     return () => {
       alive = false
       clearTimeout(pollTimer)
-      clearTimeout(twoSecondTimer)
       clearTimeout(fiveSecondTimer)
     }
   }, [n.id, n.cityId, retryKey])

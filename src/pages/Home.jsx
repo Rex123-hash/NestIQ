@@ -379,7 +379,7 @@ function Hero() {
 
         <p className="mt-4 flex items-center gap-2 text-sm text-muted">
           <ShieldCheck size={16} className="text-brand-500" />
-          No sign up required to try · Your data stays private
+          No server-side account required · Saved profile and shortlist stay in this browser
         </p>
       </div>
 

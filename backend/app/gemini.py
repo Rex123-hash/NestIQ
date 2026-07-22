@@ -64,11 +64,11 @@ def _generate(**kwargs):
 
 class Criteria(BaseModel):
     budget: int = Field(default=30000, description="monthly rent budget in INR")
-    w_affordability: int = 20
-    w_safety: int = 20
-    w_commute: int = 20
-    w_lifestyle: int = 15
-    w_air_quality: int = 25
+    w_affordability: int = Field(default=20, ge=0, le=100)
+    w_safety: int = Field(default=20, ge=0, le=100)
+    w_commute: int = Field(default=20, ge=0, le=100)
+    w_lifestyle: int = Field(default=15, ge=0, le=100)
+    w_air_quality: int = Field(default=25, ge=0, le=100)
     anchor: str = Field(default="", description="commute destination if mentioned")
 
 
@@ -177,24 +177,44 @@ def _clean_sql(text: str) -> str:
 
 def nl_to_sql(question: str, city: str, table_ref: str) -> str:
     """Translate a natural-language question into one BigQuery SELECT."""
+    from google.genai import types
+
     prompt = (
         "You translate a question into exactly ONE BigQuery Standard SQL SELECT over a single table of "
         f"Indian residential localities.\nTable: `{table_ref}`\nColumns: {INDIA_SQL_COLUMNS}\n"
+        f"Selected city identifier: {city}\n"
         "Rules: output ONLY the SQL (no markdown, no prose, no semicolon); it MUST be a single SELECT; "
-        f"ALWAYS include WHERE city = '{city}'; return about 5 rows (LIMIT 5) so the answer has context, "
+        "ALWAYS include WHERE city = @city; the backend binds @city and independently scopes the source CTE. "
+        "Return about 5 rows (LIMIT 5) so the answer has context, "
         "use LIMIT 1 ONLY if the question is explicitly about a single top/bottom item; remember LOWER aqi = "
-        "cleaner air and rent is INR/month. Select the columns needed to answer, and include `name`.\n"
+        "cleaner air and rent is INR/month. For every ranked, comparison, or locality-row result, the SELECT "
+        "MUST include `id` and `name`; omit them only for a true single-row city aggregate such as COUNT or AVG. "
+        "Whenever the SELECT includes `aqi`, it MUST also include `aqi_category`. Select only the other columns "
+        "needed to answer.\n"
         f'Question: "{question}"'
     )
-    resp = _generate(model=settings.gemini_model, contents=prompt)
+    # SQL extraction is deterministic and short. Disabling a reasoning pass
+    # removes avoidable latency while the SQL guard remains the authority.
+    resp = _generate(
+        model=settings.gemini_model,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=0.0,
+            max_output_tokens=512,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        ),
+    )
     return _clean_sql(resp.text)
 
 
 def ask(question: str, context: str) -> str:
     try:
+        from google.genai import types
+
         prompt = (
             "You are NestIQ, an AI neighborhood assistant for Indian cities. Answer concisely (2-4 sentences) "
             "using ONLY the data context (rent in INR, AQI where lower is cleaner). "
+            "When a row contains cpcbBand, use that exact deterministic CPCB health-band label. "
             "Treat rankings as relative: say 'lowest AQI among the compared localities', never call the lowest "
             "reading clean or safe unless its stated CPCB health band supports that. Always mention the available "
             "AQI health band alongside an AQI comparison. A current AQI snapshot can establish a ranking, not the "
@@ -209,7 +229,16 @@ def ask(question: str, context: str) -> str:
             "'provided context' or 'the dataset'. Do not use em dashes; use commas or full stops instead."
             f"\n\nContext:\n{context}\n\nQuestion: {question}"
         )
-        resp = _generate(model=settings.gemini_model, contents=prompt)
+        # This is bounded evidence summarization, not open-ended reasoning.
+        resp = _generate(
+            model=settings.gemini_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=512,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+            ),
+        )
         return (resp.text or "").strip()
     except Exception as e:  # noqa: BLE001
         telemetry.event("tool_fallback", tool="gemini_ask", fallbackUsed=True,
@@ -226,6 +255,8 @@ def ask_general(question: str, conversation: str = "") -> str:
             "calculations accurately, and explain stable concepts in plain language. Use the shortest complete "
             "answer that is useful; do not force every question back to neighborhoods. You may explain concepts such "
             "as CPCB AQI bands, rent-versus-commute trade-offs, evidence confidence, and neighborhood evaluation. "
+            "Use these exact CPCB AQI labels when relevant: Good 0-50, Satisfactory 51-100, Moderate 101-200, "
+            "Poor 201-300, Very Poor 301-400, Severe 401 and above. "
             "Do not claim current conditions, current prices, local incidents, or a locality-specific cause unless "
             "verified evidence is supplied. If the user asks for a current or locality-specific fact, explain that "
             "NestIQ must check live evidence and suggest the precise live comparison they can ask for. Never equate "
@@ -240,19 +271,92 @@ def ask_general(question: str, conversation: str = "") -> str:
         return "I couldn't reach the general guidance assistant just now. You can still ask NestIQ to compare current locality evidence."
 
 
+def _citation_from_chunk(chunk) -> dict | None:
+    web = getattr(chunk, "web", None)
+    uri = getattr(web, "uri", None)
+    if not uri:
+        return None
+    return {"title": getattr(web, "title", None) or uri, "uri": uri}
+
+
 def _grounding_citations(resp, limit: int = 8) -> list[dict]:
     citations, seen = [], set()
     try:
         chunks = resp.candidates[0].grounding_metadata.grounding_chunks or []
         for ch in chunks:
-            web = getattr(ch, "web", None)
-            uri = getattr(web, "uri", None)
-            if uri and uri not in seen:
-                seen.add(uri)
-                citations.append({"title": getattr(web, "title", None) or uri, "uri": uri})
+            citation = _citation_from_chunk(ch)
+            if citation and citation["uri"] not in seen:
+                seen.add(citation["uri"])
+                citations.append(citation)
     except Exception:  # noqa: BLE001
         pass
     return citations[:limit]
+
+
+def _title_matched_citation(wanted: str, citations: list[dict]) -> dict | None:
+    wanted = str(wanted or "").strip().lower()
+    return next((
+        citation for citation in citations
+        if wanted and (
+            wanted in str(citation.get("title") or "").lower()
+            or str(citation.get("title") or "").lower() in wanted
+        )
+    ), None)
+
+
+def _grounded_item_citations(resp, ledger: str, parsed: dict) -> tuple[bool, dict[int, dict]]:
+    """Bind ledger lines to Google's own grounding-support chunk indices.
+
+    Returns ``(False, {})`` when the provider supplied no support metadata, so
+    the caller can use the reversible legacy title matcher. Once any support
+    metadata exists, only explicitly supported lines receive a citation; an
+    unsupported line cannot pass merely because it copied a plausible title.
+    """
+    try:
+        metadata = resp.candidates[0].grounding_metadata
+        supports = list(metadata.grounding_supports or [])
+        chunks = list(metadata.grounding_chunks or [])
+    except Exception:  # noqa: BLE001
+        return False, {}
+    if not supports:
+        return False, {}
+
+    mapped: dict[int, dict] = {}
+    for item_index, item in enumerate(parsed.get("items", [])):
+        line_start = item.get("_lineStart")
+        line_end = item.get("_lineEnd")
+        if not isinstance(line_start, int) or not isinstance(line_end, int):
+            continue
+        candidates = []
+        seen = set()
+        for support in supports:
+            segment = getattr(support, "segment", None)
+            start = getattr(segment, "start_index", None)
+            end = getattr(segment, "end_index", None)
+            segment_text = str(getattr(segment, "text", None) or "")
+            if not isinstance(start, int) or not isinstance(end, int):
+                start = ledger.find(segment_text) if segment_text else -1
+                end = start + len(segment_text) if start >= 0 else -1
+            overlaps = start < line_end and end > line_start
+            if not overlaps:
+                continue
+            for chunk_index in list(getattr(support, "grounding_chunk_indices", None) or []):
+                if not isinstance(chunk_index, int) or not 0 <= chunk_index < len(chunks):
+                    continue
+                citation = _citation_from_chunk(chunks[chunk_index])
+                if citation and citation["uri"] not in seen:
+                    seen.add(citation["uri"])
+                    candidates.append(citation)
+        if not candidates:
+            continue
+        # When Google links several sources to one line, retain the model's
+        # exact-title preference if possible; otherwise any provider-linked
+        # candidate is a valid citation for that supported span.
+        mapped[item_index] = (
+            _title_matched_citation(item.get("sourceTitle"), candidates)
+            or candidates[0]
+        )
+    return True, mapped
 
 
 def web_reviews(name: str, city: str) -> dict:
@@ -309,12 +413,13 @@ _PULSE_CATEGORIES = {"civic", "mobility", "environment", "safety", "development"
 _PULSE_SEVERITIES = {"low", "informational", "moderate", "high"}
 
 
-def analyze_pulse_items(raw: dict, citations: list[dict], today: date | None = None) -> list[dict]:
+def analyze_pulse_items(raw: dict, citations: list[dict], today: date | None = None,
+                        support_citations: dict[int, dict] | None = None) -> list[dict]:
     """Validate model-found civic items against actual grounding citations."""
     today = today or datetime.now(timezone.utc).date()
     sources = [c for c in citations if c.get("uri") and c.get("title")]
     validated = []
-    for item in raw.get("items", []) if isinstance(raw, dict) else []:
+    for item_index, item in enumerate(raw.get("items", []) if isinstance(raw, dict) else []):
         if not isinstance(item, dict):
             continue
         headline = str(item.get("headline") or "").strip()[:140]
@@ -328,8 +433,11 @@ def analyze_pulse_items(raw: dict, citations: list[dict], today: date | None = N
         age = (today - date.fromisoformat(observed_on)).days
         if age > 30:
             continue
-        wanted = str(item.get("sourceTitle") or "").strip().lower()
-        citation = next((c for c in sources if wanted and (wanted in c["title"].lower() or c["title"].lower() in wanted)), None)
+        citation = (
+            support_citations.get(item_index)
+            if support_citations is not None
+            else _title_matched_citation(item.get("sourceTitle"), sources)
+        )
         if not citation:
             continue
         validated.append({
@@ -344,7 +452,11 @@ def analyze_pulse_items(raw: dict, citations: list[dict], today: date | None = N
 def _parse_pulse_ledger(text: str) -> dict:
     """Parse the requested civic ledger locally to avoid a second model call."""
     items = []
-    for raw_line in text.splitlines():
+    cursor = 0
+    for line_with_ending in text.splitlines(keepends=True):
+        raw_line = line_with_ending.rstrip("\r\n")
+        line_start = cursor
+        cursor += len(line_with_ending)
         parts = [part.strip() for part in raw_line.strip(" -*•\t").split("|")]
         if len(parts) < 7:
             continue
@@ -358,6 +470,8 @@ def _parse_pulse_ledger(text: str) -> dict:
             "headline": headline,
             "summary": summary,
             "sourceTitle": source_title,
+            "_lineStart": line_start,
+            "_lineEnd": line_start + len(raw_line),
         })
     return {"items": items[:4]}
 
@@ -367,9 +481,11 @@ def locality_pulse(name: str, city: str) -> dict:
     try:
         from google.genai import types
         search_prompt = (
-            f"Search the web for current civic and daily-life developments affecting {name}, {city}, India. "
+            f"Search Google now for current civic and daily-life developments affecting {name}, {city}, India. "
+            "Use Google Search results as evidence. "
             "Create a machine-readable evidence ledger with one event per line, exactly: "
             "YYYY-MM-DD | category | severity | affected area | headline | concise summary | exact cited source page title. "
+            "Return at most 4 events. "
             "Only include items published or verified in the last 30 days. "
             "Prefer official civic notices and reputable local reporting. Do not invent items; if no reliable "
             "recent evidence exists after completing the search, output exactly NO_VERIFIED_UPDATES. "
@@ -378,7 +494,14 @@ def locality_pulse(name: str, city: str) -> dict:
             "Output only evidence-ledger lines, with no prose or markdown."
         )
         resp = _generate(model=settings.gemini_model, contents=search_prompt, config=types.GenerateContentConfig(
-            tools=[types.Tool(google_search=types.GoogleSearch())], temperature=0.2,
+            tools=[types.Tool(google_search=types.GoogleSearch())], temperature=0.0,
+            # Pulse is a short extraction task, so reserving the output budget
+            # for the cited ledger is both faster and safer. With Gemini 2.5
+            # Flash's default thinking, the former 900-token cap could be spent
+            # before the first ledger line finished, yielding MAX_TOKENS and no
+            # grounding chunks even though Search had run.
+            max_output_tokens=1400,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         ))
         ledger = (resp.text or "").strip()
         citations = _grounding_citations(resp, 8)
@@ -389,11 +512,29 @@ def locality_pulse(name: str, city: str) -> dict:
                 "status": "temporarily_unavailable",
                 "items": [],
                 "citations": citations,
-                "errorCode": "unusable_grounding",
+                "errorCode": "empty_grounding" if not ledger else "missing_citations",
             }
-        local_items = analyze_pulse_items(_parse_pulse_ledger(ledger), citations)
+        parsed = _parse_pulse_ledger(ledger)
+        supports_present, support_citations = _grounded_item_citations(resp, ledger, parsed)
+        use_supports = settings.pulse_use_grounding_supports and supports_present
+        validation_method = "grounding_supports" if use_supports else "exact_title"
+        local_items = analyze_pulse_items(
+            parsed, citations,
+            support_citations=support_citations if use_supports else None,
+        )
         if local_items:
-            return {"status": "available", "items": local_items, "citations": citations}
+            # Ensure every item-level source also appears in the response-level
+            # citation list even when its grounding chunk was beyond the first
+            # deduplicated results returned by the provider.
+            known = {citation.get("uri") for citation in citations}
+            for item in local_items:
+                if item["sourceUrl"] not in known:
+                    citations.append({"title": item["source"], "uri": item["sourceUrl"]})
+                    known.add(item["sourceUrl"])
+            return {
+                "status": "available", "items": local_items, "citations": citations,
+                "validationMethod": validation_method,
+            }
         # Do not chain a second model call when the ledger is malformed. This is
         # an unusable grounding response, not evidence that no events exist.
         return {
@@ -401,11 +542,21 @@ def locality_pulse(name: str, city: str) -> dict:
             "items": [],
             "citations": citations,
             "errorCode": "unusable_grounding",
+            "validationMethod": validation_method,
         }
     except Exception as e:  # noqa: BLE001
         telemetry.event("tool_fallback", tool="gemini_locality_pulse", fallbackUsed=True,
                         errorType=type(e).__name__)
-        return {"status": "temporarily_unavailable", "items": [], "citations": [], "errorCode": "grounding_unavailable"}
+        message = str(e).lower()
+        if "permission_denied" in message or "403" in message or "aiplatform.endpoints.predict" in message:
+            code = "vertex_permission_denied"
+        elif "quota" in message or "resource_exhausted" in message or "429" in message:
+            code = "vertex_quota_exhausted"
+        elif "timeout" in message or "deadline" in message:
+            code = "grounding_timeout"
+        else:
+            code = "grounding_unavailable"
+        return {"status": "temporarily_unavailable", "items": [], "citations": [], "errorCode": code}
 
 
 def _json_object(text: str) -> dict:
@@ -628,7 +779,14 @@ def verify_rent(name: str, city: str) -> dict:
             contents=search_prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
-                temperature=0.1,
+                # This is deterministic extraction, not a reasoning task. The
+                # default Gemini 2.5 thinking pass was observed spending over
+                # 5,800 tokens before emitting a 10-line rent ledger. Reserving
+                # the budget for grounded output cuts that delay without
+                # changing citation or numeric validation.
+                temperature=0.0,
+                max_output_tokens=1800,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         grounded_text = (grounded.text or "").strip()

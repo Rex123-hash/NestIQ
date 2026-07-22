@@ -1,7 +1,7 @@
 {
   "status": "passed",
-  "passed": 15,
-  "total": 15,
+  "passed": 18,
+  "total": 18,
   "passRate": 100,
   "dimensions": {
     "health_scoring": {
@@ -19,6 +19,10 @@
     "security": {
       "passed": 2,
       "total": 2
+    },
+    "tool_routing": {
+      "passed": 3,
+      "total": 3
     },
     "api_contract": {
       "passed": 1,
@@ -87,6 +91,24 @@
       "evidence": "stacked SELECT/DROP rejected before a BigQuery client is constructed"
     },
     {
+      "id": "copilot-verified-name-comparison-uses-analytics",
+      "dimension": "tool_routing",
+      "passed": true,
+      "evidence": "two selected-city catalog names route to guarded BigQuery analytics"
+    },
+    {
+      "id": "copilot-general-concept-stays-model-only",
+      "dimension": "tool_routing",
+      "passed": true,
+      "evidence": "a scalar AQI concept question does not launch a BigQuery job"
+    },
+    {
+      "id": "copilot-invented-localities-cannot-launch-analytics",
+      "dimension": "tool_routing",
+      "passed": true,
+      "evidence": "unknown names are not treated as verified locality analytics subjects"
+    },
+    {
       "id": "civic-rag-citations-controlled",
       "dimension": "groundedness",
       "passed": true,
@@ -114,7 +136,7 @@
       "id": "adk-health-sensitive-tool-trajectory",
       "dimension": "tool_trajectory",
       "passed": true,
-      "evidence": "agents=['planner', 'live_signals_agent', 'live_signals_agent', 'analytics_agent', 'analytics_agent', 'civic_intelligence_agent', 'civic_intelligence_agent', 'validator', 'explainer'], finalEvents=1, latencyMs=8.28"
+      "evidence": "agents=['planner', 'live_signals_agent', 'live_signals_agent', 'analytics_agent', 'analytics_agent', 'civic_intelligence_agent', 'civic_intelligence_agent', 'validator', 'explainer'], finalEvents=1, latencyMs=18.03"
     },
     {
       "id": "adk-missing-data-validator",
@@ -131,18 +153,19 @@
   ],
   "metrics": {
     "toolTrajectoryAccuracy": 100,
+    "selectiveToolRoutingAccuracy": 100,
     "groundedness": 100,
     "citationPrecision": 100,
     "unsupportedClaimRate": 0,
     "contradictionRate": 0,
     "taskCompletion": 100,
     "latencyMs": {
-      "adkHealthSensitive": 8.28
+      "adkHealthSensitive": 18.03
     },
     "fallbackFrequency": {
       "count": 2,
-      "evaluatedScenarios": 15,
-      "percent": 13
+      "evaluatedScenarios": 18,
+      "percent": 11
     }
   },
   "scope": {
@@ -154,6 +177,7 @@
       "SQL security",
       "controlled RAG",
       "ADK tool trajectory",
+      "Copilot selective tool routing",
       "unsupported-locality handling",
       "graceful degradation"
     ],
@@ -162,6 +186,6 @@
     ]
   },
   "billableCalls": 0,
-  "generatedAt": "2026-07-21T15:20:56.681012+00:00",
+  "generatedAt": "2026-07-22T00:03:54.447855+00:00",
   "runner": "NestIQ deterministic ADK and guardrail evaluation"
 }

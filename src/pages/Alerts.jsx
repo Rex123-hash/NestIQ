@@ -65,7 +65,7 @@ function useLiveSaved() {
 
 // Grounded pulse for the whole selected city. Polls while the background source
 // check is still running, so a "pending" resolves to real evidence.
-function useCityPulse(city, active) {
+function useCityPulse(city) {
   const [pulse, setPulse] = useState(null)
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -80,11 +80,7 @@ function useCityPulse(city, active) {
     }
     run()
     return () => controller.abort()
-  // Re-check the shared Firestore result when City Pulse becomes visible. The
-  // preload may have seen a transient provider failure that another generation
-  // subsequently recovered from; keeping the old terminal response on screen
-  // would be stale even though the backend now has a valid result.
-  }, [city, tick, active])
+  }, [city, tick])
   return [pulse, () => setTick((t) => t + 1)]
 }
 
@@ -117,7 +113,10 @@ function useWatchlistEvents(saved) {
         } },
       )
     }
-    runPulseQueue(saved, fetchUntilTerminal, 2).then((results) => {
+    // Four bounded workers let several saved-locality checks make progress at
+    // once. Backend/Firestore single-flight still prevents duplicate Gemini
+    // calls for a locality that was already prefetched elsewhere.
+    runPulseQueue(saved, fetchUntilTerminal, 4).then((results) => {
       if (!controller.signal.aborted) setPulse(aggregateWatchlistPulse(results))
     })
     return () => controller.abort()
@@ -125,23 +124,17 @@ function useWatchlistEvents(saved) {
   return [pulse, () => setTick((t) => t + 1)]
 }
 
-// A prepared result still gets a short, predictable transition when its view is
-// opened. This avoids a suspicious instant flash while never hiding a slow job.
+// Show prepared terminal evidence immediately. Only an actually pending job
+// gets a longer "still checking" message after five seconds.
 function usePreparedPulse(pulse, active, identity) {
-  const [minimumElapsed, setMinimumElapsed] = useState(false)
   const [softWaitElapsed, setSoftWaitElapsed] = useState(false)
   useEffect(() => {
     if (!active) return undefined
-    setMinimumElapsed(false)
     setSoftWaitElapsed(false)
-    const minimum = setTimeout(() => setMinimumElapsed(true), 2000)
     const softWait = setTimeout(() => setSoftWaitElapsed(true), 5000)
-    return () => {
-      clearTimeout(minimum)
-      clearTimeout(softWait)
-    }
+    return () => clearTimeout(softWait)
   }, [active, identity])
-  if (!active || !minimumElapsed || !pulse || pulse.status === 'pending') {
+  if (!active || !pulse || pulse.status === 'pending') {
     return [
       { status: 'pending', items: [] },
       softWaitElapsed
@@ -290,7 +283,7 @@ export default function Alerts() {
   const cityName = cities?.find((c) => c.id === city)?.name || 'this city'
   // Both evidence paths start as soon as Alerts opens. Switching views only
   // controls presentation; it never starts a cold Gemini request.
-  const [cityPulse, retryCityPulse] = useCityPulse(city, view === 'city')
+  const [cityPulse, retryCityPulse] = useCityPulse(city)
   const [watchlistPulse, retryWatchlistPulse] = useWatchlistEvents(saved)
   const watchlistKey = saved.map((n) => `${n.city}:${n.id}`).join(',')
   const [shownCityPulse, cityPendingLabel] = usePreparedPulse(cityPulse, view === 'city', city)

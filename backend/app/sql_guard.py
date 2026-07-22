@@ -48,7 +48,7 @@ def validate_analytics_sql(sql: str) -> str:
     text = sql.strip().rstrip(";").strip()
 
     # Comments can hide intent and split statements; the model is never asked for them.
-    if "--" in text or "/*" in text or "*/" in text:
+    if "--" in text or "#" in text or "/*" in text or "*/" in text:
         raise SqlGuardError("comments are not allowed")
 
     # A single statement only. (Trailing semicolon already stripped above.)
@@ -69,11 +69,13 @@ def validate_analytics_sql(sql: str) -> str:
         if re.search(rf"\b{kw}\b", scan):
             raise SqlGuardError(f"forbidden keyword: {kw}")
 
-    # Every table reference must be the allowed CTE or an alias defined in this query.
-    local_aliases = set(re.findall(r"\)\s*(?:as\s+)?([a-z_][a-z0-9_]*)", scan))
+    # Every actual table-position identifier must be the allowed CTE. Subquery
+    # aliases are consumed by _table_targets and never need to be allowlisted;
+    # treating aliases as tables lets a hostile inner table reuse its own name
+    # as an outer alias and bypass validation.
     targets = _table_targets(scan)
     for target in targets:
-        if target not in ALLOWED_TABLES and target not in local_aliases:
+        if target not in ALLOWED_TABLES:
             raise SqlGuardError(f"table not allowed: {target}")
     if not targets:
         raise SqlGuardError("query does not read the allowed table")
