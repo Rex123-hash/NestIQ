@@ -4,7 +4,7 @@
 |---|---|
 | Product | NestIQ — AI-powered neighborhood decision intelligence |
 | Team | WebHackers |
-| Owner | Amaan Khan |
+| Team members | Srishti Rathi — Team Leader; Amaan Khan |
 | Hackathon | Google Cloud Gen AI Academy APAC, Cohort 2 |
 | Problem statement | AI for Better Living and Smarter Communities |
 | Product status | Implemented, verified, and deployed |
