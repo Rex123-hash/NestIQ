@@ -15,7 +15,7 @@ NestIQ helps people compare where to live across affordability, air quality, saf
 ![BigQuery](https://img.shields.io/badge/BigQuery_+_BQML-7C5CF6?style=flat-square&logo=googlebigquery&logoColor=white)
 ![Maps](https://img.shields.io/badge/Google_Maps_Platform-7C5CF6?style=flat-square&logo=googlemaps&logoColor=white)
 ![ADK](https://img.shields.io/badge/Google_ADK_agents-7C5CF6?style=flat-square&logo=google&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-518_passing-3FB984?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-521_passing-3FB984?style=flat-square)
 ![Evaluation](https://img.shields.io/badge/evaluation-18%2F18-3FB984?style=flat-square)
 
 Built for the **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon**
@@ -31,7 +31,7 @@ Problem Statement: *AI for Better Living and Smarter Communities*
 
 | Production | Verified catalog | Automated verification | Responsible-agent evaluation |
 |---|---:|---:|---:|
-| [Live Firebase experience](https://nestiq-india.web.app) | **13 cities · 73 localities** | **518 tests passing** | **18 / 18 · zero billable calls** |
+| [Live Firebase experience](https://nestiq-india.web.app) | **13 cities · 73 localities** | **521 tests passing** | **18 / 18 · zero billable calls** |
 
 **Submission documents:** [Product and system design](NestIQ-Design-Spec.md) · [Security architecture](SECURITY.md)
 
@@ -287,7 +287,7 @@ Each choice below is stated with its reasoning, because the reasoning is the par
 
 ## <img src="assets/readme/evaluation.svg" height="22" align="center" alt="" /> &nbsp;Responsible AI practices
 
-`backend/app/evaluation.py` runs a deterministic, offline scorecard with **zero billable calls**. The checked-in scorecard passes **18 of 18 cases across nine dimensions**; the machine-readable evidence is retained in `artifacts/phase13/latest.json`.
+`backend/app/evaluation.py` runs a deterministic, offline scorecard with **zero billable calls**. The checked-in scorecard passes **18 of 18 cases across nine dimensions**; the machine-readable evidence is retained in `artifacts/responsible-ai-evaluation/latest.json`.
 
 | Dimension | Result | What the cases establish |
 |---|---:|---|
@@ -417,9 +417,9 @@ These figures come from the reproducible verification commands below.
 
 | Gate | Result |
 |---|---|
-| Backend tests | **396 passed** across 37 test modules |
+| Backend tests | **399 passed** across 37 test modules |
 | Frontend tests | **122 passed** across 19 test files |
-| Combined automated tests | **518 passed** |
+| Combined automated tests | **521 passed** |
 | Production build | **Passing** with Vite 8.1.5; initial JavaScript bundle **62.86 kB gzip** |
 | Evaluation scorecard | **18 / 18** across nine dimensions, 0 billable calls |
 | City validator | **0 structural errors** across 13 cities |
@@ -427,7 +427,7 @@ These figures come from the reproducible verification commands below.
 Reproduce:
 
 ```bash
-cd backend && python -m pytest -q          # 396 passed
+cd backend && python -m pytest -q          # 399 passed
 python -m app.evaluation                    # 18 / 18, zero billable calls
 python -m tools.validate_city              # 0 structural errors
 
@@ -570,7 +570,7 @@ NestIQ/
 │   ├── data/
 │   │   ├── civic_knowledge.json      civic document corpus
 │   │   └── city_coverage_report.md   generated validation artifact
-│   └── tests/                        396 tests across 37 modules, fully offline
+│   └── tests/                        399 tests across 37 modules, fully offline
 ├── assets/readme/                    themed section icons
 ├── NestIQ-Design-Spec.md             product and system contract
 ├── SECURITY.md                       public security architecture

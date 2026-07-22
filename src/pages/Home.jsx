@@ -649,10 +649,10 @@ function HowItWorks() {
   )
 }
 
-/* -------------------------- Phase 13 trust proof -------------------------- */
+/* ------------------------ Responsible AI trust proof ----------------------- */
 const EVAL_METRICS = [
   ['18/18', 'evaluation cases passed'],
-  ['518', 'automated tests passed'],
+  ['521', 'automated tests passed'],
   ['100%', 'groundedness in the offline suite'],
   ['0%', 'unsupported claims in the offline suite'],
 ]
@@ -670,7 +670,7 @@ function TrustProof() {
       <div className="relative mx-auto max-w-[1240px] px-6 md:px-10">
         <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
           <div className="max-w-3xl">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-brand-200"><CircleCheck size={14} /> Phase 13 verified · 22 July 2026</span>
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-brand-200"><CircleCheck size={14} /> Evaluation suite passed · 22 July 2026</span>
             <h2 className="mt-5 font-serif text-3xl md:text-4xl">Tested for trust—not just designed for it.</h2>
             <p className="mt-4 max-w-2xl text-base leading-7 text-white/65">NestIQ is evaluated for grounded evidence, citation quality, decision safety, tool behaviour, and honest handling of missing data.</p>
           </div>
@@ -698,7 +698,7 @@ function TrustProof() {
         </div>
         <p className="mt-6 text-xs leading-5 text-white/45">Offline deterministic evaluation: 18 cases, 0 billable calls. Automated-test total reflects the verified build published on 22 July 2026.</p>
         <a
-          href="https://github.com/Rex123-hash/NestIQ/tree/main/artifacts/phase13"
+          href="https://github.com/Rex123-hash/NestIQ/tree/main/artifacts/responsible-ai-evaluation"
           target="_blank"
           rel="noreferrer"
           className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-brand-200 transition hover:text-white"
@@ -745,7 +745,7 @@ function DataSources() {
 const STATS = [
   ['13', 'Indian cities covered'],
   ['73', 'validated localities'],
-  ['18/18', 'Phase 13 evaluation cases'],
+  ['18/18', 'Responsible AI evaluation cases'],
 ]
 
 function About() {

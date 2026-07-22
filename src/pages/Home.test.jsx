@@ -44,7 +44,7 @@ describe('refined NestIQ homepage', () => {
     expect(screen.getByText('Budget-aware')).toBeTruthy()
     expect(screen.getByText('Live health signal')).toBeTruthy()
     expect(screen.getAllByText('18/18', { selector: 'p' })).toHaveLength(2)
-    expect(screen.getByText('518')).toBeTruthy()
+    expect(screen.getByText('521')).toBeTruthy()
     expect(screen.getByText(/Every signal is sourced, dated/i)).toBeTruthy()
   })
 

@@ -125,6 +125,26 @@ class TestAsk:
         assert body["rows"]
         assert [tool["id"] for tool in body["tools"]] == ["bigquery", "gemini"]
 
+    def test_similarity_question_restores_bigquery_board(self, client):
+        body = client.post("/api/ask", json={
+            "question": "Which localities are similar on air + rent?", "city": "kochi",
+        }).json()
+
+        assert body["mode"] == "city_analytics"
+        assert body["sql"].lstrip().upper().startswith("SELECT")
+        assert body["rows"]
+        assert [tool["id"] for tool in body["tools"]] == ["bigquery", "gemini"]
+
+    def test_named_budget_pick_uses_bigquery_comparison(self, client):
+        body = client.post("/api/ask", json={
+            "question": "Is Edappally, Kochi a good budget pick?", "city": "kochi",
+        }).json()
+
+        assert body["mode"] == "city_analytics"
+        assert body["sql"].lstrip().upper().startswith("SELECT")
+        assert body["rows"]
+        assert [tool["id"] for tool in body["tools"]] == ["bigquery", "gemini"]
+
     def test_name_only_locality_question_resolves_verified_scope(self, client, monkeypatch):
         from app import main
         captured = {}

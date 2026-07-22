@@ -26,3 +26,6 @@ __pycache__/
 
 # Internal working notes — kept locally, not part of the published repo
 docs/internal/
+
+# Local evaluation clones — never publish
+eval_repos/

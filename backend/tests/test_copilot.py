@@ -14,6 +14,9 @@ class TestCopilotRouting:
     def test_comparative_question_routes_to_analytics(self):
         assert copilot.route_intent("Compare the cheapest localities") == copilot.CITY_ANALYTICS
         assert copilot.route_intent("Which locality has the cleanest air?") == copilot.CITY_ANALYTICS
+        assert copilot.route_intent(
+            "Which localities are similar on air + rent?",
+        ) == copilot.CITY_ANALYTICS
 
     def test_ordinary_city_question_avoids_an_unnecessary_analytics_job(self):
         assert copilot.route_intent("Is the air safe to go out today?") == copilot.CITY_EVIDENCE
@@ -52,6 +55,12 @@ class TestCopilotRouting:
         assert [item["id"] for item in copilot.locality_mentions(
             "What about Adyar's rent?", CHENNAI_LOCALITIES,
         )] == ["adyar"]
+
+    def test_named_budget_judgement_routes_to_city_analytics(self):
+        kochi_localities = get_city("kochi")["localities"]
+        assert copilot.route_intent(
+            "Is Edappally, Kochi a good budget pick?", localities=kochi_localities,
+        ) == copilot.CITY_ANALYTICS
 
     def test_unknown_names_and_scalar_concepts_do_not_trigger_bigquery(self):
         assert copilot.route_intent(
@@ -150,12 +159,20 @@ def test_nl_to_sql_requests_navigation_identity_and_aqi_context(monkeypatch):
     assert "MUST also include aqi_category" in prompt
     assert "no semicolon or backticks" in prompt
     assert "ALWAYS include WHERE city = @city" in prompt
+    assert "never embed the selected city as a quoted literal" in prompt
+    assert "good, value, or budget choice" in prompt
+    assert "For a similarity question" in prompt
+    assert "use a.id < b.id" in prompt
     assert sql_call["config"].temperature == 0.0
     assert sql_call["config"].max_output_tokens == 512
     assert sql_call["config"].thinking_config.thinking_budget == 0
 
     assert gemini.ask("Compare them", "verified rows") == Response.text
     grounded_call = calls[-1]
+    grounded_prompt = grounded_call["contents"]
+    assert "Mention causal evidence ONLY" in grounded_prompt
+    assert "answer directly in the first sentence" in grounded_prompt
+    assert "Mention that limitation ONLY" in grounded_prompt
     assert grounded_call["config"].temperature == 0.1
     assert grounded_call["config"].max_output_tokens == 512
     assert grounded_call["config"].thinking_config.thinking_budget == 0

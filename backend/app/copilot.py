@@ -21,7 +21,9 @@ GENERAL_GUIDANCE = "general_guidance"
 _ANALYTICS_PATTERNS = (
     r"\bcompare\b",
     r"\brank(?:ed|ing)?\b",
-    r"\bwhich (?:locality|area|neighbou?rhood)\b",
+    r"\bwhich (?:localit(?:y|ies)|areas?|neighbou?rhoods?)\b",
+    r"\b(?:similar|closest|most alike)\b",
+    r"\b(?:good|strong|smart|best[- ]value)\s+(?:budget\s+)?(?:pick|choice|option)\b",
     r"\b(?:best|worst|cleanest|dirtiest|cheapest|costliest|safest|fastest)\b",
     r"\b(?:highest|lowest|most|least|top|bottom)\b",
     r"\b(?:average|median|how many)\b",

@@ -1,4 +1,4 @@
-"""Write a timestamped Phase 13 evaluation result artifact without network calls."""
+"""Write a timestamped Responsible AI evaluation artifact without network calls."""
 from __future__ import annotations
 
 import json
@@ -13,16 +13,20 @@ def main() -> int:
     report["generatedAt"] = datetime.now(timezone.utc).isoformat()
     report["runner"] = "NestIQ deterministic ADK and guardrail evaluation"
 
-    output_dir = Path(__file__).resolve().parents[2] / "artifacts" / "phase13"
+    output_dir = (
+        Path(__file__).resolve().parents[2]
+        / "artifacts"
+        / "responsible-ai-evaluation"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    output_path = output_dir / f"phase13-results-{stamp}.json"
+    output_path = output_dir / f"scorecard-{stamp}.json"
     output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     (output_dir / "latest.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     cli_trace = {
         "eval_cases": [{
-            "eval_case_id": "nestiq-phase13-implemented-capabilities",
+            "eval_case_id": "nestiq-responsible-ai-capabilities",
             "prompt": {
                 "role": "user",
                 "parts": [{"text": "Evaluate NestIQ's implemented agent, RAG, scoring, and degradation paths."}],
@@ -35,7 +39,7 @@ def main() -> int:
             }],
         }],
     }
-    cli_trace_path = output_dir / "agents-cli-traces.json"
+    cli_trace_path = output_dir / "agent-evaluation-trace.json"
     cli_trace_path.write_text(json.dumps(cli_trace, indent=2), encoding="utf-8")
 
     print(json.dumps({

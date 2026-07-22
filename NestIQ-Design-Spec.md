@@ -339,7 +339,7 @@ The implementation is accepted only when all of the following pass:
 |---|---:|
 | Backend test suite | 396 passing tests across 37 modules |
 | Frontend test suite | 122 passing tests across 19 files |
-| Combined automated checks | 518 passing tests |
+| Combined automated checks | 521 passing tests |
 | Responsible-agent scorecard | 18 / 18, zero billable calls |
 | City publication validator | 0 structural errors across 13 cities |
 | Production frontend build | Passing with Vite 8.1.5 |

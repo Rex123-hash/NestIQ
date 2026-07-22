@@ -136,7 +136,7 @@
       "id": "adk-health-sensitive-tool-trajectory",
       "dimension": "tool_trajectory",
       "passed": true,
-      "evidence": "agents=['planner', 'live_signals_agent', 'live_signals_agent', 'analytics_agent', 'analytics_agent', 'civic_intelligence_agent', 'civic_intelligence_agent', 'validator', 'explainer'], finalEvents=1, latencyMs=18.03"
+      "evidence": "agents=['planner', 'live_signals_agent', 'live_signals_agent', 'analytics_agent', 'analytics_agent', 'civic_intelligence_agent', 'civic_intelligence_agent', 'validator', 'explainer'], finalEvents=1, latencyMs=15.22"
     },
     {
       "id": "adk-missing-data-validator",
@@ -160,7 +160,7 @@
     "contradictionRate": 0,
     "taskCompletion": 100,
     "latencyMs": {
-      "adkHealthSensitive": 18.03
+      "adkHealthSensitive": 15.22
     },
     "fallbackFrequency": {
       "count": 2,
@@ -186,6 +186,6 @@
     ]
   },
   "billableCalls": 0,
-  "generatedAt": "2026-07-22T00:03:54.447855+00:00",
+  "generatedAt": "2026-07-22T09:42:26.337149+00:00",
   "runner": "NestIQ deterministic ADK and guardrail evaluation"
 }
