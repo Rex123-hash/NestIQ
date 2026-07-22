@@ -238,9 +238,9 @@ data comes from, what is cached, and what is written back.
         │  EVIDENCE ENVELOPES        │   │  ANOMALY DETECTION         │
         │  source · status · scope   │   │  1.5σ city outliers        │
         │  confidence · limitation   │   │  temporal AQI spikes       │
-        │  evidence.py              │   │  maps.py                    │
+        │  evidence.py               │   │  maps.py                   │
         └─────────────┬──────────────┘   └─────────────┬──────────────┘
-                      └──────────────────┬──────────────┘
+                      └──────────────────┬─────────────┘
                                          ▼
               ┌──────────────────────────────────────────────────────┐
               │  5 · VALIDATE → EXPLAIN                              │
