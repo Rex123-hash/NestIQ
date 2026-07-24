@@ -665,7 +665,7 @@ function HowItWorks() {
 /* ------------------------ Responsible AI trust proof ----------------------- */
 const EVAL_METRICS = [
   ['18/18', 'evaluation cases passed'],
-  ['521', 'automated tests passed'],
+  ['524', 'automated tests passed'],
   ['100%', 'groundedness in the offline suite'],
   ['0%', 'unsupported claims in the offline suite'],
 ]

@@ -15,7 +15,7 @@ NestIQ helps people compare where to live across affordability, air quality, saf
 ![BigQuery](https://img.shields.io/badge/BigQuery_+_BQML-7C5CF6?style=flat-square&logo=googlebigquery&logoColor=white)
 ![Maps](https://img.shields.io/badge/Google_Maps_Platform-7C5CF6?style=flat-square&logo=googlemaps&logoColor=white)
 ![ADK](https://img.shields.io/badge/Google_ADK_agents-7C5CF6?style=flat-square&logo=google&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-521_passing-3FB984?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-524_passing-3FB984?style=flat-square)
 ![Evaluation](https://img.shields.io/badge/evaluation-18%2F18-3FB984?style=flat-square)
 
 Built for the **Google Cloud Gen AI Academy APAC — Cohort 2 Hackathon**
@@ -31,7 +31,7 @@ Problem Statement: *AI for Better Living and Smarter Communities*
 
 | Production | Verified catalog | Automated verification | Responsible-agent evaluation |
 |---|---:|---:|---:|
-| [Live Firebase experience](https://nestiq-india.web.app) | **13 cities · 73 localities** | **521 tests passing** | **18 / 18 · zero billable calls** |
+| [Live Firebase experience](https://nestiq-india.web.app) | **13 cities · 73 localities** | **524 tests passing** | **18 / 18 · zero billable calls** |
 
 **Submission documents:** [Product and system design](NestIQ-Design-Spec.md) · [Security architecture](SECURITY.md)
 
@@ -418,9 +418,9 @@ These figures come from the reproducible verification commands below.
 | Gate | Result |
 |---|---|
 | Backend tests | **399 passed** across 37 test modules |
-| Frontend tests | **122 passed** across 19 test files |
-| Combined automated tests | **521 passed** |
-| Production build | **Passing** with Vite 8.1.5; initial JavaScript bundle **62.86 kB gzip** |
+| Frontend tests | **125 passed** across 20 test files |
+| Combined automated tests | **524 passed** |
+| Production build | **Passing** with Vite 8.1.5; initial JavaScript bundle **63.65 kB gzip** |
 | Evaluation scorecard | **18 / 18** across nine dimensions, 0 billable calls |
 | City validator | **0 structural errors** across 13 cities |
 
@@ -431,7 +431,7 @@ cd backend && python -m pytest -q          # 399 passed
 python -m app.evaluation                    # 18 / 18, zero billable calls
 python -m tools.validate_city              # 0 structural errors
 
-cd .. && npm test                          # 122 passed
+cd .. && npm test                          # 125 passed
 npm run build                              # production build
 ```
 
@@ -499,7 +499,7 @@ Production behaviour under load and partial failure, each item verifiable in cod
 - **Failures, not endless spinners** (`backend/app/main.py`). AQI forecast, community-review, Pulse and rent paths all have bounded waits and explicit retryable terminal states. No missing graph or evidence source can leave the UI loading forever.
 - **Click-prefetch and progressive detail** (`src/lib/api.js`, `src/components/results/NeighborhoodCard.jsx`, `src/pages/neighborhood/NeighborhoodDetail.jsx`). Card hover and focus stay free of grounded work. A locality click starts its fast AQI route, rich detail, locality Pulse and hidden rent preparation together; every duplicate joins the same in-flight request. A cached city snapshot renders immediately while the independent Google forecast and Gemini explanation finish in parallel.
 - **Bounded evidence polling** (`src/lib/api.js`, `src/lib/watchlistPulse.js`, `src/pages/neighborhood/detailTabs.jsx`). Community reviews, Locality Pulse and rent verification have request timeouts, finite polling budgets, explicit background states and retry actions instead of indefinite spinners.
-- **Route-level recovery** (`src/App.jsx`). Every page is code-split behind `React.lazy`, with a branded loading state, a chunk-load error boundary and a real not-found route. The initial production JavaScript bundle is 62.86 kB gzip in the verified build.
+- **Route-level recovery** (`src/App.jsx`). Every page is code-split behind `React.lazy`, with a branded loading state, a chunk-load error boundary and a real not-found route. The initial production JavaScript bundle is 63.65 kB gzip in the verified build.
 - **Non-blocking snapshot writes.** BigQuery snapshots are written off the request path and only when a city's data was genuinely rebuilt (`maybe_log_snapshot`).
 - **Warm start.** The default city's signals and the Vertex client are pre-warmed at startup so the first user request does not pay cold-start cost.
 - **Privacy-safe structured telemetry** (`backend/app/telemetry.py`, `backend/app/main.py`). Request IDs, route status, tool latency, fallback use and agent outcomes are logged as bounded JSON fields; prompts, answers, SQL, document contents, credentials and provider error messages are blocked.
