@@ -13,10 +13,15 @@ name: Keep backend warm
 #   gcloud run services update nestiq-api --region us-central1 --min-instances 1
 # and set it back to 0 after the deadline.
 
+# Scheduled pinging is DISABLED — during the evaluation window (Jul 27 - Aug 5)
+# the backend is kept warm by Cloud Run min-instances=1, which is more reliable
+# than a cron. This workflow is kept only as a manual fallback. To go back to
+# the free scheduled option, restore the `schedule:` block and set
+# min-instances back to 0.
 on:
-  schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes (GitHub's minimum interval)
-  workflow_dispatch: {}       # allow manual "Run workflow" from the Actions tab
+  workflow_dispatch: {}       # manual only — run from the Actions tab if needed
+  # schedule:
+  #   - cron: '*/5 * * * *'   # (disabled) every 5 minutes
 
 jobs:
   ping:
