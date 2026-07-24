@@ -8,6 +8,19 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 // identity cannot invoke Vertex AI, while every scoring/AQI request still goes
 // to the local backend. Production leaves this unset and continues using BASE.
 const REVIEWS_BASE = import.meta.env.VITE_REVIEWS_API_URL || BASE
+
+// Fire-and-forget backend warm-up. Called once at app boot so a cold-scaled
+// Cloud Run container starts booting — and runs its startup hook that pre-warms
+// the default city — while the user is still reading the landing page. It is
+// never awaited and swallows every error, so it can never affect the UI.
+export function warmBackend() {
+  try {
+    fetch(`${BASE}/api/health`, { method: 'GET', keepalive: true }).catch(() => {})
+  } catch {
+    /* best-effort only */
+  }
+}
+
 const reviewRequests = new Map()
 const snapshotRequests = new Map()
 const evidenceRequests = new Map()
