@@ -161,13 +161,26 @@ function HeroVisual() {
   const pins = (list || SAMPLE_PINS).slice(0, 5)
   return (
     <div className="relative w-full">
-      {/* Real skyline asset saved to /public/hero-skyline.png */}
-      <img
-        src="/hero-skyline.png"
-        alt="Indian city neighborhoods"
-        className="w-full select-none"
-        draggable={false}
-      />
+      {/* Optimized skyline hero: responsive WebP with a PNG fallback. The source
+          PNG was 3 MB — the landing page's largest asset — so served WebP is
+          ~10-29x smaller. fetchPriority + fixed dimensions keep LCP fast and CLS at 0. */}
+      <picture>
+        <source
+          type="image/webp"
+          srcSet="/hero-skyline-mobile.webp 768w, /hero-skyline.webp 1536w"
+          sizes="(max-width: 768px) 100vw, 700px"
+        />
+        <img
+          src="/hero-skyline.png"
+          alt="Indian city neighborhoods"
+          className="w-full select-none"
+          width={1536}
+          height={1024}
+          fetchPriority="high"
+          decoding="async"
+          draggable={false}
+        />
+      </picture>
 
       {/* live FitScore cards spread across the skyline: hover any to open it */}
       {pins.map((d, i) => (
