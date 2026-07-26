@@ -10,7 +10,11 @@ from pathlib import Path
 
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "data" / "civic_knowledge.json"
 _TOKEN = re.compile(r"[a-z0-9]+")
-_STOP = {"a", "an", "and", "are", "for", "in", "is", "of", "on", "the", "to", "what", "with"}
+_STOP = {
+    "a", "an", "and", "are", "document", "documents", "for", "in", "is",
+    "notice", "notices", "of", "official", "on", "rule", "rules", "the", "to",
+    "what", "with",
+}
 _LOCALITY_INTENT = {"nearby", "here", "local", "locality", "neighborhood", "neighbourhood", "area", "affect"}
 
 
@@ -46,11 +50,37 @@ def retrieve(question: str, city_id: str, locality_id: str | None = None, limit:
             continue
         age = max(0, (today - date.fromisoformat(doc["publishedOn"])).days)
         freshness = 1 / (1 + math.log1p(age))
-        scope_bonus = 3 if locality_id and locality_id in locality_scope else 1
+        scope_bonus = (
+            5 if locality_id and locality_scope == [locality_id]
+            else 2 if locality_id and locality_id in locality_scope
+            else 1
+        )
         score = overlap * 4 + scope_bonus + freshness
         ranked.append((score, doc))
     ranked.sort(key=lambda pair: (pair[0], pair[1]["publishedOn"], pair[1]["id"]), reverse=True)
     return [{**doc, "retrievalScore": round(score, 3)} for score, doc in ranked[:max(1, min(limit, 6))]]
+
+
+def suggestions(city_id: str, locality_id: str | None = None) -> list[str]:
+    """Offer only questions supported by the controlled catalog's current scope."""
+    scoped = [
+        doc for doc in load_catalog()
+        if city_id in doc["cityIds"]
+        and (not doc["localityIds"] or locality_id in doc["localityIds"])
+    ]
+    locality_scoped = [doc for doc in scoped if locality_id and locality_id in doc["localityIds"]]
+    locality_topics = {topic for doc in locality_scoped for topic in doc["topics"]}
+    covered_topics = {topic for doc in scoped for topic in doc["topics"]}
+    result = []
+    if locality_topics & {"development", "road", "drainage", "construction", "maintenance"}:
+        result.append("What development projects affect this area?")
+    if locality_topics & {"road", "drainage", "transport"}:
+        result.append("What official road or drainage works are listed nearby?")
+    if locality_topics & {"public consultation"}:
+        result.append("Are there public consultations nearby?")
+    if covered_topics & {"air quality", "vehicles", "GRAP"}:
+        result.append("Any official air-quality or vehicle restrictions?")
+    return result[:3]
 
 
 def answer(question: str, city_id: str, locality_id: str | None = None) -> dict:
@@ -61,7 +91,7 @@ def answer(question: str, city_id: str, locality_id: str | None = None) -> dict:
             "status": "no_evidence", "answer": "", "citations": [], "retrievedCount": 0,
             "method": "Controlled civic-document retrieval with citation-locked extractive answers.",
             "limitation": "The controlled library does not yet contain a relevant official document.",
-            "scoreImpact": "none",
+            "scoreImpact": "none", "suggestions": suggestions(city_id, locality_id),
         }
     lines = [f"{doc['title']}: {doc['text']}" for doc in docs]
     citations = [{k: doc[k] for k in ("id", "title", "authority", "url", "publishedOn")} for doc in docs]
@@ -70,5 +100,5 @@ def answer(question: str, city_id: str, locality_id: str | None = None) -> dict:
         "retrievedCount": len(docs),
         "method": "Controlled civic-document retrieval with citation-locked extractive answers.",
         "limitation": "Coverage is limited to documents already indexed by NestIQ; verify the current official notice.",
-        "scoreImpact": "none",
+        "scoreImpact": "none", "suggestions": suggestions(city_id, locality_id),
     }

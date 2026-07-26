@@ -22,16 +22,29 @@ def test_retrieval_prefers_locality_scoped_document():
     assert docs[0]["id"] == "dda-rohini-sector-34-consultation"
     assert all("rohini" in doc["localityIds"] or not doc["localityIds"] for doc in docs)
 
+    noida_docs = civic_rag.retrieve(
+        "What development projects affect this area?", "delhi-ncr", "noida-62",
+        today=date(2026, 7, 27),
+    )
+    assert noida_docs
+    assert all("noida-62" in doc["localityIds"] for doc in noida_docs)
+    assert all("etender.up.nic.in" in doc["url"] for doc in noida_docs)
+    assert "What development projects affect this area?" in civic_rag.suggestions("delhi-ncr", "noida-62")
+
 
 def test_retrieval_excludes_documents_scoped_to_another_locality():
     docs = civic_rag.retrieve("park development", "delhi-ncr", "mayur-vihar", today=date(2026, 7, 19))
 
     assert all(doc["id"] != "dda-dwarka-bharat-vandana-park" for doc in docs)
     assert all(doc["id"] != "dda-rohini-sector-34-consultation" for doc in docs)
+    assert all(
+        "noida-62" not in doc["localityIds"]
+        for doc in civic_rag.retrieve("road development", "delhi-ncr", "mayur-vihar")
+    )
 
 
 def test_answer_is_composed_only_from_retrieved_text_and_citations():
-    result = civic_rag.answer("air quality vehicle GRAP rules", "delhi-ncr", "noida-62")
+    result = civic_rag.answer("air quality vehicle GRAP rules", "delhi-ncr", "dwarka")
 
     assert result["status"] == "available"
     assert result["retrievedCount"] == len(result["citations"])
@@ -45,6 +58,7 @@ def test_uncovered_city_returns_honest_no_evidence():
     assert result["status"] == "no_evidence"
     assert result["answer"] == ""
     assert result["citations"] == []
+    assert result["suggestions"] == []
 
 
 def test_nearby_query_rejects_citywide_notices_for_other_localities():
@@ -55,14 +69,17 @@ def test_nearby_query_rejects_citywide_notices_for_other_localities():
 
 
 def test_citywide_rule_query_can_use_citywide_official_document():
-    result = civic_rag.answer("official air quality vehicle restrictions", "delhi-ncr", "noida-62")
+    result = civic_rag.answer("official air quality vehicle restrictions", "delhi-ncr", "dwarka")
 
     assert result["status"] == "available"
     assert any("Environment" in citation["authority"] for citation in result["citations"])
+    assert civic_rag.answer(
+        "official air quality vehicle restrictions", "delhi-ncr", "noida-62"
+    )["status"] == "no_evidence"
 
 
 def test_civic_knowledge_endpoint_contract(client):
-    response = client.get("/api/neighborhood/clean-cheap/civic-knowledge", params={
+    response = client.get("/api/neighborhood/dwarka/civic-knowledge", params={
         "city": "delhi-ncr", "q": "air quality vehicle rules",
     })
 

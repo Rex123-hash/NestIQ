@@ -36,7 +36,7 @@ import {
 } from 'lucide-react'
 import { SUBSCORES, WEIGHTS, SOURCE_CHIPS, RUBRIC, METHOD_NOTE } from '../../data/neighborhoods.js'
 import { ordinal } from '../../lib/adapt.js'
-import { apiReviews, apiRentVerification, apiLocalityPulse, apiCivicKnowledge, getCachedRentVerification } from '../../lib/api.js'
+import { apiReviews, apiRentVerification, apiLocalityPulse, apiCivicKnowledge, apiCivicKnowledgeSuggestions, getCachedRentVerification } from '../../lib/api.js'
 import LocalityMap from '../../components/LocalityMap.jsx'
 import { pollPulse } from '../../lib/watchlistPulse.js'
 import { essentialCards, essentialsSummary } from '../../lib/essentials.js'
@@ -1213,24 +1213,29 @@ function LocalityPulse({ n }) {
 }
 
 function CivicKnowledge({ n }) {
-  const suggestions = [
-    'Any official air-quality or vehicle restrictions?',
-    'What development projects affect this area?',
-    'Are there public consultations nearby?',
-  ]
+  const [suggestions, setSuggestions] = useState([])
   const [question, setQuestion] = useState('What official civic or development notices affect this area?')
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
+  useEffect(() => {
+    let active = true
+    apiCivicKnowledgeSuggestions(n.id, n.cityId).then((response) => {
+      if (active) setSuggestions(response?.suggestions || [])
+    })
+    return () => { active = false }
+  }, [n.id, n.cityId])
   const search = async () => {
     if (question.trim().length < 3) return
     setLoading(true)
-    setResult(await apiCivicKnowledge(n.id, n.cityId, question.trim()))
+    const next = await apiCivicKnowledge(n.id, n.cityId, question.trim())
+    setResult(next)
+    if (next?.suggestions) setSuggestions(next.suggestions)
     setLoading(false)
   }
   return <Panel title={<span className="flex items-center gap-1.5"><BookOpenText size={15} className="text-brand-600" /> Official Civic Knowledge <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-700">Controlled RAG</span></span>} className="lg:col-span-3">
     <p className="text-xs text-muted">Ask the indexed official-document library. Citations open the issuing authority's official notice portal, so confirm the specific notice there. Retrieved evidence never changes FitScore.</p>
     <div className="mt-3 flex flex-col gap-2 sm:flex-row"><input value={question} onChange={(e) => setQuestion(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="min-w-0 flex-1 rounded-xl border border-line px-3 py-2 text-sm outline-none focus:border-brand-400" aria-label="Ask official civic knowledge" /><button type="button" onClick={search} disabled={loading || question.trim().length < 3} className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading ? 'Retrieving…' : 'Search documents'}</button></div>
-    <div className="mt-2 flex flex-wrap gap-2">{suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setQuestion(suggestion)} className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:border-brand-300 hover:bg-brand-100">{suggestion}</button>)}</div>
+    {suggestions.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setQuestion(suggestion)} className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:border-brand-300 hover:bg-brand-100">{suggestion}</button>)}</div>}
     {result?.status === 'available' ? <div className="mt-4"><div className="whitespace-pre-line rounded-xl bg-brand-50/50 p-4 text-sm leading-relaxed text-ink-soft">{result.answer}</div><div className="mt-3 flex flex-wrap gap-2">{result.citations.map((c) => <a key={c.id} href={c.url} target="_blank" rel="noreferrer" className="flex max-w-[260px] items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-ink-soft hover:text-brand-700"><ExternalLink size={12} /><span className="truncate">{c.authority} · {c.publishedOn}</span></a>)}</div><p className="mt-3 text-xs text-muted">{result.limitation}</p></div> : result?.status === 'no_evidence' ? <p className="mt-4 rounded-xl border border-line bg-[#F7F8FB] p-3 text-sm text-muted">No matching official document is currently indexed. This does not mean no notice exists.</p> : result ? <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">The civic knowledge library is temporarily unavailable.</p> : null}
   </Panel>
 }

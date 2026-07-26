@@ -384,6 +384,18 @@ export async function apiCivicKnowledge(id, city, question) {
   }
 }
 
+export async function apiCivicKnowledgeSuggestions(id, city) {
+  try {
+    const path = `/api/neighborhood/${id}/civic-knowledge-suggestions?city=${encodeURIComponent(city)}`
+    const r = await resilientFetch(BASE + path)
+    if (!r.ok) throw new Error(`GET ${path} ${r.status}`)
+    return await r.json()
+  } catch (e) {
+    console.warn('[api] civic knowledge suggestions unavailable:', e.message)
+    return { suggestions: [] }
+  }
+}
+
 export async function apiRentVerification(id, city, refresh = false, persist = true, signal) {
   const cacheKey = `nestiq:rent-verification:${city}:${id}`
   const path = `/api/neighborhood/${id}/rent-verification?city=${encodeURIComponent(city)}${refresh ? '&refresh=true' : ''}`

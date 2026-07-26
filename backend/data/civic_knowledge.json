@@ -6,7 +6,7 @@
     "url": "https://environment.delhi.gov.in/doit-content/notifications-and-directions-2022-onwards",
     "publishedOn": "2026-04-29",
     "cityIds": ["delhi-ncr"],
-    "localityIds": [],
+    "localityIds": ["dwarka", "saket", "rajouri-garden", "rohini", "mayur-vihar"],
     "topics": ["environment", "air quality", "vehicles", "public health", "GRAP"],
     "text": "The official Delhi Environment Department index lists 2026 notifications including No PUCC No Fuel, DPCC analyst appointments, parking-fee measures under severe GRAP stages, and GRAP invocation or revocation directions. Residents should open the source for the currently applicable order."
   },
@@ -17,7 +17,7 @@
     "url": "https://dda.gov.in/index.php/public_notice",
     "publishedOn": "2026-07-17",
     "cityIds": ["delhi-ncr"],
-    "localityIds": [],
+    "localityIds": ["dwarka", "saket", "rajouri-garden", "rohini", "mayur-vihar"],
     "topics": ["development", "land", "housing", "public consultation", "civic"],
     "text": "The official DDA notice index publishes dated development, land, housing, consultation, encroachment, and transit-oriented-development notices. The July 2026 index includes stakeholder consultations for Sector 34 Rohini and Mayur Vihar projects."
   },
@@ -61,8 +61,30 @@
     "url": "https://dda.gov.in/sites/default/files/notice/public_notice_for_plp_04.05.2026.pdf",
     "publishedOn": "2026-05-04",
     "cityIds": ["delhi-ncr"],
-    "localityIds": [],
+    "localityIds": ["dwarka", "saket", "rajouri-garden", "rohini", "mayur-vihar"],
     "topics": ["development", "planning", "land use", "regulation"],
     "text": "DDA states that plans for eligible privately owned land in Delhi continue to be sanctioned under the notified regulations and applicable land use, Master Plan, and Zonal Plan requirements. Applicants must use the relevant plan-sanctioning authority."
+  },
+  {
+    "id": "noida-sector-62-rasoolpur-drain-road-2026",
+    "title": "Development and Maintenance of Village: Drain and Road Repairs in Rasoolpur Nawadan, Sector 62",
+    "authority": "New Okhla Industrial Development Authority via Uttar Pradesh eProcurement System",
+    "url": "https://etender.up.nic.in/nicgep/app?component=%24DirectLink&page=FrontEndViewTender&service=direct&sp=S%2Byov9dzwiFBwGSp3I%2BylCQ%3D%3D",
+    "publishedOn": "2026-05-04",
+    "cityIds": ["delhi-ncr"],
+    "localityIds": ["noida-62"],
+    "topics": ["development", "road", "drainage", "maintenance", "civil works"],
+    "text": "NOIDA published Tender 2026_NOIDA_1145051_1 for repair of drains and roads in Rasoolpur Nawadan, Sector 62. The official record lists an estimated value of INR 1,49,28,374 and a 120-day work period. A tender records planned procurement; residents should open the official source to confirm its current stage."
+  },
+  {
+    "id": "noida-sector-62-road-repair-2026",
+    "title": "Road Repairs near NIB Police Chowki and Sector 62 UPPCL Substation",
+    "authority": "New Okhla Industrial Development Authority via Uttar Pradesh eProcurement System",
+    "url": "https://etender.up.nic.in/nicgep/app?component=%24DirectLink&page=FrontEndViewTender&service=direct&sp=STOB8lEr95HV1N7lXOBrS6A%3D%3D",
+    "publishedOn": "2026-05-04",
+    "cityIds": ["delhi-ncr"],
+    "localityIds": ["noida-62"],
+    "topics": ["development", "road", "transport", "maintenance", "civil works"],
+    "text": "NOIDA published Tender 2026_NOIDA_1145207_1 for road repairs behind the NIB Police Chowki, near the Sector 62 UPPCL substation, and related works in Sector 62. The official record lists an estimated value of INR 3,40,63,529 and a 120-day work period. A tender is not proof that work is complete; residents should verify its current stage in the official record."
   }
 ]

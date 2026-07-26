@@ -120,7 +120,7 @@ def run_offline_scorecard() -> dict:
         "unknown names are not treated as verified locality analytics subjects",
     ))
 
-    rag = civic_rag.answer("air quality vehicle GRAP rules", "delhi-ncr", "noida-62")
+    rag = civic_rag.answer("air quality vehicle GRAP rules", "delhi-ncr", "dwarka")
     catalog_urls = {doc["url"] for doc in civic_rag.load_catalog()}
     results.append(_result(
         "civic-rag-citations-controlled", "groundedness",

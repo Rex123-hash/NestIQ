@@ -11,6 +11,7 @@ vi.mock('../../lib/api.js', () => ({
   apiRentVerification: vi.fn(),
   apiLocalityPulse: vi.fn(),
   apiCivicKnowledge: vi.fn(),
+  apiCivicKnowledgeSuggestions: vi.fn(() => Promise.resolve({ suggestions: [] })),
   getCachedRentVerification: vi.fn(() => null),
 }))
 vi.mock('../../components/LocalityMap.jsx', () => ({ default: () => <div>Map</div> }))

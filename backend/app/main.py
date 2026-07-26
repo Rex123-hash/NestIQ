@@ -905,6 +905,13 @@ def neighborhood_civic_knowledge(nid: str, q: str, city: str = DEFAULT_CITY):
     return result
 
 
+@app.get("/api/neighborhood/{nid}/civic-knowledge-suggestions")
+def neighborhood_civic_knowledge_suggestions(nid: str, city: str = DEFAULT_CITY):
+    """Return only prompts supported by the controlled catalog's current scope."""
+    _evidence_locality(city, nid)
+    return {"suggestions": civic_rag.suggestions(city, nid)}
+
+
 @app.get("/api/neighborhood/{nid}/rent-verification")
 def neighborhood_rent_verification(nid: str, city: str = DEFAULT_CITY, refresh: bool = False):
     """Grounded current 1-bedroom rent range, calculated from cited observations."""
