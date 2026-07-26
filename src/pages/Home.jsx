@@ -135,7 +135,7 @@ function HoverPin({ d, live, className }) {
                 <TriangleAlert size={10} /> {flag.label}
               </span>
             )}
-            <p className="mt-2.5 text-[9px] text-muted">{live ? 'Live from Google + BigQuery ML' : 'Sample match preview'}</p>
+            <p className="mt-2.5 text-[9px] text-muted">{live ? 'Live Google signals · BQML where trained' : 'Sample match preview'}</p>
           </div>
         </div>
       </div>
@@ -728,7 +728,7 @@ const SOURCES = [
   { icon: Wind, tint: 'bg-[#E8F6EF] text-aff', title: 'Google Air Quality API', desc: 'Live CPCB AQI, dominant pollutants, and 24-hour history per locality.' },
   { icon: Building2, tint: 'bg-[#FCEBF2] text-life', title: 'Google Places', desc: 'Amenity density: restaurants, gyms, parks, schools and shops nearby.' },
   { icon: Navigation, tint: 'bg-[#EAF1FD] text-commute', title: 'Google Maps Distance Matrix', desc: "Real drive time with traffic to each city's main work hub." },
-  { icon: Database, tint: 'bg-brand-50 text-brand-600', title: 'BigQuery + BQML', desc: 'A self-building dataset with ARIMA_PLUS air-quality forecasts.' },
+  { icon: Database, tint: 'bg-brand-50 text-brand-600', title: 'BigQuery + BQML', desc: 'Automatic city snapshots plus ARIMA_PLUS forecasts for trained locality series.' },
   { icon: Sparkles, tint: 'bg-[#FDF0DF] text-trend', title: 'Gemini on Vertex AI', desc: 'Understands your request, writes the SQL, and explains every match.' },
 ]
 

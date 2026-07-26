@@ -1,23 +1,13 @@
-name: Keep backend warm
+name: Manual backend health check
 
-# Pings the Cloud Run backend on a schedule so it keeps one instance warm during
-# the judging window — the first visitor after a long idle never waits for a cold
-# start. This touches no application code; it just knocks on /api/health.
+# Manual fallback health check for the Cloud Run backend. Scheduled execution is
+# disabled because the judging deployment currently keeps one instance ready.
+# This touches no application code; it only calls /api/health.
 #
-# Turn it off after the deadline to stop using compute: GitHub → Actions →
-# "Keep backend warm" → "..." → Disable workflow.
-#
-# Note: GitHub's scheduled runs are best-effort and can be delayed several
-# minutes on shared runners. For a rock-solid guarantee during judging, instead
-# (or additionally) run:
-#   gcloud run services update nestiq-api --region us-central1 --min-instances 1
-# and set it back to 0 after the deadline.
+# Run it manually from GitHub Actions only when an explicit health check is useful.
+# After the judging window, return Cloud Run to min-instances=0 if scale-to-zero
+# cost behavior is preferred.
 
-# Scheduled pinging is DISABLED — during the evaluation window (Jul 27 - Aug 5)
-# the backend is kept warm by Cloud Run min-instances=1, which is more reliable
-# than a cron. This workflow is kept only as a manual fallback. To go back to
-# the free scheduled option, restore the `schedule:` block and set
-# min-instances back to 0.
 on:
   workflow_dispatch: {}       # manual only — run from the Actions tab if needed
   # schedule:

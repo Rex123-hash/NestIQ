@@ -398,7 +398,7 @@ export function OverviewTab({ n, forecastStatus = 'loading', onRetryForecast = (
           </div>
         </Panel>
 
-        <Panel title="Sources & method">
+        <Panel id="sources-method" title="Sources & method" className="scroll-mt-24">
           <p className="text-sm leading-relaxed text-ink-soft">
             Every pillar carries its own source, freshness and limitation. Live Google signals are kept separate from curated market estimates and proxies; Gemini explains the evidence but does not create the values.
           </p>
@@ -918,7 +918,7 @@ function AqiForecastPanel({ data }) {
         </LineChart>
       </ResponsiveContainer>
       <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
-        <Info size={13} /> History from Google Air Quality API (CPCB); green line is our own <b className="mx-1 font-semibold text-aff">BigQuery ML ARIMA_PLUS</b> forecast, trained on live India AQI history.
+        <Info size={13} /> History from Google Air Quality API (CPCB); the green line is an additive <b className="mx-1 font-semibold text-aff">BigQuery ML ARIMA_PLUS</b> forecast trained on explicitly collected locality history and shown only where the model returns a series.
       </p>
     </Panel>
   )

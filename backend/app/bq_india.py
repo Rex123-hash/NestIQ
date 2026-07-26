@@ -1,10 +1,10 @@
 """BigQuery + BQML spine for the India path.
 
-Two tables, both fed by live Google data:
-  * india_localities   — a snapshot of every locality's current features each run
-                         (the platform builds its own dataset; powers NL->SQL).
-  * india_aqi_history  — real hourly AQI per locality, appended each run so the
-                         series self-accumulates for the ARIMA_PLUS forecast.
+The two India tables have deliberately different lifecycles:
+  * india_localities   — current locality-feature snapshots written after a fresh
+                         live city build; these power guarded NL->SQL analytics.
+  * india_aqi_history  — explicitly seeded offline training history. The request
+                         path does not append to it or retrain the ARIMA_PLUS model.
 
 Everything degrades gracefully: if BigQuery is unavailable the API still works
 off the live Maps path — this layer is additive.

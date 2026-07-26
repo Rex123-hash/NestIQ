@@ -6,7 +6,7 @@
 
 **Find the right neighborhood. For your life.**
 
-NestIQ helps people compare where to live across affordability, air quality, safety, commute and daily-life evidence. A Google ADK agent team gathers and validates the evidence, deterministic code computes the FitScore, and every result carries its source, freshness and limitation instead of hiding uncertainty behind a single number.
+NestIQ helps people compare where to live across affordability, air quality, safety, commute and daily-life evidence. The streamed search path uses a Google ADK agent team to gather and validate evidence, deterministic code computes the FitScore, and every result carries its source, freshness and limitation instead of hiding uncertainty behind a single number.
 
 ![React](https://img.shields.io/badge/React_18-7C5CF6?style=flat-square&logo=react&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-7C5CF6?style=flat-square&logo=vite&logoColor=white)
@@ -59,9 +59,9 @@ The statement asks for a decision-intelligence platform that improves everyday l
 |---|---|
 | **Better living decisions** | A five-pillar FitScore weighted by the user's own stated priorities, not fixed defaults (`backend/app/maps.py`, `backend/app/fitscore.py`) |
 | **Smarter communities** | Live civic evidence per locality: grounded current events, official civic documents with page-level citations, and resident sentiment (`backend/app/gemini.py`, `backend/app/civic_rag.py`) |
-| **Patterns, trends, anomalies** | Cross-sectional outlier detection at 1.5σ from the city mean, plus temporal AQI spike detection against a locality's own 24-hour history (`backend/app/maps.py`) |
-| **Predictive insight** | A BigQuery ML `ARIMA_PLUS` model trained on AQI history the platform accumulates itself (`backend/app/bq_india.py`) |
-| **Applied Gen AI** | Gemini on Vertex AI for intent parsing, NL→SQL, grounded retrieval and explanation, orchestrated through Google ADK (`backend/app/adk_orchestration.py`) |
+| **Patterns, trends, anomalies** | Cross-sectional outliers at 1.5σ from the city mean, plus an Air Quality-tab comparison of current AQI with the already-loaded 24-hour Google history (`backend/app/maps.py`, `src/pages/neighborhood/detailTabs.jsx`) |
+| **Predictive insight** | A deployed BigQuery ML `ARIMA_PLUS` model provides an additive forecast where a trained locality series exists. AQI history is seeded offline; the request path neither appends training history nor retrains the model (`backend/app/bq_india.py`, `backend/seed_bq_india.py`) |
+| **Applied Gen AI** | Gemini on Vertex AI handles intent parsing, NL→SQL, grounded retrieval and explanation; Google ADK orchestrates the streamed search workflow, while deterministic routes select Copilot and evidence tools (`backend/app/adk_orchestration.py`, `backend/app/copilot.py`) |
 
 Air quality is treated as a first-class pillar rather than a nice-to-have, because in Indian cities it is the most health-critical signal and the one that varies most between localities.
 
@@ -89,11 +89,11 @@ Air quality is treated as a first-class pillar rather than a nice-to-have, becau
 |---|---|
 | **Every number is sourced or marked absent** | A ten-field provenance envelope per pillar, distinguishing live, grounded, curated and unavailable data. Enforced in `backend/app/evidence.py`, rendered beside every figure |
 | **Air quality cannot flatter itself** | Absolute CPCB health bands, not relative ranking. AQI 500 cannot score 96 by being the least-polluted option (`backend/app/air_quality.py`) |
-| **Real ADK agents, not narration** | A planner coordinating three specialists, a validator checking for contradictions, and an automatic fallback if ADK fails — every message generated from actual tool output (`backend/app/adk_orchestration.py`) |
+| **Real ADK agents, not narration** | A planner coordinating three specialists, a validator checking for contradictions, and an automatic fallback if ADK fails — every completion finding is derived from actual tool output (`backend/app/adk_orchestration.py`) |
 | **The model never does arithmetic** | Gemini parses intent and explains; scoring is deterministic Python, so identical weights and the same evidence snapshot produce the same score (`backend/app/fitscore.py`, `backend/app/maps.py`) |
 | **Conversational analytics with a real guard** | NL to BigQuery SQL, constrained by a table allowlist and a dry-run byte cap, with the generated query shown to the user (`backend/app/sql_guard.py`, `backend/app/bq_india.py`) |
-| **Self-building dataset and its own forecast** | A genuine city-data rebuild snapshots features into BigQuery; an ARIMA_PLUS model trained on that accumulating history forecasts AQI alongside Google's (`backend/app/bq_india.py`) |
-| **Anomaly detection at no extra cost** | Cross-sectional outliers at 1.5σ and temporal AQI spikes, computed from metrics already fetched (`backend/app/maps.py`) |
+| **BigQuery snapshots and additive forecasting** | A genuine city-data rebuild snapshots features into BigQuery off the request path; a deployed ARIMA_PLUS model provides an optional forecast for locality series included in its explicit training data (`backend/app/bq_india.py`, `backend/seed_bq_india.py`) |
+| **Anomaly detection without an extra model call** | City-snapshot outliers use deterministic backend statistics; the Air Quality tab separately compares current AQI with its already-loaded Google history (`backend/app/maps.py`, `src/pages/neighborhood/detailTabs.jsx`) |
 | **One Copilot, selective tools** | Deterministic routing keeps general chat model-only, resolves named places against the selected city's verified catalog, uses structured evidence for locality questions, and invokes guarded BigQuery for genuine comparisons and rankings; voice and image inputs are privacy-bounded (`backend/app/copilot.py`, `backend/app/transcription.py`, `backend/app/image_analysis.py`) |
 | **13 cities, Tier-1 to Tier-3** | Delhi NCR through Patna, Ranchi, Lucknow and Kochi — decision intelligence beyond the metros (`backend/app/india.py`) |
 
@@ -157,7 +157,7 @@ Orchestration is built on the **Google Agent Development Kit** (`backend/app/adk
                   ▼                       ▼                       ▼
        ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
        │ LIVE SIGNALS AGENT  │ │  ANALYTICS AGENT    │ │ CIVIC INTELLIGENCE  │
-       │ AQI · Places        │ │ snapshots · BQML    │ │ scoped retrieval    │
+       │ AQI · Places        │ │ scored results      │ │ scoped retrieval    │
        │ commute · imagery   │ │ anomalies · coverage│ │ citations retained  │
        └──────────┬──────────┘ └──────────┬──────────┘ └──────────┬──────────┘
                   └───────────────────────┼───────────────────────┘
@@ -252,9 +252,19 @@ data comes from, what is cached, and what is written back.
         ┌────────────────────────────┐   ┌────────────────────────────┐
         │  BROWSER                   │   │  BIGQUERY                  │
         │  SSE agent events +        │   │  non-blocking snapshot +   │
-        │  ranked final results      │   │  ARIMA_PLUS history        │
+        │  ranked final results      │   │  optional BQML forecast    │
         └────────────────────────────┘   └────────────────────────────┘
 ```
+
+### Where BigQuery actually runs
+
+BigQuery supports three specific India paths; it is not the source behind every page:
+
+| Path | BigQuery role | What stays independent |
+|---|---|---|
+| Fresh city-data build | A fire-and-forget write stores locality feature snapshots after the live result has already been built | The FitScore shown to the user comes from the current Google signals and deterministic scoring, not from this background write |
+| Full Air Quality detail | BigQuery ML `ARIMA_PLUS` returns an optional forecast with confidence bounds | The Overview “Air Quality · Next 24h” graph uses its dedicated Google-only route and never waits for BigQuery or Gemini |
+| Copilot comparison or ranking | A genuine comparative/aggregate question is converted to guarded, city-bound, read-only SQL | General guidance and ordinary city/locality questions do not launch a BigQuery job |
 
 **On the detail page**, three further evidence sources load independently when their
 relevant feature is opened and never block the score: grounded resident sentiment, civic
@@ -315,7 +325,7 @@ python -m tools.validate_city                          # structural pass, free, 
 python -m tools.validate_city --rent-check --limit 10  # grounded rent cross-check, resumable
 ```
 
-**What it checks.** Required keys per locality, globally unique ids, centroids inside India's bounding box, complete city anchors, plausible rent ranges, live-signal resolution against Google APIs, and scoring validity. It writes a coverage report to `backend/data/city_coverage_report.md`.
+**What it checks.** The free structural pass validates required keys, globally unique ids, centroids inside India's bounding box, complete city anchors, plausible rent ranges, and scoring invariants. `--live-check` separately verifies Air Quality, Places and Distance Matrix resolution; `--rent-check` separately validates published rent evidence. Every mode writes its result to `backend/data/city_coverage_report.md`.
 
 **What it blocks, and why.** Structural errors block publication; warnings do not, because a value outside an expected range is a judgment call rather than a defect. On the grounded rent cross-check the tool is **flag-only** — it never rewrites the catalog. A disagreement is reported only when it clears **both** a delta threshold and a minimum sample size; a real delta backed by too few observations is downgraded to `insufficient_sample` and shown with its citations rather than dropped. Auto-correcting curated values from a quota-limited search would be exactly the kind of silent change the rest of the system is built to prevent.
 
@@ -346,10 +356,10 @@ Weights come from the user's own words via Gemini and are adjustable live with s
 
 ## <img src="assets/readme/anomaly.svg" height="22" align="center" alt="" /> &nbsp;Anomaly detection
 
-Two detectors run over metrics already fetched, adding no API calls (`backend/app/maps.py`):
+Two deterministic detectors reuse data already loaded for their own views and add no model call:
 
-- **Cross-sectional outliers.** A locality is flagged when a metric sits ≥ 1.5σ from the city mean — for example *"Unusually affordable — ₹17,000/mo, 1.5σ below the city average"*.
-- **Temporal AQI spikes.** The current reading is compared against the locality's own 24-hour history, so a pollution event is caught as it happens rather than averaged away.
+- **Cross-sectional outliers.** `backend/app/maps.py` flags a locality when a metric sits ≥ 1.5σ from the city mean — for example *"Unusually affordable — ₹17,000/mo, 1.5σ below the city average"*.
+- **Temporal AQI spikes.** `src/pages/neighborhood/detailTabs.jsx` compares the current reading with the 24-hour Google history already returned for that locality, so the UI can surface a sudden pollution event without another provider request.
 
 Guardrails keep it honest: a minimum-sample floor, a two-flags-per-locality cap, and a skip when any value in the series is missing — so an absent metric never produces a spurious flag.
 
@@ -359,7 +369,7 @@ Guardrails keep it honest: a minimum-sample floor, a two-flags-per-locality cap,
 
 Retrieval is scoped to where it closes a genuine evidence gap: **official civic documents** — development plans, water quality and pollution control reports, transport plans and environmental notices (`backend/app/civic_rag.py`).
 
-It is deliberately **not** used for anything live. AQI, commute, amenities and current listings come from APIs, because a stale document must never answer a question about current conditions.
+It is deliberately **not** used for anything live. AQI, commute and amenities use Google APIs; current rent verification uses separately labelled grounded marketplace evidence. A stale civic document must never answer a question about current conditions.
 
 Passages retain document title, issuing authority, publication date, geographic scope and **page number**, and link to the original source. Retrieval is pre-filtered by city and locality. When nothing relevant exists, the response says so rather than generating evidence to avoid an empty state — asserted by the `civic-rag-citations-controlled` scorecard case.
 
@@ -403,7 +413,7 @@ Alongside it, essential-services proximity is surfaced per locality and captione
 |---|---|
 | **AI / LLM** | **Gemini 2.5 Flash on Vertex AI** — structured output via Pydantic schemas, NL→weights, NL→SQL, grounded Q&A, explanations, Google Search grounding and image understanding |
 | **Agent orchestration** | **Google Agent Development Kit (ADK)** — coordinator with three specialist agents, deterministic tools, SSE event streaming |
-| **Data warehouse & ML** | **BigQuery** (locality snapshots, hourly AQI history) · **BigQuery ML ARIMA_PLUS** (AQI forecasting with confidence intervals) |
+| **Data warehouse & ML** | **BigQuery** (automatic locality snapshots; explicitly seeded AQI training history) · **BigQuery ML ARIMA_PLUS** (additive AQI forecasts with confidence intervals for trained series) |
 | **Live data and input** | **Google Maps Platform** — Air Quality API (CPCB), Places API (New), Distance Matrix, Maps JavaScript SDK, Place Photos · **Google Cloud Speech-to-Text v2** |
 | **Backend** | **FastAPI** (Python) · **Cloud Firestore** shared Pulse and rent job state · Server-Sent Events · SQL allowlist guard · per-instance rate limiting · optional Secret Manager |
 | **Frontend** | **React 18 + Vite** · Tailwind CSS · Recharts · lucide-react · Google Identity Services with guest mode |
@@ -490,8 +500,8 @@ Optional: set `VITE_GOOGLE_CLIENT_ID` in a root `.env` to enable Google sign-in.
 
 Production behaviour under load and partial failure, each item verifiable in code or covered by a test.
 
-- **Stale-while-revalidate caching** (`backend/app/maps.py`). Locality metrics carry a 30-minute TTL; an expired entry is served immediately while a background thread refreshes it, so a user never waits on Google. Covered by `test_expired_cache_served_instantly_and_refreshed_in_background`.
-- **Parallel fan-out.** Air quality, amenities, essentials, commute and imagery are fetched concurrently per locality via `ThreadPoolExecutor`, rather than serially.
+- **Stale-while-revalidate caching** (`backend/app/maps.py`). After the first city build, an expired 30-minute entry is served immediately while one background refresh runs. A genuinely uncached city still performs one shared cold build. Covered by `test_expired_cache_served_instantly_and_refreshed_in_background`.
+- **Parallel fan-out.** Air quality, lifestyle amenities, safety-profile lookups, commute and imagery are fetched concurrently per locality via `ThreadPoolExecutor`, rather than serially. Essential services load independently on the detail page and use their own cache.
 - **Concurrent-build de-duplication.** Simultaneous cold requests for the same city share one build instead of each calling Google, asserted by `test_concurrent_cold_requests_share_one_build`.
 - **Durable Pulse and rent single-flight coordination** (`backend/app/pulse_store.py`, `backend/app/main.py`). Firestore transactions let every Cloud Run instance observe the same pending or completed generation. Simultaneous requests launch one grounded job; expired leases can be reclaimed, and an older worker cannot overwrite a newer result.
 - **Stale verified evidence survives refresh failures.** Pulse and grounded rent return the last successful cited result immediately while one bounded refresh runs. A failed refresh is labelled honestly and never erases previously verified evidence.
@@ -501,7 +511,7 @@ Production behaviour under load and partial failure, each item verifiable in cod
 - **Bounded evidence polling** (`src/lib/api.js`, `src/lib/watchlistPulse.js`, `src/pages/neighborhood/detailTabs.jsx`). Community reviews, Locality Pulse and rent verification have request timeouts, finite polling budgets, explicit background states and retry actions instead of indefinite spinners.
 - **Route-level recovery** (`src/App.jsx`). Every page is code-split behind `React.lazy`, with a branded loading state, a chunk-load error boundary and a real not-found route. The initial production JavaScript bundle is 63.65 kB gzip in the verified build.
 - **Non-blocking snapshot writes.** BigQuery snapshots are written off the request path and only when a city's data was genuinely rebuilt (`maybe_log_snapshot`).
-- **Warm start.** The default city's signals and the Vertex client are pre-warmed at startup so the first user request does not pay cold-start cost.
+- **Warm judging deployment.** Verified on 26 July 2026, Cloud Run keeps one backend instance ready and caps the service at three (`min-instances=1`, `max-instances=3`). The scheduled GitHub ping is disabled; its workflow is manual-only. A non-blocking browser health check remains as a redeploy/recovery hint, while backend startup pre-warms the default city's signals and the Vertex client. This is an operational judging-window setting, not a permanent product guarantee.
 - **Privacy-safe structured telemetry** (`backend/app/telemetry.py`, `backend/app/main.py`). Request IDs, route status, tool latency, fallback use and agent outcomes are logged as bounded JSON fields; prompts, answers, SQL, document contents, credentials and provider error messages are blocked.
 
 ---
@@ -558,7 +568,7 @@ NestIQ/
 │   │   ├── sql_guard.py              NL to SQL table allowlist, paren-aware scanner
 │   │   ├── rate_limit.py             per-instance fixed-window limiting
 │   │   ├── secrets.py                optional Secret Manager backing, fail-safe
-│   │   ├── bq_india.py               snapshots, AQI history, ARIMA_PLUS, byte caps
+│   │   ├── bq_india.py               snapshots, optional BQML inference, byte caps
 │   │   ├── bq.py                     BigQuery client and the NYC reference pipeline
 │   │   ├── india.py                  13 cities, 73 localities, default pillar weights
 │   │   ├── market_data.py            source-backed rent baselines with citation URLs
@@ -586,7 +596,7 @@ NestIQ/
 | `POST` | `/api/search` | NL query to weighted FitScore ranking. Optional allowlisted `preset` |
 | `GET` | `/api/search/stream` | The same search, streamed as SSE ADK agent events |
 | `GET` | `/api/neighborhoods` | All localities for a city on default weights |
-| `GET` | `/api/neighborhood/{id}` | Detail: sub-scores, evidence envelopes, anomalies, AQI history, Google and BQML forecasts |
+| `GET` | `/api/neighborhood/{id}` | Detail: sub-scores, evidence envelopes, anomalies, AQI history, Google forecast, and an optional BQML forecast for trained locality series |
 | `GET` | `/api/neighborhood/{id}/air-quality-forecast` | Fast Google CPCB forecast for the Overview chart; no Gemini or city rebuild |
 | `GET` | `/api/neighborhood/{id}/essentials` | Essential-services proximity. Context only, never scored |
 | `GET` | `/api/neighborhood/{id}/reviews` | Cited resident sentiment |
@@ -608,7 +618,7 @@ An unrecognised `preset` returns `422` rather than being silently ignored, so a 
 1. **Search.** Use the **Family Health & Resilience** preset on the home page. The published weight profile is applied server-side and the results header confirms it was genuinely applied.
 2. **Agents.** Watch the ADK planner, Live Signals, Analytics, Civic Intelligence, Validator and Explainer stream real findings over SSE.
 3. **Provenance.** Open the top match. Every pillar publishes its weight and source; any missing signal is marked unavailable and the score is labelled provisional with coverage.
-4. **Absolute air.** On the Air Quality tab the CPCB band is absolute, so a polluted locality cannot appear healthy by being the best of a bad set. The BQML ARIMA_PLUS forecast runs alongside Google's.
+4. **Absolute air.** On the Air Quality tab the CPCB band is absolute, so a polluted locality cannot appear healthy by being the best of a bad set. Google's live history and forecast remain primary; an ARIMA_PLUS series appears additively where BQML has trained locality history.
 5. **Safety semantics.** Switch to Lucknow or Kochi and open Safety. The page labels live police, hospital and fire-station access as emergency resilience—not as a crime rate—and excludes the pillar if that live evidence is unavailable.
 6. **Copilot routing.** Begin with a greeting or calculation to show the model-only general path, ask a current city question to invoke structured evidence, then request a cross-locality comparison to use guarded BigQuery analytics. Each answer exposes a truthful tool receipt. Record a short voice question or attach a neighborhood image to demonstrate the same privacy-bounded surface.
 

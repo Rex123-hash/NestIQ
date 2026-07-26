@@ -478,7 +478,7 @@ export default function Results() {
               ))}
             </ul>
             {top && (
-              <Link to={`/neighborhood/${top.id}`} onClick={() => startDetailRequest(top.id)}
+              <Link to={`/neighborhood/${top.id}#why-this-match`} onClick={() => startDetailRequest(top.id)}
                 className="mt-4 inline-block text-sm font-medium text-brand-700">
                 View Full Explanation →
               </Link>
@@ -526,7 +526,7 @@ export default function Results() {
               ))}
             </ul>
             {top && (
-              <Link to={`/neighborhood/${top.id}`} onClick={() => startDetailRequest(top.id)}
+              <Link to={`/neighborhood/${top.id}#sources-method`} onClick={() => startDetailRequest(top.id)}
                 className="mt-4 inline-block text-sm font-medium text-brand-700">
                 See sources in detail →
               </Link>

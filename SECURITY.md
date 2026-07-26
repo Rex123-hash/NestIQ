@@ -5,6 +5,10 @@ document defines its security model, trust boundaries, implemented controls, and
 verification approach. It is intentionally separate from the product overview in the
 README and the functional contract in the design specification.
 
+Deployment settings stated here were verified against the live Cloud Run service on
+26 July 2026. They are operational controls and must be re-verified after a deployment or
+scaling-policy change.
+
 ## Security objectives
 
 NestIQ is designed to:
@@ -23,7 +27,8 @@ NestIQ is designed to:
 |---|---|
 | Browser → FastAPI | HTTPS in production, exact-origin CORS, request validation, bounded histories and uploads |
 | FastAPI → Gemini | Task-specific prompts, structured schemas where applicable, timeouts, bounded output, deterministic post-validation |
-| FastAPI → BigQuery | Read-only SQL guard, single-table allowlist, city-scoped CTE, dry run, byte cap, row cap |
+| Generated Copilot SQL → BigQuery | Read-only SQL guard, single-table allowlist, city-scoped CTE, dry run, byte cap, row cap |
+| Application snapshot writer → BigQuery | Validated locality-feature rows only, written after a fresh city build and off the response path |
 | FastAPI → Google Maps | Server/browser key separation, bounded provider calls, response validation and caching |
 | Grounded text → UI | Citation matching, grounding-support validation, controlled schemas, explicit evidence status |
 | Model explanation → FitScore | No write path; scoring remains deterministic application code |
@@ -111,6 +116,12 @@ The in-process rate limiter is an instance-level control, not a global edge quot
 reliable cost boundaries are the BigQuery scan cap, provider timeouts, caches, and controlled
 generation frequency.
 
+The current judging deployment uses one minimum and three maximum Cloud Run instances,
+container concurrency 80, and a 300-second service request ceiling. The minimum instance
+reduces cold-start exposure; the maximum limits instance fan-out. Neither setting turns the
+per-instance application limiter into a global quota, and shorter application/provider
+timeouts still bound individual operations.
+
 ## Privacy and data handling
 
 ### Application telemetry
@@ -158,6 +169,9 @@ is replaced.
 - Provider failures are categorized without exposing provider response bodies.
 - Invalid or unsupported model output fails to a bounded state rather than being rendered.
 - Request correlation IDs are validated before being accepted into logs.
+- Scheduled keep-warm traffic is disabled. A manual health-check workflow and one
+  non-blocking browser boot check are fallbacks; Cloud Run's minimum-instance policy is the
+  active judging-window warm-capacity control.
 
 ## Verification
 

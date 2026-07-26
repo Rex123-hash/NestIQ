@@ -111,6 +111,7 @@ class TestAsk:
         body = client.post("/api/ask", json={"question": "cleanest air?", "city": "delhi-ncr"}).json()
         assert body["sql"].lstrip().upper().startswith("SELECT")
         assert body["rows"] and "BigQuery (NL→SQL)" in body["sources"][0]
+        assert "india_localities_latest city-scoped CTE" in body["sources"]
         assert body["mode"] == "city_analytics"
         assert [tool["id"] for tool in body["tools"]] == ["bigquery", "gemini"]
         assert len(body["followUps"]) == 3

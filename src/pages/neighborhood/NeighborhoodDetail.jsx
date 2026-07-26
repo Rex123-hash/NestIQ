@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, NavLink, Link } from 'react-router-dom'
+import { useParams, useLocation, NavLink, Link } from 'react-router-dom'
 import { Bookmark, LayoutGrid, PiggyBank, ShieldCheck, TrainFront, Heart, Wind, Users, Dot, TriangleAlert } from 'lucide-react'
 import AppTopbar from '../../components/layout/AppTopbar.jsx'
 import ScoreGauge from '../../components/ui/ScoreGauge.jsx'
@@ -39,6 +39,7 @@ const TAB_CONTENT = {
 
 export default function NeighborhoodDetail() {
   const { id, tab } = useParams()
+  const location = useLocation()
   const { city } = useCity()
   const active = tab || 'overview'
   const [n, setN] = useState(null)
@@ -125,6 +126,18 @@ export default function NeighborhoodDetail() {
   useEffect(() => {
     setShowFullExplanation(false)
   }, [id, city])
+
+  useEffect(() => {
+    if (!n || active !== 'overview') return undefined
+    const targetId = location.hash.slice(1)
+    if (targetId !== 'why-this-match' && targetId !== 'sources-method') return undefined
+    if (targetId === 'why-this-match') setShowFullExplanation(true)
+
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [active, location.hash, n])
 
   if (detailStatus === 'loading') {
     return <div className="grid min-h-[55vh] place-items-center p-8 text-sm text-muted" role="status">Loading neighborhood…</div>
@@ -243,7 +256,7 @@ export default function NeighborhoodDetail() {
                 )}
               </div>
             </div>
-            <div className="card flex-1 bg-brand-50/50 p-4">
+            <div id="why-this-match" className="card flex-1 scroll-mt-24 bg-brand-50/50 p-4">
               <p className="text-sm font-semibold text-ink">Why this match?</p>
               {n.criticalRisk && (
                 <p className="mt-1 text-xs font-medium text-red-700">

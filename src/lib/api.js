@@ -9,10 +9,10 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 // to the local backend. Production leaves this unset and continues using BASE.
 const REVIEWS_BASE = import.meta.env.VITE_REVIEWS_API_URL || BASE
 
-// Fire-and-forget backend warm-up. Called once at app boot so a cold-scaled
-// Cloud Run container starts booting — and runs its startup hook that pre-warms
-// the default city — while the user is still reading the landing page. It is
-// never awaited and swallows every error, so it can never affect the UI.
+// Fire-and-forget health check called once at app boot. Production currently
+// keeps one Cloud Run instance ready; this remains a harmless redeploy/recovery
+// hint and supports a future return to scale-to-zero. It is never awaited and
+// swallows every error, so it can never affect the UI.
 export function warmBackend() {
   try {
     fetch(`${BASE}/api/health`, { method: 'GET', keepalive: true }).catch(() => {})

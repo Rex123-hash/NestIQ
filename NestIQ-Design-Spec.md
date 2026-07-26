@@ -9,7 +9,7 @@
 | Problem statement | AI for Better Living and Smarter Communities |
 | Product status | Implemented, verified, and deployed |
 | Primary market | India-first, 13 cities and 73 catalog localities |
-| Updated | 24 July 2026 |
+| Updated | 26 July 2026 |
 
 ## 1. Product definition
 
@@ -230,16 +230,24 @@ finishes. City evidence is never substituted for failed locality evidence.
 | Live AQI and forecast | Google Air Quality API | Air pillar, history, 24-hour forecast |
 | Amenities and essentials | Google Places (New) | Lifestyle and contextual proximity |
 | Commute | Google Distance Matrix | Drive-time pillar |
-| Current locality snapshots | BigQuery `india_localities` | Analytics and accumulated evidence history |
+| Current locality snapshots | BigQuery `india_localities` | Automatic, off-request-path snapshots for analytics |
 | Latest snapshot view | Runtime BigQuery CTE `india_localities_latest` | Guarded Copilot comparisons |
-| AQI history | BigQuery `india_aqi_history` | Time-series accumulation |
-| AQI forecast model | BigQuery ML `ARIMA_PLUS` | Model forecast with confidence bounds |
+| AQI training history | BigQuery `india_aqi_history` | Explicitly seeded offline time-series data |
+| AQI forecast model | BigQuery ML `ARIMA_PLUS` | Additive forecast with confidence bounds for trained locality series |
 | Grounded generation | Gemini 2.5 Flash on Vertex AI with Google Search | Pulse, reviews, and market evidence |
 | Durable evidence coordination | Cloud Firestore | Pulse and rent generation leases/results |
 | Official civic corpus | Controlled application catalog | Citation-locked civic retrieval |
 
 The platform does not scrape individual rental listings into a property marketplace and does
 not present locality estimates as quoted offers.
+
+For the India experience, BigQuery has exactly three runtime roles: background snapshot
+persistence after a fresh city rebuild, optional BQML inference on the full Air Quality
+detail for trained locality series, and guarded Copilot analytics for genuine comparisons
+or rankings. AQI-history seeding is an explicit offline operation; the request path does
+not append training history or retrain the model. Live FitScore inputs still come from
+Google APIs and the verified catalog. The fast Overview AQI graph is Google-only and never
+waits for BigQuery or Gemini.
 
 ## 8. System architecture
 
@@ -282,12 +290,15 @@ Locality/city request
 
 | Method | Route | Responsibility |
 |---|---|---|
+| GET | `/api/health` | Service liveness and supported-city ids |
 | GET | `/api/config` | Public browser configuration only |
 | GET | `/api/cities` | Supported city catalog |
+| POST | `/api/search` | Natural-language search and deterministic ranking |
 | GET | `/api/search/stream` | SSE ADK search trajectory and final ranking |
 | GET | `/api/neighborhoods` | Ranked city snapshot |
 | GET | `/api/neighborhood/{id}` | Full locality detail |
 | GET | `/api/neighborhood/{id}/air-quality-forecast` | Fast Google-only AQI forecast |
+| GET | `/api/neighborhood/{id}/essentials` | Nearby essential services; context only, never scored |
 | GET | `/api/neighborhood/{id}/reviews` | Grounded community review evidence |
 | GET | `/api/neighborhood/{id}/pulse` | Locality-scoped civic Pulse |
 | GET | `/api/city/{city}/pulse` | City-scoped Pulse |
@@ -328,6 +339,10 @@ and public API responses do not contain user-specific server data.
 - Community, Pulse, rent, AQI, and Copilot paths have finite loading and retry states.
 - Identical Copilot questions reuse a short-lived response cache.
 - Provider failures preserve previously validated evidence where available.
+- During the judging window, the verified Cloud Run policy keeps one instance ready and
+  caps the service at three. Scheduled GitHub pings are disabled; the browser performs one
+  non-blocking health check at boot, and the backend startup hook pre-warms the default city
+  and Gemini client. This changes latency and cost, never evidence acceptance.
 
 These optimizations change scheduling and reuse, not evidence acceptance rules.
 

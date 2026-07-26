@@ -1062,7 +1062,7 @@ def _ask(city: str, req: AskRequest) -> dict:
                 visible_rows = rows[:8]
                 context_rows = copilot.analytics_context_rows(visible_rows, catalog_localities)
                 answer = gemini.ask(req.question, f"BigQuery query returned these rows: {context_rows}")
-                analytics_sources = ["BigQuery (NL→SQL)", "india_localities_latest view"]
+                analytics_sources = ["BigQuery (NL→SQL)", "india_localities_latest city-scoped CTE"]
                 if any(row.get("cpcbBand") for row in context_rows):
                     analytics_sources.append("CPCB AQI bands (deterministic)")
                 analytics_sources.append("Gemini on Vertex AI")
