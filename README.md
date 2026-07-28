@@ -6,6 +6,8 @@
 
 **Find the right neighborhood. For your life.**
 
+**Because the right neighborhood should protect the people you love&mdash;not just fit your budget.**
+
 NestIQ helps people compare where to live across affordability, air quality, safety, commute and daily-life evidence. The streamed search path uses a Google ADK agent team to gather and validate evidence, deterministic code computes the FitScore, and every result carries its source, freshness and limitation instead of hiding uncertainty behind a single number.
 
 ![React](https://img.shields.io/badge/React_18-7C5CF6?style=flat-square&logo=react&logoColor=white)
@@ -634,6 +636,8 @@ An unrecognised `preset` returns `422` rather than being silently ignored, so a 
 ---
 
 <div align="center">
+
+**Choose beyond the rent. Live well&mdash;with evidence.**
 
 Built for better living and smarter communities · Powered by Google Cloud and Gemini
 
