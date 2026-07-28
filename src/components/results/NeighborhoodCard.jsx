@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { TrainFront, DollarSign, IndianRupee, Wind, Heart } from 'lucide-react'
 import ScoreGauge from '../ui/ScoreGauge.jsx'
 import { useMapsKey, placesPhotoUrl } from '../../lib/gmaps.js'
-import { prefetchNeighborhood } from '../../lib/api.js'
+import { beginLocalityNavigation } from '../../lib/localityPrefetch.js'
 import { useCity } from '../../lib/cityStore.jsx'
 import { useSaved, toggleSaved } from '../../lib/saved.js'
 
@@ -29,7 +29,7 @@ export default function NeighborhoodCard({ n, rank }) {
   return (
     <Link
       to={`/neighborhood/${n.id}`}
-      onClick={() => { void prefetchNeighborhood(n.id, city) }}
+      onClick={() => { void beginLocalityNavigation(n.id, city) }}
       className="block rounded-2xl border border-line bg-white p-4 shadow-card transition hover:border-brand-200"
     >
       <div className="flex gap-4">

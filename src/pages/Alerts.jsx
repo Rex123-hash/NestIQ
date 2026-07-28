@@ -8,6 +8,7 @@ import { useCity } from '../lib/cityStore.jsx'
 import CityPicker from '../components/layout/CityPicker.jsx'
 import PulseEvents from '../components/PulseEvents.jsx'
 import { aggregateWatchlistPulse, pollPulse, runPulseQueue } from '../lib/watchlistPulse.js'
+import { beginLocalityNavigation } from '../lib/localityPrefetch.js'
 
 // Re-fetch current live data for every city the user has saved from, and merge
 // the fresh air-quality/rent/commute onto the saved snapshots — so "Live" is
@@ -205,7 +206,10 @@ function WatchlistView({ saved, isLive, events, retryEvents, pendingLabel }) {
         {saved.map((n) => {
           const [desc, sev, color] = aqiSignal(n.aqi)
           return (
-            <Link key={n.id} to={`/neighborhood/${n.id}`}
+            <Link
+              key={n.id}
+              to={`/neighborhood/${n.id}`}
+              onClick={() => { void beginLocalityNavigation(n.id, n.city) }}
               className="flex items-center gap-3 rounded-xl border border-line bg-white p-4 transition hover:border-brand-200">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ backgroundColor: `${color}1a`, color }}>
                 <Wind size={18} />

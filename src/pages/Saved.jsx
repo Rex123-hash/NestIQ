@@ -7,6 +7,7 @@ import { useSaved, removeSaved, getSaved, refreshSaved, isOutdated } from '../li
 import { apiNeighborhoods } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
 import { useMapsKey, placesPhotoUrl } from '../lib/gmaps.js'
+import { beginLocalityNavigation } from '../lib/localityPrefetch.js'
 
 const PILLARS = [
   ['affordability', 'Affordability'],
@@ -157,7 +158,9 @@ export default function Saved() {
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    <Link to={`/neighborhood/${n.id}`}
+                    <Link
+                      to={`/neighborhood/${n.id}`}
+                      onClick={() => { void beginLocalityNavigation(n.id, n.city) }}
                       className="btn-primary py-2 text-xs">View Details</Link>
                     <Link to="/compare" className="btn-ghost py-2 text-xs"><ArrowLeftRight size={14} /> Compare</Link>
                     <button onClick={() => removeSaved(n.id)} className="btn-ghost py-2 text-xs text-ink-soft"><Trash2 size={14} /> Remove</button>

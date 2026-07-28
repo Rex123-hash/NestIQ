@@ -7,12 +7,13 @@ import ResultsMap from '../components/results/ResultsMap.jsx'
 import FiltersPanel from '../components/results/FiltersPanel.jsx'
 import AgentProgress from '../components/results/AgentProgress.jsx'
 import { preferences as defaultPrefs, WEIGHTS as INDIA_DEFAULT, SUBSCORES } from '../data/neighborhoods.js'
-import { streamSearch, apiNeighborhoods, apiSearch, prefetchNeighborhood } from '../lib/api.js'
+import { streamSearch, apiNeighborhoods, apiSearch } from '../lib/api.js'
 import { adaptList } from '../lib/adapt.js'
 import { reweight } from '../lib/fitscore.js'
 import { citySnapshot } from '../lib/citySnapshot.js'
 import { useCity } from '../lib/cityStore.jsx'
 import { FAMILY_HEALTH, isPreset } from '../lib/presets.js'
+import { beginLocalityNavigation } from '../lib/localityPrefetch.js'
 
 const PILLARS = SUBSCORES.map((s) => s.key)
 
@@ -165,7 +166,7 @@ export default function Results() {
   const searchCity = city
   const isNYC = searchCity === 'new-york'
   const currency = isNYC ? '$' : '₹'
-  const startDetailRequest = (id) => { void prefetchNeighborhood(id, searchCity) }
+  const startDetailRequest = (id) => { void beginLocalityNavigation(id, searchCity) }
 
   useEffect(() => {
     let alive = true

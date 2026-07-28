@@ -12,7 +12,11 @@ vi.mock('../../lib/api.js', () => ({
   apiRentVerification: vi.fn().mockResolvedValue({ status: 'pending' }),
   apiReviews: vi.fn().mockResolvedValue({ status: 'pending' }),
 }))
-vi.mock('../../lib/gmaps.js', () => ({ useMapsKey: () => '', placesPhotoUrl: () => '' }))
+vi.mock('../../lib/gmaps.js', () => ({
+  useMapsKey: () => '',
+  placesPhotoUrl: () => '',
+  loadGoogleMaps: vi.fn().mockResolvedValue(null),
+}))
 vi.mock('../../lib/cityStore.jsx', () => ({ useCity: () => ({ city: 'mumbai' }) }))
 vi.mock('../../lib/saved.js', () => ({ useSaved: () => [], toggleSaved: vi.fn() }))
 vi.mock('../ui/ScoreGauge.jsx', () => ({ default: () => <div>Gauge</div> }))

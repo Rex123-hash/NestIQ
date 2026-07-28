@@ -5,6 +5,7 @@ import { apiAnalyzeImage, apiAsk, apiNeighborhoods, apiTranscribe } from '../lib
 import { useCity } from '../lib/cityStore.jsx'
 import { useRecent, pushRecent, removeRecent, clearRecent, relativeTime } from '../lib/recent.js'
 import CityPicker from '../components/layout/CityPicker.jsx'
+import { beginLocalityNavigation } from '../lib/localityPrefetch.js'
 
 const POPULAR = [
   ['Which locality has the best air quality?', 'Compare the lowest AQI readings together with their health bands.', TreePine, '#3FB984'],
@@ -53,7 +54,7 @@ function conversationExchanges(messages) {
   }, []).reverse()
 }
 
-function CopilotAnswer({ answer, onFollowUp }) {
+function CopilotAnswer({ answer, onFollowUp, city }) {
   const modeLabel = MODE_LABELS[answer.mode] || 'Grounded answer'
   const tools = Array.isArray(answer.tools) ? answer.tools : []
   const followUps = Array.isArray(answer.followUps) ? answer.followUps : []
@@ -134,6 +135,7 @@ function CopilotAnswer({ answer, onFollowUp }) {
               <Link
                 key={`${action.type}:${action.localityId}`}
                 to={`/neighborhood/${action.localityId}`}
+                onClick={() => { void beginLocalityNavigation(action.localityId, city) }}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-brand-700"
               >
                 {action.label} <ArrowRight size={13} />
@@ -538,7 +540,7 @@ export default function AskNestIQ() {
                     </div>
                   </div>
                 ) : (
-                  <CopilotAnswer key={`assistant:${messageIndex}`} answer={message.response} onFollowUp={submit} />
+                  <CopilotAnswer key={`assistant:${messageIndex}`} answer={message.response} onFollowUp={submit} city={city} />
                 ))}
                 {loading && exchangeIndex === 0 && exchange.every((message) => message.role !== 'assistant') && (
                   <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-card" role="status">

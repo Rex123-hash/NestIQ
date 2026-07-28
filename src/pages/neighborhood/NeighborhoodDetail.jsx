@@ -3,7 +3,7 @@ import { useParams, useLocation, NavLink, Link } from 'react-router-dom'
 import { Bookmark, LayoutGrid, PiggyBank, ShieldCheck, TrainFront, Heart, Wind, Users, Dot, TriangleAlert } from 'lucide-react'
 import AppTopbar from '../../components/layout/AppTopbar.jsx'
 import ScoreGauge from '../../components/ui/ScoreGauge.jsx'
-import { apiNeighborhood, apiNeighborhoodForecast, apiNeighborhoods, apiEssentials } from '../../lib/api.js'
+import { apiNeighborhood, apiNeighborhoodForecast, apiNeighborhoods, apiEssentials, apiReviews } from '../../lib/api.js'
 import { adaptNeighborhood, cityInsights } from '../../lib/adapt.js'
 import { useCity } from '../../lib/cityStore.jsx'
 import { useSaved, toggleSaved } from '../../lib/saved.js'
@@ -62,6 +62,15 @@ export default function NeighborhoodDetail() {
     return () => {
       alive = false
     }
+  }, [id, city, active])
+
+  useEffect(() => {
+    if (active !== 'air-quality') return
+    // Air Quality sits immediately before Community Insights in the locality
+    // journey. Start the grounded resident-review job here so its existing
+    // backend cache can be ready by the time the user opens Community.
+    // The result remains undisclosed until the Community tab is rendered.
+    void apiReviews(id, city)
   }, [id, city, active])
 
   useEffect(() => {
