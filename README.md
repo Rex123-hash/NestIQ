@@ -51,6 +51,19 @@ Coverage today is **13 cities and 73 localities** (`backend/app/india.py`), from
 
 ---
 
+## <img src="assets/readme/refinement.svg" height="22" align="center" alt="" /> &nbsp;Prototype refinement highlights
+
+The refinement phase strengthened the working prototype without removing its decision features or weakening its evidence rules:
+
+- **Faster first experience.** Responsive hero assets, a non-blocking backend warm-up, locality-click prefetch, concurrent retrieval and in-flight request sharing reduce avoidable startup and evidence wait time.
+- **More truthful evidence.** Absolute CPCB health bands, per-pillar provenance and visibly separate *no recent updates*, *source unavailable* and *provisional coverage* states prevent uncertainty from being presented as fact.
+- **More reliable across instances.** Firestore coordinates Locality Pulse and rent-verification jobs across Cloud Run instances, while bounded polling, retries and explicit failure states replace indefinite loading.
+- **Smarter and safer Copilot.** General guidance remains model-only, locality questions use structured evidence, genuine comparisons use guarded BigQuery, and voice or image inputs are processed in memory.
+- **Easily scalable city onboarding.** A validation-gated catalog lets NestIQ extend city by city: AQI, commute, Places, deterministic FitScore, anomalies and BigQuery snapshots work from validated coordinates, while rent and safety coverage retain explicit source and availability rules.
+- **Verified at submission.** The current 13-city, 73-locality build is backed by 524 automated tests, an 18 / 18 responsible-AI evaluation with zero billable calls, and zero structural city-validation errors.
+
+---
+
 ## <img src="assets/readme/problem.svg" height="22" align="center" alt="" /> &nbsp;Problem statement fit
 
 **PS1 — AI for Better Living and Smarter Communities.**
