@@ -401,9 +401,9 @@ Each event carries a headline, grounded summary, category, severity, geographic 
 
 ## <img src="assets/readme/family.svg" height="22" align="center" alt="" /> &nbsp;Family Health and Resilience
 
-An optional preset for households where air quality is not negotiable — someone with an asthmatic child or an elderly parent.
+For a family managing childhood asthma, an elderly parent's breathing problems or limited access to care, a home is more than a rent figure and a set of photographs. Poor air, a distant hospital or an exhausting commute can turn an affordable move into a daily health burden. NestIQ makes those trade-offs visible before the family signs a lease.
 
-Selecting it applies a fixed, published weight profile — **Air 35, Safety 28, Commute 20, Affordability 12, Essentials 5** — resolved server-side from an allowlist (`backend/app/main.py`). The browser sends only a preset id and can never inject weights; an unrecognised id is rejected with HTTP 422 rather than silently ignored. The "Prioritized for family health" indicator renders only when the server confirms the profile was applied.
+The optional **Family Health and Resilience** preset applies a fixed, published weight profile — **Air 35, Safety 28, Commute 20, Affordability 12, Essentials 5** — resolved server-side from an allowlist (`backend/app/main.py`). The browser sends only a preset id and can never inject weights; an unrecognised id is rejected with HTTP 422 rather than silently ignored. The "Prioritized for family health" indicator renders only when the server confirms the profile was applied.
 
 Alongside it, essential-services proximity is surfaced per locality and captioned as context that is not part of the FitScore.
 
