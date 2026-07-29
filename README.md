@@ -53,12 +53,15 @@ Coverage today is **13 cities and 73 localities** (`backend/app/india.py`), from
 
 ## <img src="assets/readme/refinement.svg" height="22" align="center" alt="" /> &nbsp;Prototype refinement highlights
 
-The refinement phase strengthened the working prototype without removing its decision features or weakening its evidence rules:
+The refinement phase expanded the working prototype while preserving its deterministic scoring and strict evidence rules:
 
+- **Continuing neighborhood awareness.** This phase introduced locality-scoped **Locality Pulse**, separate **City Pulse** coverage and independently progressing alerts for saved localities, turning a one-time search into an ongoing decision workflow.
+- **NestIQ Copilot and multimodal questions.** The assistant was developed into **NestIQ Copilot** with selective routing for general guidance, structured locality evidence and guarded BigQuery comparisons. Users can now ask by text, voice or image; uploaded media is processed in memory rather than persisted.
+- **Controlled official-document RAG.** A locality-scoped civic knowledge surface now retrieves from an indexed official-document library, retains issuing-authority citations and keeps *no matching evidence* distinct from *library unavailable*.
 - **Faster first experience.** Responsive hero assets, a non-blocking backend warm-up, locality-click prefetch, concurrent retrieval and in-flight request sharing reduce avoidable startup and evidence wait time.
 - **More truthful evidence.** Absolute CPCB health bands, per-pillar provenance and visibly separate *no recent updates*, *source unavailable* and *provisional coverage* states prevent uncertainty from being presented as fact.
-- **More reliable across instances.** Firestore coordinates Locality Pulse and rent-verification jobs across Cloud Run instances, while bounded polling, retries and explicit failure states replace indefinite loading.
-- **Smarter and safer Copilot.** General guidance remains model-only, locality questions use structured evidence, genuine comparisons use guarded BigQuery, and voice or image inputs are processed in memory.
+- **More reliable across instances.** Firestore coordinates Pulse and rent-verification jobs across Cloud Run instances, while bounded polling, retries and explicit failure states replace indefinite loading.
+- **Stronger production controls.** Exact-origin CORS, request validation, rate limiting, browser/server Maps-key separation, citation validation and guarded read-only SQL strengthen the deployed API boundary.
 - **Easily scalable city onboarding.** A validation-gated catalog lets NestIQ extend city by city: AQI, commute, Places, deterministic FitScore, anomalies and BigQuery snapshots work from validated coordinates, while rent and safety coverage retain explicit source and availability rules.
 - **Verified at submission.** The current 13-city, 73-locality build is backed by 524 automated tests, an 18 / 18 responsible-AI evaluation with zero billable calls, and zero structural city-validation errors.
 
