@@ -55,9 +55,13 @@ Coverage today is **13 cities and 73 localities** (`backend/app/india.py`), from
 
 The refinement phase expanded the working prototype while preserving its deterministic scoring and strict evidence rules:
 
+- **Family Health & Resilience Mode.** This phase added a dedicated starting point for households prioritizing clean air, healthcare, schools, safety and a manageable commute; users can review and edit the preset before searching.
+- **Stronger evidence-based decisions.** Rent gained citation-backed current-market verification on demand, safety gained broader emergency-access context, AQI scoring moved to absolute CPCB health bands, and anomaly handling became stricter about coverage and misleading outliers.
 - **Continuing neighborhood awareness.** This phase introduced locality-scoped **Locality Pulse**, separate **City Pulse** coverage and independently progressing alerts for saved localities, turning a one-time search into an ongoing decision workflow.
 - **NestIQ Copilot and multimodal questions.** The assistant was developed into **NestIQ Copilot** with selective routing for general guidance, structured locality evidence and guarded BigQuery comparisons. Users can now ask by text, voice or image; uploaded media is processed in memory rather than persisted.
+- **A broader intelligence stack.** Gemini handles intent, evidence-grounded explanations and multilingual or mixed-language questions; BigQuery supports governed comparisons and snapshots, while BigQuery ML adds `ARIMA_PLUS` forecasting only where a trained locality series exists.
 - **Controlled official-document RAG.** A locality-scoped civic knowledge surface now retrieves from an indexed official-document library, retains issuing-authority citations and keeps *no matching evidence* distinct from *library unavailable*.
+- **A smoother, more complete product experience.** The landing page was expanded to explain the problem, proof and data sources, while the search, maps, locality tabs, comparison and continuing-decision surfaces received responsive and interaction polish.
 - **Faster first experience.** Responsive hero assets, a non-blocking backend warm-up, locality-click prefetch, concurrent retrieval and in-flight request sharing reduce avoidable startup and evidence wait time.
 - **More truthful evidence.** Absolute CPCB health bands, per-pillar provenance and visibly separate *no recent updates*, *source unavailable* and *provisional coverage* states prevent uncertainty from being presented as fact.
 - **More reliable across instances.** Firestore coordinates Pulse and rent-verification jobs across Cloud Run instances, while bounded polling, retries and explicit failure states replace indefinite loading.
