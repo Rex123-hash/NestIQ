@@ -100,7 +100,7 @@ function HoverPin({ d, live, className }) {
   ]
   return (
     <div className={`group absolute z-10 hover:z-30 ${className}`}>
-      <div className="w-[232px] cursor-default rounded-xl border border-line bg-white/95 px-3.5 py-2.5 shadow-float backdrop-blur-sm">
+      <div className="w-[232px] rounded-xl border border-line bg-white/95 px-3.5 py-2.5 shadow-float backdrop-blur-sm">
         {/* header row: name + score, then a full-width tag line below */}
         <div className="flex items-start justify-between gap-2">
           <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{d.name || d.short}</p>
