@@ -142,6 +142,7 @@ export default function Results() {
   
   const lastContextCity = useRef(city)
   const lastUrlLocation = useRef(null)
+  const pendingUrlCity = useRef(null)
 
   useEffect(() => {
     // URL wins once per navigation. A picker change happens under the same
@@ -149,12 +150,17 @@ export default function Results() {
     if (lastUrlLocation.current === location.key) return
     lastUrlLocation.current = location.key
     if (requestedCity && requestedCity !== city && cities.some((c) => c.id === requestedCity)) {
+      pendingUrlCity.current = requestedCity
       lastContextCity.current = requestedCity
       setCity(requestedCity)
     }
   }, [location.key, requestedCity, city, cities, setCity])
 
   useEffect(() => {
+    if (pendingUrlCity.current) {
+      if (city === pendingUrlCity.current) pendingUrlCity.current = null
+      return
+    }
     if (city !== lastContextCity.current) {
       lastContextCity.current = city
       const p = new URLSearchParams(location.search)

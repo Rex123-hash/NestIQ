@@ -844,16 +844,18 @@ export default function Home() {
   return (
     <div className="min-h-screen scroll-smooth overflow-x-hidden bg-white">
       <MarketingNav />
-      <Hero />
-      <ProblemStory />
-      <ProductProof />
-      <Comparison />
-      <HowItWorks />
-      <FeatureBand />
-      <TrustProof />
-      <DataSources />
-      <About />
-      <FinalCTA />
+      <main>
+        <Hero />
+        <ProblemStory />
+        <ProductProof />
+        <Comparison />
+        <HowItWorks />
+        <FeatureBand />
+        <TrustProof />
+        <DataSources />
+        <About />
+        <FinalCTA />
+      </main>
       <Footer />
     </div>
   )

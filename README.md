@@ -637,7 +637,7 @@ An unrecognised `preset` returns `422` rather than being silently ignored, so a 
 
 <div align="center">
 
-**Choose beyond the rent. Live well&mdash;with evidence.**
+**A home is more than an address. Choose where your family can breathe, belong, and thrive&mdash;with evidence.**
 
 Built for better living and smarter communities · Powered by Google Cloud and Gemini
 

@@ -1051,44 +1051,60 @@ export function ReviewsPanel({ n }) {
   const [reviews, setReviews] = useState(null)
   const [phase, setPhase] = useState('preparing')
   const [retryKey, setRetryKey] = useState(0)
+  const retry = () => {
+    setPhase('preparing')
+    setReviews(null)
+    setRetryKey((value) => value + 1)
+  }
 
   useEffect(() => {
     let alive = true
-    let pollTimer
-    let fiveSecondTimer
+    let finished = false
+    let inFlight = false
     const deadlineAt = Date.now() + 90000
     let attempts = 0
-    setPhase('preparing')
-    setReviews(null)
-    fiveSecondTimer = setTimeout(() => {
-      if (alive) setPhase((current) => current === 'preparing' ? 'checking' : current)
-    }, 5000)
 
     const load = async (refresh = false) => {
-      const d = await apiReviews(n.id, n.cityId, refresh)
-      if (!alive) return
-      if (d?.status === 'pending') {
-        attempts += 1
-        if (attempts >= 45 || Date.now() >= deadlineAt) {
-          setReviews({
-            status: 'temporarily_unavailable',
-            summary: '',
-            citations: [],
-            limitation: 'Verified community evidence is still unavailable after 90 seconds.',
-          })
-          setPhase('visible')
+      if (inFlight || finished) return
+      inFlight = true
+      try {
+        const d = await apiReviews(n.id, n.cityId, refresh)
+        if (!alive) return
+        if (d?.status === 'pending') {
+          attempts += 1
+          if (attempts >= 45 || Date.now() >= deadlineAt) {
+            finished = true
+            clearInterval(pollTimer)
+            setReviews({
+              status: 'temporarily_unavailable',
+              summary: '',
+              citations: [],
+              limitation: 'Verified community evidence is still unavailable after 90 seconds.',
+            })
+            setPhase('visible')
+          }
           return
         }
-        pollTimer = setTimeout(() => load(false), 2000)
-        return
+        finished = true
+        clearInterval(pollTimer)
+        setReviews(d)
+        setPhase('visible')
+      } finally {
+        inFlight = false
       }
-      setReviews(d)
-      setPhase('visible')
     }
-    load(retryKey > 0)
+
+    const fiveSecondTimer = setTimeout(() => {
+      if (alive) setPhase((current) => current === 'preparing' ? 'checking' : current)
+    }, 5000)
+    const pollTimer = setInterval(() => {
+      void load(false)
+    }, 2000)
+    void load(retryKey > 0)
+
     return () => {
       alive = false
-      clearTimeout(pollTimer)
+      clearInterval(pollTimer)
       clearTimeout(fiveSecondTimer)
     }
   }, [n.id, n.cityId, retryKey])
@@ -1125,7 +1141,7 @@ export function ReviewsPanel({ n }) {
           </p>
           <button
             type="button"
-            onClick={() => setRetryKey((v) => v + 1)}
+            onClick={retry}
             className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
           >
             Try again
@@ -1165,7 +1181,7 @@ export function ReviewsPanel({ n }) {
             <Lightbulb size={15} className="mt-0.5 shrink-0 text-trend" />
             Community discussion could not be confirmed right now. NestIQ will not treat an empty grounding response as evidence that residents have nothing to say.
           </p>
-          <button type="button" onClick={() => setRetryKey((v) => v + 1)} className="mt-3 rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
+          <button type="button" onClick={retry} className="mt-3 rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
             Try again
           </button>
         </div>
@@ -1271,7 +1287,7 @@ export function CommunityTab({ n }) {
       <div className="grid gap-5 lg:grid-cols-3">
         <LocalityPulse n={n} />
         <CivicKnowledge n={n} />
-        <ReviewsPanel n={n} />
+        <ReviewsPanel key={`${n.cityId}:${n.id}`} n={n} />
 
         <Panel title={`How ${n.short || n.name} ranks`}>
           <div className="space-y-4">

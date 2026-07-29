@@ -29,3 +29,8 @@ docs/internal/
 
 # Local evaluation clones — never publish
 eval_repos/
+
+# Local audits, temporary exports and private presentation captions
+hackathon_audit_*/
+tmp/
+*.srt
