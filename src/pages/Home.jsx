@@ -289,9 +289,9 @@ function Hero() {
 
         <div
           onClick={() => inputRef.current?.focus()}
-          className="mt-8 cursor-text rounded-2xl border-2 border-brand-300 bg-white p-3 shadow-card transition focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-100"
+          className="mt-8 min-h-[154px] cursor-text rounded-2xl border-2 border-brand-300 bg-white p-3 shadow-card transition focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-100 sm:min-h-[70px]"
         >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex min-h-[128px] flex-col gap-3 sm:min-h-[44px] sm:flex-row sm:items-center">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
               <Sparkles size={18} />
             </span>
